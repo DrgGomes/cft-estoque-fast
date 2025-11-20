@@ -83,7 +83,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Buscar Produtos
+  // Buscar Produtos 
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
