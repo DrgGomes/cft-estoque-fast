@@ -306,7 +306,14 @@ export default function App() {
               Sou Fornecedor (Painel)
             </button>
             <button
-              onClick={() => handleRoleSelect('reseller')}
+              onClick={() => {
+                const senha = prompt("Digite a senha de administrador:");
+                if (senha === "1234") { // 446000
+                  setSelectedRole('admin');
+                } else {
+                  alert("Senha incorreta! Acesso negado.");
+                }
+              }}
               className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200 group"
             >
               <Smartphone
