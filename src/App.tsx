@@ -296,7 +296,14 @@ export default function App() {
 
           <div className="space-y-3">
             <button
-              onClick={() => handleRoleSelect('admin')}
+              onClick={() => {
+                const senha = prompt("Digite a senha de ADM:");
+                if (senha === "446000") { // Mude o 1234 para sua senha
+                  setSelectedRole('admin');
+                } else {
+                  alert("Senha errada!");
+                }
+              }}
               className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2 group"
             >
               <Package
@@ -306,16 +313,7 @@ export default function App() {
               Sou Fornecedor (Painel)
             </button>
             <button
-              onClick={() => {
-                const senha = prompt("Digite a senha de administrador:");
-                if (senha === "446000") { // TROQUE 1234 PELA SUA SENHA
-                  setSelectedRole('admin');
-                } else {
-                  alert("Senha incorreta! Acesso negado.");
-                }
-              }}
-                }
-              }}
+              onClick={() => setSelectedRole('user')}
               className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200 group"
             >
               <Smartphone
