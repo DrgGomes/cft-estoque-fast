@@ -29,11 +29,13 @@ import {
   LogOut,
   Zap,
   Save,
+  ScanBarcode,
+  Image as ImageIcon,
   Search,
-  X
+  Tag
 } from 'lucide-react';
 
-// --- Configuração Firebase (A SUA CONFIGURAÇÃO) ---
+// --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDG8hpJggHKpWBLaILx2WJrD-Jw7XcKvRg",
   authDomain: "cft-drop---estoque-flash.firebaseapp.com",
@@ -47,17 +49,19 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "estoque-loja"; // Nome da coleção no banco
+const appId = "estoque-loja";
 
-// Coleção pública
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 
-// Tipos
+// --- NOVO TIPO DE DADO (MAIS COMPLETO) ---
 type Product = {
   id: string;
-  name: string;
-  color: string;
-  size: string;
+  sku: string;          // Código interno (Ex: 6204-PRETO-40)
+  barcode: string;      // Código de barras para bipar
+  image: string;        // URL da foto
+  name: string;         // Nome (Sapato Social Trones)
+  color: string;        // Variante Cor
+  size: string;         // Variante Tamanho
   quantity: number;
   updatedAt?: any;
 };
@@ -65,24 +69,21 @@ type Product = {
 function App() {
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Autenticação Anônima
+  // Autenticação
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (u) {
-        setUser(u);
-      } else {
-        signInAnonymously(auth).catch((error) =>
-          console.error("Erro no login anônimo:", error)
-        );
-      }
+      if (u) setUser(u);
+      else signInAnonymously(auth).catch((e) => console.error(e));
     });
     return () => unsubscribe();
   }, []);
 
-  // Escutar Produtos em Tempo Real
+  // Buscar Produtos
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -91,20 +92,33 @@ function App() {
         items.push({ id: doc.id, ...doc.data() } as Product);
       });
       setProducts(items);
+      setFilteredProducts(items);
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
+  // Filtro de Busca (Funciona com Leitor de Código de Barras)
+  useEffect(() => {
+    if (searchTerm.trim() === '') {
+      setFilteredProducts(products);
+    } else {
+      const lowerTerm = searchTerm.toLowerCase();
+      const filtered = products.filter(p => 
+        p.name.toLowerCase().includes(lowerTerm) ||
+        p.sku.toLowerCase().includes(lowerTerm) ||
+        p.barcode.includes(lowerTerm) // Aqui o leitor de código de barras vai achar
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [searchTerm, products]);
+
   // --- Funções de Admin ---
-  const handleAddProduct = async (name: string, color: string, size: string) => {
-    if (!name || !color || !size) return;
+  const handleAddProduct = async (formData: any) => {
     try {
       await addDoc(collection(db, PRODUCTS_COLLECTION), {
-        name,
-        color,
-        size,
-        quantity: 0, // Começa zerado ou mude para 10
+        ...formData,
+        quantity: 0,
         updatedAt: serverTimestamp(),
       });
     } catch (e) {
@@ -127,147 +141,115 @@ function App() {
     }
   };
 
-  // --- TELA DE LOGIN (AQUI ESTÁ A SENHA) ---
+  // --- TELA DE LOGIN ---
   if (!selectedRole) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <div className="bg-slate-900 p-8 rounded-2xl shadow-2xl border border-slate-800 max-w-md w-full">
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-inner">
-              <RefreshCw className="w-8 h-8 text-blue-500 animate-spin-slow" />
+            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-inner border border-slate-700">
+              <RefreshCw className="w-8 h-8 text-blue-500" />
             </div>
-            <h1 className="text-2xl font-bold text-white">CFT DROP - Estoque</h1>
-            <p className="text-slate-400 text-sm mt-2">Selecione seu acesso</p>
+            <h1 className="text-2xl font-bold text-white">Sistema ERP Flash</h1>
+            <p className="text-slate-400 text-sm mt-2">Controle de Estoque Avançado</p>
           </div>
 
-          <div className="space-y-4">
-            {/* BOTÃO DE ADM COM SENHA */}
+          <div className="flex flex-col gap-4 w-full">
             <button
               onClick={() => {
                 const senha = prompt("Digite a senha de ADM:");
-                if (senha === "1234") { // --- SUA SENHA AQUI ---
-                  setSelectedRole('admin');
-                } else {
-                  alert("Senha incorreta!");
-                }
+                if (senha === "1234") setSelectedRole('admin');
+                else alert("Senha incorreta!");
               }}
-              className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold shadow-lg transition-all flex items-center justify-center gap-3 border border-slate-700 group"
+              className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold shadow-lg transition-all flex items-center justify-center gap-3 border border-slate-700"
             >
-              <Package className="w-5 h-5 group-hover:scale-110 transition-transform" />
-              <span>Sou Fornecedor (Painel)</span>
+              <Package size={20} /> <span>Sou Fornecedor (Painel)</span>
             </button>
 
-            {/* BOTÃO DE REVENDEDOR DIRETO */}
             <button
               onClick={() => setSelectedRole('user')}
-              className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg transition-all flex items-center justify-center gap-3 group"
+              className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg transition-all flex items-center justify-center gap-3"
             >
-              <Smartphone className="w-5 h-5 group-hover:scale-110 transition-transform" />
-              <span>Sou Revendedor (Alertas)</span>
+              <Smartphone size={20} /> <span>Sou Revendedor (Alertas)</span>
             </button>
           </div>
-
-          <p className="text-center text-slate-500 text-xs mt-8">
-            Acesso seguro e monitorado.
-          </p>
         </div>
       </div>
     );
   }
 
-  // --- TELA DO REVENDEDOR (CLIENTE) ---
+  // --- TELA DO CLIENTE (REVENDEDOR) ---
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50">
-        {/* Cabeçalho Azul */}
         <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
           <div className="max-w-md mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <div className="bg-white/20 p-2 rounded-lg">
-                <Bell className="w-6 h-6" />
-              </div>
+              <div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>
               <div>
-                <h1 className="font-bold text-lg leading-tight">Central de Alertas</h1>
+                <h1 className="font-bold text-lg">Estoque Disponível</h1>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                  <span className="text-xs text-blue-100 font-medium">Online • Tempo Real</span>
+                  <span className="text-xs text-blue-100 font-medium">Atualizado Agora</span>
                 </div>
               </div>
             </div>
-            <button 
-              onClick={() => setSelectedRole(null)}
-              className="text-xs bg-blue-700 hover:bg-blue-800 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-            >
-              <LogOut size={14} /> Sair
-            </button>
+            <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
           </div>
         </header>
 
         <main className="max-w-md mx-auto p-4 space-y-4">
-          {/* Aviso de Alerta */}
-          <div className="bg-blue-500 text-white p-4 rounded-xl shadow-md flex items-start gap-3">
-             <Zap className="w-5 h-5 text-yellow-300 shrink-0 mt-0.5" />
-             <div>
-               <h3 className="font-bold text-sm">Modo Alerta Ativo</h3>
-               <p className="text-xs text-blue-100 mt-1">
-                 Não feche esta aba. O sistema atualizará automaticamente quando o estoque mudar.
-               </p>
-             </div>
+          {/* Barra de Busca Cliente */}
+          <div className="relative">
+            <Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" />
+            <input 
+              type="text"
+              placeholder="Buscar por modelo, cor ou tamanho..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
 
-          <div className="flex justify-between items-center mt-6 mb-2 px-1">
-            <h2 className="font-bold text-slate-700 flex items-center gap-2">
-              <Package className="w-5 h-5 text-slate-400" />
-              Estoque
-            </h2>
-            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-md font-medium">
-              {products.length} itens cadastrados
-            </span>
-          </div>
-
-          {/* Lista de Produtos */}
           <div className="space-y-3 pb-20">
-            {loading ? (
-               <p className="text-center text-slate-400 py-10">Carregando estoque...</p>
-            ) : products.length === 0 ? (
-               <p className="text-center text-slate-400 py-10">Nenhum produto cadastrado.</p>
-            ) : (
-              products.map((product) => (
-                <div 
-                  key={product.id} 
-                  className={`bg-white p-4 rounded-xl border-2 shadow-sm transition-all ${
-                    product.quantity === 0 ? 'border-red-100 bg-red-50' : 'border-transparent'
-                  }`}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-bold text-slate-800 text-lg">{product.name}</h3>
-                      <div className="flex gap-2 mt-2">
-                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200 uppercase">
-                          ● {product.color}
-                        </span>
-                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                          {product.size}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {product.quantity > 0 ? (
-                        <>
-                          <span className="block text-2xl font-bold text-green-600">{product.quantity}</span>
-                          <span className="text-[10px] font-bold text-green-600 uppercase tracking-wider">Disponível</span>
-                        </>
-                      ) : (
-                        <div className="bg-red-100 text-red-600 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                          <AlertTriangle size={14} />
-                          <span className="font-bold text-xs uppercase">Esgotado</span>
-                        </div>
-                      )}
+            {loading ? <p className="text-center text-slate-400">Carregando...</p> : 
+             filteredProducts.length === 0 ? <p className="text-center text-slate-400">Nenhum produto encontrado.</p> :
+             filteredProducts.map((product) => (
+              <div key={product.id} className={`bg-white p-3 rounded-xl border-2 shadow-sm flex gap-3 ${product.quantity === 0 ? 'border-red-100 bg-red-50' : 'border-transparent'}`}>
+                {/* Foto do Produto */}
+                <div className="w-20 h-20 bg-slate-100 rounded-lg shrink-0 overflow-hidden border border-slate-200 flex items-center justify-center">
+                  {product.image ? (
+                    <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <ImageIcon className="text-slate-300 w-8 h-8" />
+                  )}
+                </div>
+                
+                <div className="flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-sm leading-tight">{product.name}</h3>
+                    <div className="text-xs text-slate-500 mt-1 font-mono">SKU: {product.sku}</div>
+                    <div className="flex gap-1 mt-2 flex-wrap">
+                      <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase">{product.color}</span>
+                      <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border">{product.size}</span>
                     </div>
                   </div>
                 </div>
-              ))
-            )}
+
+                <div className="flex flex-col items-end justify-center min-w-[70px]">
+                  {product.quantity > 0 ? (
+                    <>
+                      <span className="text-2xl font-bold text-green-600">{product.quantity}</span>
+                      <span className="text-[9px] font-bold text-green-600 uppercase">Disponível</span>
+                    </>
+                  ) : (
+                    <div className="bg-red-100 text-red-600 px-2 py-1 rounded text-center">
+                      <span className="font-bold text-[10px] uppercase block">Esgotado</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </main>
       </div>
@@ -277,149 +259,124 @@ function App() {
   // --- TELA DO ADMIN (FORNECEDOR) ---
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
-      {/* Header Admin */}
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto flex justify-between items-center">
+        <div className="max-w-4xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="bg-slate-800 p-2 rounded-lg border border-slate-700">
-              <Package className="w-6 h-6 text-blue-400" />
-            </div>
-            <div>
-              <h1 className="font-bold text-white leading-tight">Painel Administrativo</h1>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                <span className="text-xs text-slate-400">Online • Tempo Real</span>
-              </div>
-            </div>
+            <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
+            <div><h1 className="font-bold text-white">Painel ERP</h1></div>
           </div>
-          <button 
-            onClick={() => setSelectedRole(null)}
-            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-          >
-            <LogOut size={14} /> Sair
-          </button>
+          <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4 space-y-6">
-        {/* Formulário de Cadastro */}
-        <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 shadow-lg">
-          <h2 className="text-sm font-bold text-green-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <Plus size={16} /> Cadastrar Novo Produto
+      <main className="max-w-4xl mx-auto p-4 space-y-6">
+        {/* Formulário de Cadastro Avançado */}
+        <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
+          <h2 className="text-sm font-bold text-green-400 uppercase tracking-wider mb-5 flex items-center gap-2">
+            <Plus size={16} /> Cadastrar Variação (SKU Único)
           </h2>
           <form 
             onSubmit={(e) => {
               e.preventDefault();
               const form = e.target as HTMLFormElement;
-              handleAddProduct(
-                form.prodName.value,
-                form.prodColor.value,
-                form.prodSize.value
-              );
-              form.reset();
+              handleAddProduct({
+                sku: form.sku.value,
+                barcode: form.barcode.value,
+                image: form.image.value,
+                name: form.name.value,
+                color: form.color.value,
+                size: form.size.value,
+              });
+              // Limpa apenas campos variáveis, mantem nome e foto pra agilizar
+              form.sku.value = '';
+              form.barcode.value = '';
+              form.size.value = '';
+              form.sku.focus(); // Volta o foco para SKU/Barcode
             }}
-            className="grid grid-cols-4 gap-3"
+            className="grid grid-cols-1 md:grid-cols-6 gap-4"
           >
-            <div className="col-span-4 md:col-span-2">
-              <label className="text-xs text-slate-500 font-bold mb-1 block">PRODUTO</label>
-              <input 
-                name="prodName" 
-                placeholder="Ex: Camiseta DryFit" 
-                required
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
-              />
+            {/* Linha 1: Identificação Visual */}
+            <div className="md:col-span-4">
+              <label className="text-xs text-slate-500 font-bold mb-1 block">NOME DO PRODUTO (PAI)</label>
+              <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
             </div>
-            <div className="col-span-2 md:col-span-1">
-              <label className="text-xs text-slate-500 font-bold mb-1 block">COR</label>
-              <input 
-                name="prodColor" 
-                placeholder="Preto" 
-                required
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
-              />
+            <div className="md:col-span-2">
+              <label className="text-xs text-slate-500 font-bold mb-1 block flex items-center gap-1"><ImageIcon size={12}/> LINK DA FOTO (URL)</label>
+              <input name="image" placeholder="https://..." className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
             </div>
-            <div className="col-span-2 md:col-span-1">
-              <label className="text-xs text-slate-500 font-bold mb-1 block">TAM.</label>
-              <div className="flex gap-2">
-                <input 
-                  name="prodSize" 
-                  placeholder="G" 
-                  required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
-                />
-                <button 
-                  type="submit"
-                  className="bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-4 flex items-center justify-center transition-colors"
-                >
-                  <Save size={18} />
-                </button>
-              </div>
+
+            {/* Linha 2: Variação Específica */}
+            <div className="md:col-span-2">
+               <label className="text-xs text-slate-500 font-bold mb-1 block text-blue-400">COR</label>
+               <input name="color" placeholder="Ex: Preto" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+            </div>
+            <div className="md:col-span-1">
+               <label className="text-xs text-slate-500 font-bold mb-1 block text-blue-400">TAM.</label>
+               <input name="size" placeholder="40" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+            </div>
+            
+            {/* Linha 3: Identificação de Sistema */}
+            <div className="md:col-span-1">
+               <label className="text-xs text-slate-500 font-bold mb-1 block">SKU</label>
+               <input name="sku" placeholder="6204-PR-40" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+            </div>
+            <div className="md:col-span-2">
+               <label className="text-xs text-slate-500 font-bold mb-1 block flex items-center gap-1"><ScanBarcode size={12}/> CÓDIGO BARRAS</label>
+               <div className="flex gap-2">
+                 <input name="barcode" placeholder="Bipe aqui..." className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+                 <button type="submit" className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-4 flex items-center justify-center font-bold uppercase text-xs tracking-wider">
+                   <Plus size={16} className="mr-1"/> Criar
+                 </button>
+               </div>
             </div>
           </form>
         </div>
 
-        <div className="flex justify-between items-center px-1">
-           <h2 className="font-bold text-white flex items-center gap-2">
-             <Package className="w-5 h-5 text-slate-500" />
-             Estoque
-           </h2>
-           <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded border border-slate-700">
-             {products.length} itens cadastrados
-           </span>
+        {/* Barra de Busca e Ação Rápida (Leitor) */}
+        <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden">
+          <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
+          <div className="flex-1 relative z-10">
+            <label className="text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2">
+              <ScanBarcode size={14}/> BIPAR ENTRADA/SAÍDA (BUSCA RÁPIDA)
+            </label>
+            <input 
+              autoFocus
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Clique aqui e bipe o código de barras..." 
+              className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none placeholder:text-slate-600" 
+            />
+          </div>
         </div>
 
-        {/* Lista Admin */}
+        {/* Lista de Estoque */}
         <div className="space-y-3 pb-20">
-          {products.map((product) => (
-            <div 
-              key={product.id} 
-              className="bg-white p-4 rounded-xl flex items-center justify-between shadow-sm group"
-            >
-              <div>
-                <div className="font-bold text-slate-900">{product.name}</div>
-                <div className="flex gap-2 mt-1">
-                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 uppercase">
-                    {product.color}
-                  </span>
-                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                    {product.size}
-                  </span>
+          {filteredProducts.map((product) => (
+            <div key={product.id} className="bg-white p-2 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-slate-100 rounded border overflow-hidden">
+                   {product.image ? <img src={product.image} className="w-full h-full object-cover"/> : <ImageIcon className="p-2 text-slate-300"/>}
+                </div>
+                <div>
+                  <div className="font-bold text-slate-900 text-sm">{product.name}</div>
+                  <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
+                    <span className="font-mono bg-slate-100 px-1 rounded">SKU: {product.sku}</span>
+                    {product.barcode && <span className="font-mono bg-slate-100 px-1 rounded flex items-center gap-1"><ScanBarcode size={10}/> {product.barcode}</span>}
+                  </div>
+                  <div className="flex gap-1 mt-1">
+                    <span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded">{product.color}</span>
+                    <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">{product.size}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden">
-                  <button 
-                    onClick={() => handleUpdateQuantity(product.id, product.quantity - 1)}
-                    className="w-8 h-8 flex items-center justify-center hover:bg-slate-200 text-slate-600 font-bold transition-colors"
-                  >
-                    -
-                  </button>
-                  <div className="w-10 text-center font-bold text-slate-800 text-lg">
-                    {product.quantity}
-                  </div>
-                  <button 
-                    onClick={() => handleUpdateQuantity(product.id, product.quantity + 1)}
-                    className="w-8 h-8 flex items-center justify-center hover:bg-slate-200 text-slate-600 font-bold transition-colors"
-                  >
-                    +
-                  </button>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-10">
+                  <button onClick={() => handleUpdateQuantity(product.id, product.quantity - 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
+                  <div className="w-12 text-center font-bold text-slate-800 text-lg">{product.quantity}</div>
+                  <button onClick={() => handleUpdateQuantity(product.id, product.quantity + 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
                 </div>
-                
-                <button
-                  onClick={() => handleUpdateQuantity(product.id, 0)}
-                  className="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold px-3 py-2 rounded-lg border border-red-100 transition-colors flex items-center gap-1"
-                >
-                  <AlertTriangle size={14} /> ZERAR
-                </button>
-
-                <button
-                  onClick={() => handleDeleteProduct(product.id)}
-                  className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Excluir produto"
-                >
-                  <Trash2 size={16} />
-                </button>
+                <button onClick={() => handleDeleteProduct(product.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500"><Trash2 size={16} /></button>
               </div>
             </div>
           ))}
