@@ -175,17 +175,37 @@ function App() {
   }, []);
 
   // Função para pedir permissão
-  const requestNotificationPermission = () => {
+  // Função atualizada para pedir permissão
+  const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
-      alert("Este navegador não suporta notificações.");
+      alert("Seu navegador não suporta notificações.");
       return;
     }
-    Notification.requestPermission().then((permission) => {
-      if (permission === "granted") {
-        setPermissionGranted(true);
-        sendSystemNotification("Notificações Ativadas!", "Agora você receberá alertas de estoque.");
+
+    // Passo 1: Pedir permissão
+    const permission = await Notification.requestPermission();
+    
+    if (permission === "granted") {
+      setPermissionGranted(true);
+      
+      // Passo 2: Tentar registrar o Service Worker se não estiver
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        try {
+          reg.showNotification("✅ Notificações Ativadas!", {
+            body: "Agora você receberá alertas quando o estoque zerar.",
+            icon: '/vite.svg',
+            vibrate: [200]
+          });
+        } catch (e) {
+          console.error("Erro ao mostrar notificação de teste", e);
+        }
+      } else {
+        new Notification("✅ Notificações Ativadas!");
       }
-    });
+    } else {
+      alert("Você precisa permitir as notificações nas configurações do seu navegador.");
+    }
   };
 
   // Monitoramento de Estoque (Com Push Notification)
