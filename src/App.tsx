@@ -11,7 +11,8 @@ import {
   query,
   orderBy,
   onSnapshot,
-  writeBatch
+  writeBatch,
+  limit
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -39,12 +40,16 @@ import {
   Camera,
   StopCircle,
   BellRing,
-  LayoutGrid, // Ícone do Menu
-  ChevronLeft // Ícone de Voltar
+  LayoutGrid,
+  ChevronLeft,
+  ClipboardList, // Ícone do Relatório
+  ArrowRight,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
-// --- LINKS DOS SONS ---
+// --- SONS ---
 const SOUNDS = {
   success: "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3",
   error: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3",
@@ -89,6 +94,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "estoque-loja";
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
+const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`; // Nova coleção de histórico
 
 // Tipos
 type Product = {
@@ -103,28 +109,34 @@ type Product = {
   updatedAt?: any;
 };
 
-type VariationRow = {
-  color: string;
-  size: string;
-  sku: string;
-  barcode: string;
-};
+type VariationRow = { color: string; size: string; sku: string; barcode: string; };
+type ScannedItem = { product: Product; count: number; };
 
-type ScannedItem = {
-  product: Product;
-  count: number;
+// Tipo do Histórico
+type HistoryItem = {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  image: string;
+  type: 'entry' | 'exit' | 'correction';
+  amount: number;
+  previousQty: number;
+  newQty: number;
+  timestamp: any;
 };
 
 function App() {
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]); // Estado do histórico
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // MUDANÇA AQUI: Começa no 'menu' (Dashboard)
-  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add'>('menu');
+  // Adicionado 'history' nas rotas
+  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history'>('menu');
   
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
@@ -172,6 +184,7 @@ function App() {
     }
   };
 
+  // Busca Produtos
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -197,6 +210,19 @@ function App() {
     return () => unsubscribe();
   }, [loading, selectedRole]);
 
+  // Busca Histórico (Limitado aos últimos 50 para não pesar)
+  useEffect(() => {
+    if (selectedRole === 'admin') {
+      const q = query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(50));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const items: HistoryItem[] = [];
+        snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as HistoryItem); });
+        setHistory(items);
+      });
+      return () => unsubscribe();
+    }
+  }, [selectedRole]);
+
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
@@ -212,6 +238,7 @@ function App() {
     }
   }, [searchTerm, products]);
 
+  // ... (Lógica de Câmera e Grade Mantida - simplificado aqui para caber, mas é o mesmo do anterior) ...
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
@@ -219,9 +246,7 @@ function App() {
         scanner.render((decodedText) => handleProcessCode(decodedText), (error) => {});
         scannerRef.current = scanner;
       }, 100);
-    } else {
-      if (scannerRef.current) { scannerRef.current.clear().catch((e: any) => console.error(e)); scannerRef.current = null; }
-    }
+    } else { if (scannerRef.current) { scannerRef.current.clear().catch((e: any) => console.error(e)); scannerRef.current = null; } }
   }, [showCamera, showQuickEntry]);
 
   const handleProcessCode = (code: string) => {
@@ -231,7 +256,6 @@ function App() {
     const now = Date.now();
     if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
     lastScanRef.current = { code: term, time: now };
-
     const found = products.find(p => (p.sku && p.sku.toLowerCase() === term) || (p.barcode && p.barcode.toLowerCase() === term));
     if (found) {
       playSound('success');
@@ -241,25 +265,17 @@ function App() {
         else { return [{ product: found, count: 1 }, ...prev]; }
       });
       setQuickScanInput(''); 
-    } else {
-      playSound('error');
-      setScanError(`Produto não cadastrado: ${code}`);
-    }
+    } else { playSound('error'); setScanError(`Produto não cadastrado: ${code}`); }
   };
 
   useEffect(() => {
     const newRows: VariationRow[] = [];
-    colors.forEach(color => {
-      sizes.forEach(size => {
-        const cleanSku = baseSku.toUpperCase().replace(/\s+/g, '');
-        const cleanColor = color.toUpperCase();
-        const cleanSize = size.toUpperCase().replace(/\s+/g, '');
+    colors.forEach(color => { sizes.forEach(size => {
+        const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, '');
         const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : '';
         const existingRow = generatedRows.find(r => r.color === color && r.size === size);
         newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' });
-      });
-    });
-    setGeneratedRows(newRows);
+    });}); setGeneratedRows(newRows);
   }, [colors, sizes, baseSku]);
 
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
@@ -278,17 +294,50 @@ function App() {
         batch.set(docRef, { name: baseName, image: baseImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, quantity: 0, updatedAt: serverTimestamp() });
       });
       await batch.commit();
-      setBaseSku(''); setBaseName(''); setBaseImage(''); setColors([]); setSizes([]); setAdminView('stock'); // Vai pro estoque após salvar
-      alert("Sucesso!");
+      setBaseSku(''); setBaseName(''); setBaseImage(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!");
     } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
   };
 
-  const handleUpdateQuantity = async (id: string, newQty: number) => {
+  // --- ATUALIZAR ESTOQUE COM REGISTRO DE HISTÓRICO ---
+  const handleUpdateQuantity = async (product: Product, newQty: number) => {
     if (newQty < 0) return;
-    const productRef = doc(db, PRODUCTS_COLLECTION, id);
-    await updateDoc(productRef, { quantity: newQty, updatedAt: serverTimestamp() });
+    
+    // Calcula a diferença
+    const diff = newQty - product.quantity;
+    if (diff === 0) return;
+
+    const type = diff > 0 ? 'entry' : 'exit';
+
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Atualiza Produto
+      const productRef = doc(db, PRODUCTS_COLLECTION, product.id);
+      batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() });
+
+      // 2. Cria Registro no Histórico
+      const historyRef = doc(collection(db, HISTORY_COLLECTION));
+      batch.set(historyRef, {
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku || '',
+        image: product.image || '',
+        type: type,
+        amount: Math.abs(diff),
+        previousQty: product.quantity,
+        newQty: newQty,
+        timestamp: serverTimestamp()
+      });
+
+      await batch.commit();
+    } catch (e) {
+      console.error("Erro ao atualizar estoque", e);
+      alert("Erro ao atualizar.");
+    }
   };
+
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
+  
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
@@ -298,7 +347,10 @@ function App() {
       setEditingProduct(null);
     } catch (error) { alert("Erro ao editar."); }
   };
+
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
+  
+  // --- ENTRADA RÁPIDA COM HISTÓRICO ---
   const handleCommitQuickEntry = async () => {
     if (scannedItems.length === 0) return;
     setIsSavingBatch(true);
@@ -308,10 +360,34 @@ function App() {
         const docRef = doc(db, PRODUCTS_COLLECTION, item.product.id);
         const newTotal = item.product.quantity + item.count;
         batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() });
+
+        // Registra Histórico
+        const historyRef = doc(collection(db, HISTORY_COLLECTION));
+        batch.set(historyRef, {
+          productId: item.product.id,
+          productName: item.product.name,
+          sku: item.product.sku || '',
+          image: item.product.image || '',
+          type: 'entry', // Entrada rápida é sempre entrada
+          amount: item.count,
+          previousQty: item.product.quantity,
+          newQty: newTotal,
+          timestamp: serverTimestamp()
+        });
       });
       await batch.commit();
       setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!");
     } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
+  };
+
+  // Função auxiliar para formatar data
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '...';
+    const date = timestamp.toDate(); // Converte timestamp do Firestore
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).format(date);
   };
 
   // --- UI ---
@@ -388,12 +464,10 @@ function App() {
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             {adminView !== 'menu' ? (
-              // BOTÃO VOLTAR (Só aparece se não estiver no menu)
               <button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors">
                 <ChevronLeft className="w-6 h-6 text-white" />
               </button>
             ) : (
-              // LOGO (Só aparece no menu)
               <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
             )}
             <div><h1 className="font-bold text-white md:block">Painel ERP</h1></div>
@@ -409,50 +483,98 @@ function App() {
 
       <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
         
-        {/* --- MENU PRINCIPAL (DASHBOARD) --- */}
+        {/* --- MENU PRINCIPAL --- */}
         {adminView === 'menu' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-            {/* Botão Estoque */}
-            <button 
-              onClick={() => setAdminView('stock')}
-              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-lg transition-transform hover:scale-[1.02]"
-            >
-              <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center">
-                <Package size={32} className="text-blue-400" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white">Gerenciar Estoque</h3>
-                <p className="text-sm text-slate-400">Ver lista e editar produtos</p>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div>
+              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div>
             </button>
 
-            {/* Botão Entrada Rápida */}
-            <button 
-              onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }}
-              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-lg transition-transform hover:scale-[1.02]"
-            >
-              <div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center">
-                <Zap size={32} className="text-yellow-400 fill-yellow-400" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white">Entrada Rápida</h3>
-                <p className="text-sm text-slate-400">Bipar e somar estoque</p>
-              </div>
+            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div>
+              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div>
             </button>
 
-            {/* Botão Novo Produto */}
-            <button 
-              onClick={() => setAdminView('add')}
-              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-lg transition-transform hover:scale-[1.02]"
-            >
-              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center">
-                <Plus size={32} className="text-green-400" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white">Novo Produto</h3>
-                <p className="text-sm text-slate-400">Cadastrar grades e variações</p>
-              </div>
+            <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div>
+              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div>
             </button>
+
+            {/* NOVO BOTÃO DE RELATÓRIO */}
+            <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div>
+              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div>
+            </button>
+          </div>
+        )}
+
+        {/* --- TELA DE RELATÓRIO (NOVA) --- */}
+        {adminView === 'history' && (
+          <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+            <div className="p-4 border-b border-slate-800 flex items-center gap-2 bg-slate-800/50">
+              <ClipboardList className="text-purple-400" />
+              <h2 className="text-lg font-bold text-white">Movimentações Recentes</h2>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="text-xs text-slate-500 border-b border-slate-800 uppercase">
+                    <th className="p-4">Tempo</th>
+                    <th className="p-4">Produto / SKU</th>
+                    <th className="p-4 text-center">Tipo</th>
+                    <th className="p-4 text-right">Detalhe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {history.length === 0 ? (
+                    <tr><td colSpan={4} className="p-8 text-center text-slate-500">Nenhuma movimentação registrada.</td></tr>
+                  ) : history.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="p-4 align-top">
+                        <div className="text-sm text-white font-mono">{formatDate(item.timestamp).split(' ')[0]}</div>
+                        <div className="text-xs text-slate-500 font-mono">{formatDate(item.timestamp).split(' ')[1]}</div>
+                      </td>
+                      <td className="p-4 align-top">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-slate-800 rounded border border-slate-700 overflow-hidden shrink-0">
+                            {item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-500"/>}
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-slate-200">{item.productName}</div>
+                            <div className="text-xs text-slate-500 font-mono">{item.sku}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 align-top text-center">
+                        {item.type === 'entry' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-bold border border-green-500/20">
+                            <TrendingUp size={12} /> ENTRADA
+                          </span>
+                        ) : item.type === 'exit' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-bold border border-red-500/20">
+                            <TrendingDown size={12} /> SAÍDA
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500">Correção</span>
+                        )}
+                      </td>
+                      <td className="p-4 align-top text-right">
+                        <div className="flex items-center justify-end gap-2 text-sm font-mono">
+                          <span className="text-slate-400">{item.previousQty}</span>
+                          <ArrowRight size={12} className="text-slate-600" />
+                          <span className="text-white font-bold">{item.newQty}</span>
+                        </div>
+                        <div className={`text-xs font-bold mt-1 ${item.type === 'entry' ? 'text-green-500' : 'text-red-500'}`}>
+                          {item.type === 'entry' ? '+' : '-'}{item.amount}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -469,7 +591,6 @@ function App() {
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
               {filteredProducts.map((p) => (
                 <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
-                  {/* IMAGEM E INFO */}
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">
                       {p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
@@ -483,12 +604,11 @@ function App() {
                       </div>
                     </div>
                   </div>
-                  {/* AÇÕES */}
                   <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
                     <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10">
-                      <button onClick={() => handleUpdateQuantity(p.id, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
+                      <button onClick={() => handleUpdateQuantity(p, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
                       <div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div>
-                      <button onClick={() => handleUpdateQuantity(p.id, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
+                      <button onClick={() => handleUpdateQuantity(p, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
                     </div>
                     <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
                     <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
