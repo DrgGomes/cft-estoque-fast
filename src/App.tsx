@@ -38,7 +38,7 @@ import {
   AlertCircle,
   Camera,
   StopCircle,
-  BellRing // Ícone de notificação ativa
+  BellRing
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
@@ -57,30 +57,18 @@ const playSound = (type: 'success' | 'error' | 'alert') => {
   } catch (e) { console.error(e); }
 };
 
-// --- FUNÇÃO DE NOTIFICAÇÃO DO SISTEMA (PUSH) ---
 const sendSystemNotification = (title: string, body: string) => {
   if (!("Notification" in window)) return;
-
   if (Notification.permission === "granted") {
     try {
-      // Tenta registrar via ServiceWorker se disponível (PWA), senão via new Notification
       navigator.serviceWorker.getRegistration().then(reg => {
         if (reg) {
-          reg.showNotification(title, {
-            body,
-            icon: '/vite.svg', // Ícone padrão (depois podemos mudar)
-            vibrate: [200, 100, 200]
-          });
+          reg.showNotification(title, { body, icon: '/vite.svg', vibrate: [200, 100, 200] });
         } else {
-          new Notification(title, {
-            body,
-            icon: '/vite.svg'
-          });
+          new Notification(title, { body, icon: '/vite.svg' });
         }
       });
-    } catch (e) {
-      new Notification(title, { body });
-    }
+    } catch (e) { new Notification(title, { body }); }
   }
 };
 
@@ -133,11 +121,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [adminView, setAdminView] = useState<'list' | 'add'>('list');
-  const [permissionGranted, setPermissionGranted] = useState(false); // Estado da permissão
+  const [permissionGranted, setPermissionGranted] = useState(false);
   
   const prevProductsRef = useRef<Product[]>([]);
   
-  // Estados do Gerador e Edição
+  // Estados do Gerador
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
   const [baseImage, setBaseImage] = useState('');
@@ -159,87 +147,44 @@ function App() {
   const scannerRef = useRef<any>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
-  // Autenticação
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) setUser(u);
       else signInAnonymously(auth).catch((e) => console.error(e));
     });
-    
-    // Verifica permissão de notificação ao iniciar
-    if ("Notification" in window && Notification.permission === "granted") {
-      setPermissionGranted(true);
-    }
-
+    if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
     return () => unsubscribe();
   }, []);
 
-  // Função para pedir permissão
-  // Função atualizada para pedir permissão
   const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) {
-      alert("Seu navegador não suporta notificações.");
-      return;
-    }
-
-    // Passo 1: Pedir permissão
+    if (!("Notification" in window)) { alert("Navegador sem suporte."); return; }
     const permission = await Notification.requestPermission();
-    
     if (permission === "granted") {
       setPermissionGranted(true);
-      
-      // Passo 2: Tentar registrar o Service Worker se não estiver
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.ready;
-        try {
-          reg.showNotification("✅ Notificações Ativadas!", {
-            body: "Agora você receberá alertas quando o estoque zerar.",
-            icon: '/vite.svg',
-            vibrate: [200]
-          });
-        } catch (e) {
-          console.error("Erro ao mostrar notificação de teste", e);
-        }
-      } else {
-        new Notification("✅ Notificações Ativadas!");
-      }
-    } else {
-      alert("Você precisa permitir as notificações nas configurações do seu navegador.");
+        try { reg.showNotification("✅ Notificações Ativadas!", { body: "Agora você receberá alertas de estoque.", icon: '/vite.svg', vibrate: [200] }); } catch(e){}
+      } else { new Notification("✅ Notificações Ativadas!"); }
     }
   };
 
-  // Monitoramento de Estoque (Com Push Notification)
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const items: Product[] = [];
-      snapshot.forEach((doc) => {
-        items.push({ id: doc.id, ...doc.data() } as Product);
-      });
+      snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as Product); });
 
       if (!loading && selectedRole === 'user') {
         const previousProducts = prevProductsRef.current;
-        
-        // Filtra quais produtos acabaram de zerar
         const soldOutItems = items.filter(newItem => {
           const oldItem = previousProducts.find(p => p.id === newItem.id);
           return oldItem && oldItem.quantity > 0 && newItem.quantity === 0;
         });
-
         if (soldOutItems.length > 0) {
           playSound('alert');
-          // Dispara notificação no celular
-          const prodName = soldOutItems[0].name; // Pega o nome do primeiro que zerou
-          const count = soldOutItems.length;
-          const title = "⚠️ ESTOQUE ZEROU!";
-          const body = count > 1 
-            ? `${count} produtos acabaram de esgotar!` 
-            : `O produto ${prodName} acabou de esgotar!`;
-            
-          sendSystemNotification(title, body);
+          sendSystemNotification("⚠️ ESTOQUE ZEROU!", `${soldOutItems.length} produtos acabaram de esgotar!`);
         }
       }
-
       prevProductsRef.current = items;
       setProducts(items);
       setFilteredProducts(items);
@@ -248,7 +193,6 @@ function App() {
     return () => unsubscribe();
   }, [loading, selectedRole]);
 
-  // Filtro de Busca
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
@@ -264,15 +208,10 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- CÂMERA ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
-        const scanner = new Html5QrcodeScanner(
-          "reader",
-          { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0, videoConstraints: { facingMode: "environment" } },
-          false
-        );
+        const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0, videoConstraints: { facingMode: "environment" } }, false);
         scanner.render((decodedText) => handleProcessCode(decodedText), (error) => {});
         scannerRef.current = scanner;
       }, 100);
@@ -304,7 +243,6 @@ function App() {
     }
   };
 
-  // --- GRADE & CRUD ---
   useEffect(() => {
     const newRows: VariationRow[] = [];
     colors.forEach(color => {
@@ -404,15 +342,12 @@ function App() {
                 <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div>
               </div>
             </div>
-            
             <div className="flex items-center gap-2">
-              {/* BOTÃO DE ATIVAR NOTIFICAÇÕES */}
               {!permissionGranted && (
                 <button onClick={requestNotificationPermission} className="text-xs bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse border border-blue-400">
                   <BellRing size={14} /> Ativar Alertas
                 </button>
               )}
-              
               <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
             </div>
           </div>
@@ -422,9 +357,19 @@ function App() {
           <div className="space-y-3 pb-20">
             {loading ? <p className="text-center text-slate-400">Carregando...</p> : filteredProducts.length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : filteredProducts.map((p) => (
               <div key={p.id} className={`bg-white p-3 rounded-xl border-2 shadow-sm flex gap-3 ${p.quantity === 0 ? 'border-red-100 bg-red-50' : 'border-transparent'}`}>
-                <div className="w-20 h-20 bg-slate-100 rounded-lg shrink-0 overflow-hidden border border-slate-200 flex items-center justify-center">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
-                <div className="flex-1 flex flex-col justify-between"><div><h3 className="font-bold text-slate-800 text-sm leading-tight">{p.name}</h3><div className="text-xs text-slate-500 mt-1 font-mono">SKU: {p.sku || '-'}</div><div className="flex gap-1 mt-2 flex-wrap"><span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase">{p.color}</span><span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border">{p.size}</span></div></div></div>
-                <div className="flex flex-col items-end justify-center min-w-[70px]">{p.quantity > 0 ? <><span className="text-2xl font-bold text-green-600">{p.quantity}</span><span className="text-[9px] font-bold text-green-600 uppercase">Disp.</span></> : <div className="bg-red-100 text-red-600 px-2 py-1 rounded text-center"><span className="font-bold text-[10px] uppercase block">Esgotado</span></div>}</div>
+                <div className="w-16 h-16 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
+                <div className="flex-1 flex flex-col justify-between min-w-0">
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{p.name}</h3>
+                    {/* MOSTRA APENAS O SKU PAI (PRIMEIRA PARTE) */}
+                    <div className="text-sm font-bold text-slate-600 mt-0.5">{p.sku ? p.sku.split('-')[0] : ''}</div>
+                    <div className="flex gap-1 mt-1 flex-wrap">
+                      <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase text-slate-600">{p.color}</span>
+                      <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border text-slate-600">{p.size}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end justify-center shrink-0">{p.quantity > 0 ? <><span className="text-2xl font-bold text-green-600">{p.quantity}</span><span className="text-[9px] font-bold text-green-600 uppercase">Disp.</span></> : <div className="bg-red-100 text-red-600 px-2 py-1 rounded text-center"><span className="font-bold text-[10px] uppercase block">Esgotado</span></div>}</div>
               </div>
             ))}
           </div>
@@ -438,41 +383,81 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
+          {/* LOGO E TÍTULO (OCULTO NO MOBILE) */}
           <div className="flex items-center gap-3">
             <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
-            <div><h1 className="font-bold text-white">Painel ERP</h1></div>
+            <div><h1 className="font-bold text-white hidden md:block">Painel ERP</h1></div>
           </div>
-          <div className="flex items-center gap-3">
+          
+          {/* BOTÕES DE AÇÃO (MENORES NO MOBILE) */}
+          <div className="flex items-center gap-2 md:gap-3">
             {adminView === 'list' && (
               <>
-                <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-blue-900/20 border border-blue-500/50"><Zap size={18} className="fill-white" /> ENTRADA RÁPIDA</button>
-                <button onClick={() => setAdminView('add')} className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-green-900/20"><Plus size={18} /> Novo Produto</button>
+                <button 
+                  onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }}
+                  className="text-[10px] md:text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg font-bold flex items-center gap-1 md:gap-2 transition-colors shadow-lg shadow-blue-900/20 border border-blue-500/50"
+                >
+                  <Zap size={16} className="fill-white" /> <span>ENTRADA</span>
+                </button>
+                <button 
+                  onClick={() => setAdminView('add')}
+                  className="text-[10px] md:text-sm bg-green-600 hover:bg-green-500 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg font-bold flex items-center gap-1 md:gap-2 transition-colors shadow-lg shadow-green-900/20"
+                >
+                  <Plus size={16} /> <span>NOVO</span>
+                </button>
               </>
             )}
-            <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> Sair</button>
+            <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700">
+              <LogOut size={16} /> <span className="hidden md:inline">Sair</span>
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-4 space-y-6 relative">
+      <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
         {adminView === 'list' ? (
           <>
-            <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg">
+            <div className="bg-slate-800 p-3 md:p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg">
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
               <div className="flex-1 relative z-10">
-                <label className="text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR NA LISTA ABAIXO</label>
-                <input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar produtos..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" />
+                <label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label>
+                <input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" />
               </div>
             </div>
             <div className="space-y-3 pb-20">
               {filteredProducts.map((p) => (
-                <div key={p.id} className="bg-white p-2 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-slate-100 rounded border overflow-hidden">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div>
-                    <div><div className="font-bold text-slate-900 text-sm">{p.name}</div><div className="text-xs text-slate-500 flex gap-2 mt-0.5"><span className="font-mono bg-slate-100 px-1 rounded">SKU: {p.sku}</span>{p.barcode && <span className="font-mono bg-slate-100 px-1 rounded flex items-center gap-1"><ScanBarcode size={10}/> {p.barcode}</span>}</div><div className="flex gap-1 mt-1"><span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded">{p.color}</span><span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">{p.size}</span></div></div>
+                <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
+                  {/* IMAGEM E INFO */}
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {/* FOTO NÃO CORTA MAIS (shrink-0) */}
+                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">
+                      {p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
+                    </div>
+                    
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 text-sm truncate">{p.name}</div>
+                      
+                      {/* SKU PAI GRANDE E LIMPO */}
+                      <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">
+                        {p.sku ? p.sku.split('-')[0] : '---'}
+                      </div>
+
+                      {/* CHIPS DE COR E TAMANHO */}
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        <span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span>
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-10"><button onClick={() => handleUpdateQuantity(p.id, p.quantity - 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-12 text-center font-bold text-slate-800 text-lg">{p.quantity}</div><button onClick={() => handleUpdateQuantity(p.id, p.quantity + 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
+
+                  {/* AÇÕES (ESPREMIDAS NA DIREITA) */}
+                  <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
+                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10">
+                      <button onClick={() => handleUpdateQuantity(p.id, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
+                      <div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div>
+                      <button onClick={() => handleUpdateQuantity(p.id, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
+                    </div>
+                    
                     <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
                     <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
                   </div>
@@ -483,12 +468,12 @@ function App() {
         ) : (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
             <button onClick={() => setAdminView('list')} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full hover:bg-slate-700"><X size={20} /></button>
-            <div className="p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2><p className="text-slate-400 text-sm mt-1">Monte a grade completa.</p></div>
-            <div className="p-6 space-y-8">
-              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Package size={16} className="text-blue-400" /> 1. Produto Pai</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div><div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div><div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Foto (URL)</label><input value={baseImage} onChange={e => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-xs" /></div></div></div>
-              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
-              {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
-              <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-lg px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR ESTOQUE EM MASSA'}</button></div>
+            <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
+            <div className="p-4 md:p-6 space-y-6 md:space-y-8">
+              <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Package size={16} className="text-blue-400" /> 1. Produto Pai</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div><div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div><div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Foto (URL)</label><input value={baseImage} onChange={e => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-xs" /></div></div></div>
+              <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
+              {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
+              <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-lg px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR'}</button></div>
             </div>
           </div>
         )}
@@ -497,27 +482,27 @@ function App() {
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="p-6 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida</h2>
+              <div className="p-4 md:p-6 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
+                <h2 className="text-lg md:text-2xl font-bold text-white flex items-center gap-2"><Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida</h2>
                 <button onClick={() => { setShowQuickEntry(false); setScannedItems([]); setShowCamera(false); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button>
               </div>
-              <div className="p-6 bg-slate-900/50 border-b border-slate-800">
+              <div className="p-4 md:p-6 bg-slate-900/50 border-b border-slate-800">
                 {showCamera ? (
                   <div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black"><div id="reader" className="w-full h-64"></div><button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR</button></div>
                 ) : (
                    <button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA</button>
                 )}
-                <form onSubmit={handleQuickScanSubmit}><div className="relative"><div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div><input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digite o SKU ou Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-xl text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} /></div></form>
+                <form onSubmit={handleQuickScanSubmit}><div className="relative"><div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div><input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-lg text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} /></div></form>
                 {scanError && (<div className="mt-3 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2 animate-in slide-in-from-top-2"><AlertCircle size={18} /> {scanError}</div>)}
               </div>
-              <div className="flex-1 overflow-y-auto p-6 bg-slate-950">
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-950">
                 {scannedItems.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50"><ScanBarcode size={64} className="mb-4" /><p className="text-lg font-medium">Lista vazia</p></div>
                 ) : (
                   <div className="space-y-2">
                     {scannedItems.map((item, idx) => (
                       <div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between animate-in slide-in-from-left">
-                        <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div><div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div></div>
+                        <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div><div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku ? item.product.sku.split('-')[0] : ''}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div></div>
                         <div className="flex items-center gap-4"><div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30">+{item.count}</div></div>
                       </div>
                     ))}
@@ -525,8 +510,8 @@ function App() {
                 )}
               </div>
               <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center">
-                <div className="text-slate-400 text-sm"><span className="text-white font-bold">{scannedItems.reduce((acc, item) => acc + item.count, 0)}</span> itens na lista</div>
-                <button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-8 py-4 rounded-xl font-bold flex items-center gap-2 text-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20 hover:scale-105'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={24} />}{isSavingBatch ? '...' : 'CONFIRMAR'}</button>
+                <div className="text-slate-400 text-sm"><span className="text-white font-bold">{scannedItems.reduce((acc, item) => acc + item.count, 0)}</span> itens</div>
+                <button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-6 py-4 rounded-xl font-bold flex items-center gap-2 text-base md:text-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={24} />}{isSavingBatch ? '...' : 'CONFIRMAR'}</button>
               </div>
             </div>
           </div>
