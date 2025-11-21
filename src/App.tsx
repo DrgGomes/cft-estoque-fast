@@ -38,7 +38,9 @@ import {
   AlertCircle,
   Camera,
   StopCircle,
-  BellRing
+  BellRing,
+  LayoutGrid, // Ícone do Menu
+  ChevronLeft // Ícone de Voltar
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
@@ -120,9 +122,11 @@ function App() {
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [adminView, setAdminView] = useState<'list' | 'add'>('list');
-  const [permissionGranted, setPermissionGranted] = useState(false);
   
+  // MUDANÇA AQUI: Começa no 'menu' (Dashboard)
+  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add'>('menu');
+  
+  const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   
   // Estados do Gerador
@@ -274,7 +278,7 @@ function App() {
         batch.set(docRef, { name: baseName, image: baseImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, quantity: 0, updatedAt: serverTimestamp() });
       });
       await batch.commit();
-      setBaseSku(''); setBaseName(''); setBaseImage(''); setColors([]); setSizes([]); setAdminView('list');
+      setBaseSku(''); setBaseName(''); setBaseImage(''); setColors([]); setSizes([]); setAdminView('stock'); // Vai pro estoque após salvar
       alert("Sucesso!");
     } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
   };
@@ -361,7 +365,6 @@ function App() {
                 <div className="flex-1 flex flex-col justify-between min-w-0">
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{p.name}</h3>
-                    {/* MOSTRA APENAS O SKU PAI (PRIMEIRA PARTE) */}
                     <div className="text-sm font-bold text-slate-600 mt-0.5">{p.sku ? p.sku.split('-')[0] : ''}</div>
                     <div className="flex gap-1 mt-1 flex-wrap">
                       <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase text-slate-600">{p.color}</span>
@@ -383,30 +386,20 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-          {/* LOGO E TÍTULO (OCULTO NO MOBILE) */}
           <div className="flex items-center gap-3">
-            <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
-            <div><h1 className="font-bold text-white hidden md:block">Painel ERP</h1></div>
+            {adminView !== 'menu' ? (
+              // BOTÃO VOLTAR (Só aparece se não estiver no menu)
+              <button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors">
+                <ChevronLeft className="w-6 h-6 text-white" />
+              </button>
+            ) : (
+              // LOGO (Só aparece no menu)
+              <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
+            )}
+            <div><h1 className="font-bold text-white md:block">Painel ERP</h1></div>
           </div>
           
-          {/* BOTÕES DE AÇÃO (MENORES NO MOBILE) */}
           <div className="flex items-center gap-2 md:gap-3">
-            {adminView === 'list' && (
-              <>
-                <button 
-                  onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }}
-                  className="text-[10px] md:text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg font-bold flex items-center gap-1 md:gap-2 transition-colors shadow-lg shadow-blue-900/20 border border-blue-500/50"
-                >
-                  <Zap size={16} className="fill-white" /> <span>ENTRADA</span>
-                </button>
-                <button 
-                  onClick={() => setAdminView('add')}
-                  className="text-[10px] md:text-sm bg-green-600 hover:bg-green-500 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg font-bold flex items-center gap-1 md:gap-2 transition-colors shadow-lg shadow-green-900/20"
-                >
-                  <Plus size={16} /> <span>NOVO</span>
-                </button>
-              </>
-            )}
             <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700">
               <LogOut size={16} /> <span className="hidden md:inline">Sair</span>
             </button>
@@ -415,49 +408,88 @@ function App() {
       </header>
 
       <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
-        {adminView === 'list' ? (
+        
+        {/* --- MENU PRINCIPAL (DASHBOARD) --- */}
+        {adminView === 'menu' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            {/* Botão Estoque */}
+            <button 
+              onClick={() => setAdminView('stock')}
+              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-lg transition-transform hover:scale-[1.02]"
+            >
+              <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center">
+                <Package size={32} className="text-blue-400" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white">Gerenciar Estoque</h3>
+                <p className="text-sm text-slate-400">Ver lista e editar produtos</p>
+              </div>
+            </button>
+
+            {/* Botão Entrada Rápida */}
+            <button 
+              onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }}
+              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-lg transition-transform hover:scale-[1.02]"
+            >
+              <div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center">
+                <Zap size={32} className="text-yellow-400 fill-yellow-400" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white">Entrada Rápida</h3>
+                <p className="text-sm text-slate-400">Bipar e somar estoque</p>
+              </div>
+            </button>
+
+            {/* Botão Novo Produto */}
+            <button 
+              onClick={() => setAdminView('add')}
+              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-lg transition-transform hover:scale-[1.02]"
+            >
+              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center">
+                <Plus size={32} className="text-green-400" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white">Novo Produto</h3>
+                <p className="text-sm text-slate-400">Cadastrar grades e variações</p>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {/* --- LISTA DE ESTOQUE --- */}
+        {adminView === 'stock' && (
           <>
-            <div className="bg-slate-800 p-3 md:p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg">
+            <div className="bg-slate-800 p-3 md:p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
               <div className="flex-1 relative z-10">
                 <label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label>
                 <input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" />
               </div>
             </div>
-            <div className="space-y-3 pb-20">
+            <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
               {filteredProducts.map((p) => (
                 <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
                   {/* IMAGEM E INFO */}
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {/* FOTO NÃO CORTA MAIS (shrink-0) */}
                     <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">
                       {p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
                     </div>
-                    
                     <div className="min-w-0">
                       <div className="font-bold text-slate-900 text-sm truncate">{p.name}</div>
-                      
-                      {/* SKU PAI GRANDE E LIMPO */}
-                      <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">
-                        {p.sku ? p.sku.split('-')[0] : '---'}
-                      </div>
-
-                      {/* CHIPS DE COR E TAMANHO */}
+                      <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : '---'}</div>
                       <div className="flex gap-1 mt-1 flex-wrap">
                         <span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span>
                         <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span>
                       </div>
                     </div>
                   </div>
-
-                  {/* AÇÕES (ESPREMIDAS NA DIREITA) */}
+                  {/* AÇÕES */}
                   <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
                     <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10">
                       <button onClick={() => handleUpdateQuantity(p.id, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
                       <div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div>
                       <button onClick={() => handleUpdateQuantity(p.id, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
                     </div>
-                    
                     <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
                     <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
                   </div>
@@ -465,9 +497,11 @@ function App() {
               ))}
             </div>
           </>
-        ) : (
-          <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
-            <button onClick={() => setAdminView('list')} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full hover:bg-slate-700"><X size={20} /></button>
+        )}
+
+        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
+        {adminView === 'add' && (
+          <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
             <div className="p-4 md:p-6 space-y-6 md:space-y-8">
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Package size={16} className="text-blue-400" /> 1. Produto Pai</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div><div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div><div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Foto (URL)</label><input value={baseImage} onChange={e => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-xs" /></div></div></div>
