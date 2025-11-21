@@ -30,7 +30,8 @@ import {
   Search,
   X,
   Save,
-  CheckCircle2
+  Check,
+  AlertCircle // Troquei CheckCircle2 por estes mais seguros
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -73,9 +74,10 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [adminView, setAdminView] = useState<'list' | 'add'>('list');
   
-  // Estado para feedback visual de salvamento rápido
+  // Estado para feedback visual de salvamento
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  // Referências para os campos do formulário para focar neles rapidamente
+  
+  // Referências para focar nos campos
   const sizeInputRef = useRef<HTMLInputElement>(null);
 
   // Autenticação
@@ -102,7 +104,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Filtro de Busca
+  // Filtro de Busca (Blindado)
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
@@ -126,12 +128,12 @@ function App() {
         quantity: 0,
         updatedAt: serverTimestamp(),
       });
-      // Mostra feedback visual rápido
+      // Sucesso visual
       setShowSaveSuccess(true);
       setTimeout(() => setShowSaveSuccess(false), 2000);
     } catch (e) {
       console.error("Erro ao adicionar:", e);
-      alert("Erro ao salvar produto.");
+      alert("Erro ao salvar no banco de dados. Verifique a internet.");
     }
   };
 
@@ -208,7 +210,6 @@ function App() {
         </header>
 
         <main className="max-w-md mx-auto p-4 space-y-4">
-          {/* Barra de Busca Cliente */}
           <div className="relative">
             <Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" />
             <input 
@@ -225,7 +226,6 @@ function App() {
              filteredProducts.length === 0 ? <p className="text-center text-slate-400">Nenhum produto encontrado.</p> :
              filteredProducts.map((product) => (
               <div key={product.id} className={`bg-white p-3 rounded-xl border-2 shadow-sm flex gap-3 ${product.quantity === 0 ? 'border-red-100 bg-red-50' : 'border-transparent'}`}>
-                {/* Foto do Produto */}
                 <div className="w-20 h-20 bg-slate-100 rounded-lg shrink-0 overflow-hidden border border-slate-200 flex items-center justify-center">
                   {product.image ? (
                     <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
@@ -297,7 +297,6 @@ function App() {
         {adminView === 'list' ? (
           // === VISÃO DA LISTA DE PRODUTOS ===
           <>
-            {/* Barra de Busca (Blindada) */}
             <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg">
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
               <div className="flex-1 relative z-10">
@@ -314,7 +313,6 @@ function App() {
               </div>
             </div>
 
-            {/* Lista de Estoque */}
             <div className="space-y-3 pb-20">
               {filteredProducts.map((product) => (
                 <div key={product.id} className="bg-white p-2 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
@@ -353,14 +351,12 @@ function App() {
           // === NOVA TELA DE CADASTRO (RAPIDO) ===
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
             
-            {/* Feedback de Salvamento */}
             {showSaveSuccess && (
-              <div className="absolute top-0 left-0 w-full bg-green-600 text-white p-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-in slide-in-from-top">
-                <CheckCircle2 size={16} /> Variação salva! Continue cadastrando...
+              <div className="absolute top-0 left-0 w-full bg-green-600 text-white p-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-in slide-in-from-top z-50">
+                <Check size={16} /> Variação salva! Continue cadastrando...
               </div>
             )}
 
-            {/* Botão Cancelar/Voltar */}
             <button 
               onClick={() => setAdminView('list')}
               className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full hover:bg-slate-700"
@@ -379,89 +375,92 @@ function App() {
             <form 
               onSubmit={(e) => {
                 e.preventDefault();
-                const form = e.target as HTMLFormElement;
-                
-                // Gera um SKU combinado automático se o usuário não preencher
-                const baseSku = form.sku.value.toUpperCase().replace(/\s+/g, '');
-                const colorCode = form.color.value.toUpperCase().substring(0, 3);
-                const sizeCode = form.size.value.replace(/\s+/g, '');
-                const generatedSku = `${baseSku}-${colorCode}-${sizeCode}`;
+                try {
+                  const form = e.target as HTMLFormElement;
+                  
+                  // Valores seguros (com fallback)
+                  const skuVal = (form.elements.namedItem('sku') as HTMLInputElement)?.value || '';
+                  const colorVal = (form.elements.namedItem('color') as HTMLInputElement)?.value || '';
+                  const sizeVal = (form.elements.namedItem('size') as HTMLInputElement)?.value || '';
+                  const barcodeVal = (form.elements.namedItem('barcode') as HTMLInputElement)?.value || '';
+                  const nameVal = (form.elements.namedItem('name') as HTMLInputElement)?.value || '';
+                  const imageVal = (form.elements.namedItem('image') as HTMLInputElement)?.value || '';
 
-                handleAddProduct({
-                  sku: generatedSku, // Usa o SKU gerado automaticamente
-                  barcode: form.barcode.value,
-                  image: form.image.value,
-                  name: form.name.value,
-                  color: form.color.value,
-                  size: form.size.value,
-                });
+                  // Gera um SKU combinado automático
+                  const baseSku = skuVal.toUpperCase().replace(/\s+/g, '');
+                  const colorCode = colorVal.toUpperCase().substring(0, 3);
+                  const sizeCode = sizeVal.replace(/\s+/g, '');
+                  const generatedSku = `${baseSku}-${colorCode}-${sizeCode}`;
 
-                // --- A MÁGICA DO CADASTRO RÁPIDO ---
-                // NÃO usamos form.reset() total.
-                // Limpamos apenas os campos variáveis: Tamanho e Barcode
-                form.size.value = '';
-                form.barcode.value = '';
-                
-                // Mantemos o Nome, SKU Base, Foto e Cor para o próximo
-                
-                // Foca automaticamente no campo de Tamanho para a próxima variação
-                if (sizeInputRef.current) {
-                  sizeInputRef.current.focus();
+                  handleAddProduct({
+                    sku: generatedSku,
+                    barcode: barcodeVal,
+                    image: imageVal,
+                    name: nameVal,
+                    color: colorVal,
+                    size: sizeVal,
+                  });
+
+                  // Limpa apenas campos variáveis
+                  const sizeInput = form.elements.namedItem('size') as HTMLInputElement;
+                  const barcodeInput = form.elements.namedItem('barcode') as HTMLInputElement;
+                  
+                  if (sizeInput) sizeInput.value = '';
+                  if (barcodeInput) barcodeInput.value = '';
+                  
+                  // Foca no tamanho para o próximo
+                  if (sizeInputRef.current) {
+                    sizeInputRef.current.focus();
+                  }
+                } catch (err) {
+                  alert("Erro ao processar formulário. Tente novamente.");
                 }
               }}
               className="p-6 space-y-8"
             >
-              {/* --- SEÇÃO 1: INFORMAÇÃO BÁSICA (Mantida entre cadastros) --- */}
+              {/* --- SEÇÃO 1: PAI --- */}
               <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 relative group">
                 <div className="absolute right-4 top-4 text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-full border border-slate-800 opacity-50 group-hover:opacity-100 transition-opacity">
-                  Estes dados serão mantidos para a próxima variação
+                  Estes dados serão mantidos
                 </div>
                 <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
                   <Package size={16} className="text-blue-400" /> Informação Básica (Pai)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1">
-                      SKU Base<span className="text-red-500">*</span> (Ex: 6204)
-                    </label>
-                    <input name="sku" placeholder="Ref. do Modelo" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
+                    <label className="text-sm text-slate-400 block mb-1">SKU Base<span className="text-red-500">*</span></label>
+                    <input name="sku" placeholder="Ref. do Modelo (Ex: 6204)" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
                   </div>
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1">
-                      Nome do Produto<span className="text-red-500">*</span>
-                    </label>
+                    <label className="text-sm text-slate-400 block mb-1">Nome do Produto<span className="text-red-500">*</span></label>
                     <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-2">
-                      <ImageIcon size={14} /> Link da Foto (URL)
-                    </label>
+                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><ImageIcon size={14} /> Link da Foto</label>
                     <input name="image" placeholder="https://..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none text-xs" />
                   </div>
                 </div>
               </div>
 
-              {/* --- SEÇÃO 2: VARIAÇÃO (Limpa a cada cadastro) --- */}
+              {/* --- SEÇÃO 2: FILHO --- */}
               <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50">
                 <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
-                  <Tag size={16} className="text-green-400" /> Variação Atual (Filho)
+                  <Plus size={16} className="text-green-400" /> Variação Atual (Filho)
                 </h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm text-slate-400 block mb-1">Cor<span className="text-red-500">*</span></label>
                     <input name="color" placeholder="Ex: Preto" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
-                    <p className="text-[10px] text-slate-500 mt-1">Mantido se for a mesma cor.</p>
                   </div>
                   <div>
                     <label className="text-sm text-slate-400 block mb-1 font-bold text-green-400">Tamanho<span className="text-red-500">*</span></label>
                     <input 
-                      ref={sizeInputRef} // Referência para focar aqui automaticamente
+                      ref={sizeInputRef} 
                       name="size" 
                       placeholder="Ex: 40" 
                       required 
                       className="w-full bg-slate-900 border-2 border-slate-700 rounded px-3 py-2 text-white focus:border-green-500 outline-none font-bold" 
                     />
-                    <p className="text-[10px] text-green-500/70 mt-1">Foco automático aqui.</p>
                   </div>
                   <div>
                     <label className="text-sm text-slate-400 block mb-1 flex items-center gap-1"><ScanBarcode size={14}/> EAN/Barcode</label>
@@ -470,7 +469,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Botão Salvar */}
               <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm">
                 <button 
                   type="submit"
