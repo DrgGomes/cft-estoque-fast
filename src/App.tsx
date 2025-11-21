@@ -53,15 +53,15 @@ const appId = "estoque-loja";
 
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 
-// --- NOVO TIPO DE DADO (MAIS COMPLETO) ---
+// Tipo de dado
 type Product = {
   id: string;
-  sku: string;          // Código interno (Ex: 6204-PRETO-40)
-  barcode: string;      // Código de barras para bipar
-  image: string;        // URL da foto
-  name: string;         // Nome (Sapato Social Trones)
-  color: string;        // Variante Cor
-  size: string;         // Variante Tamanho
+  sku?: string;          
+  barcode?: string;      
+  image?: string;        
+  name: string;         
+  color: string;        
+  size: string;         
   quantity: number;
   updatedAt?: any;
 };
@@ -83,7 +83,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Buscar Produtos 
+  // Buscar Produtos
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -98,17 +98,20 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Filtro de Busca (Funciona com Leitor de Código de Barras)
+  // --- A CORREÇÃO ESTÁ AQUI (FILTRO BLINDADO) ---
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
     } else {
       const lowerTerm = searchTerm.toLowerCase();
-      const filtered = products.filter(p => 
-        p.name.toLowerCase().includes(lowerTerm) ||
-        p.sku.toLowerCase().includes(lowerTerm) ||
-        p.barcode.includes(lowerTerm) // Aqui o leitor de código de barras vai achar
-      );
+      const filtered = products.filter(p => {
+        // O código abaixo usa "|| ''" para garantir que não quebre se o campo não existir
+        const name = (p.name || '').toLowerCase();
+        const sku = (p.sku || '').toLowerCase();
+        const barcode = (p.barcode || '').toLowerCase();
+        
+        return name.includes(lowerTerm) || sku.includes(lowerTerm) || barcode.includes(lowerTerm);
+      });
       setFilteredProducts(filtered);
     }
   }, [searchTerm, products]);
@@ -228,7 +231,7 @@ function App() {
                 <div className="flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm leading-tight">{product.name}</h3>
-                    <div className="text-xs text-slate-500 mt-1 font-mono">SKU: {product.sku}</div>
+                    <div className="text-xs text-slate-500 mt-1 font-mono">SKU: {product.sku || '---'}</div>
                     <div className="flex gap-1 mt-2 flex-wrap">
                       <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase">{product.color}</span>
                       <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border">{product.size}</span>
@@ -287,15 +290,15 @@ function App() {
                 color: form.color.value,
                 size: form.size.value,
               });
-              // Limpa apenas campos variáveis, mantem nome e foto pra agilizar
+              // Limpa apenas campos variáveis
               form.sku.value = '';
               form.barcode.value = '';
               form.size.value = '';
-              form.sku.focus(); // Volta o foco para SKU/Barcode
+              form.sku.focus(); 
             }}
             className="grid grid-cols-1 md:grid-cols-6 gap-4"
           >
-            {/* Linha 1: Identificação Visual */}
+            {/* Linha 1 */}
             <div className="md:col-span-4">
               <label className="text-xs text-slate-500 font-bold mb-1 block">NOME DO PRODUTO (PAI)</label>
               <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
@@ -305,7 +308,7 @@ function App() {
               <input name="image" placeholder="https://..." className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
             </div>
 
-            {/* Linha 2: Variação Específica */}
+            {/* Linha 2 */}
             <div className="md:col-span-2">
                <label className="text-xs text-slate-500 font-bold mb-1 block text-blue-400">COR</label>
                <input name="color" placeholder="Ex: Preto" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
@@ -315,7 +318,7 @@ function App() {
                <input name="size" placeholder="40" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
             </div>
             
-            {/* Linha 3: Identificação de Sistema */}
+            {/* Linha 3 */}
             <div className="md:col-span-1">
                <label className="text-xs text-slate-500 font-bold mb-1 block">SKU</label>
                <input name="sku" placeholder="6204-PR-40" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
@@ -332,7 +335,7 @@ function App() {
           </form>
         </div>
 
-        {/* Barra de Busca e Ação Rápida (Leitor) */}
+        {/* Barra de Busca (Blindada) */}
         <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden">
           <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
           <div className="flex-1 relative z-10">
@@ -360,7 +363,7 @@ function App() {
                 <div>
                   <div className="font-bold text-slate-900 text-sm">{product.name}</div>
                   <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
-                    <span className="font-mono bg-slate-100 px-1 rounded">SKU: {product.sku}</span>
+                    <span className="font-mono bg-slate-100 px-1 rounded">SKU: {product.sku || '-'}</span>
                     {product.barcode && <span className="font-mono bg-slate-100 px-1 rounded flex items-center gap-1"><ScanBarcode size={10}/> {product.barcode}</span>}
                   </div>
                   <div className="flex gap-1 mt-1">
