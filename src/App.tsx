@@ -37,9 +37,28 @@ import {
   Zap,
   AlertCircle,
   Camera,
-  StopCircle
+  StopCircle,
+  Volume2
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
+
+// --- LINKS DOS SONS (Hospedados Online) ---
+const SOUNDS = {
+  success: "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3", // Bip Clássico
+  error: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3",   // Erro Grave
+  alert: "https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3"    // Notificação Suave
+};
+
+// Função auxiliar para tocar som
+const playSound = (type: 'success' | 'error' | 'alert') => {
+  try {
+    const audio = new Audio(SOUNDS[type]);
+    audio.volume = 0.5; // 50% do volume
+    audio.play().catch(e => console.log("Audio bloqueado pelo navegador:", e));
+  } catch (e) {
+    console.error("Erro ao tocar som", e);
+  }
+};
 
 // --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
@@ -93,6 +112,9 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [adminView, setAdminView] = useState<'list' | 'add'>('list');
   
+  // Ref para guardar o estado anterior dos produtos (Para detectar quando ZERA)
+  const prevProductsRef = useRef<Product[]>([]);
+  
   // Estados do Gerador de Grade
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
@@ -115,12 +137,9 @@ function App() {
   const [scanError, setScanError] = useState('');
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<any>(null);
-  
-  // --- TRAVA DE SEGURANÇA (Delay) ---
-  // Guarda o último código lido e a hora que foi lido
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
-  // Autenticação e Busca
+  // Autenticação
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) setUser(u);
@@ -129,6 +148,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+  // --- BUSCAR PRODUTOS & DETECTAR MUDANÇA DE ESTOQUE (ALERTA REVENDEDOR) ---
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -136,13 +156,33 @@ function App() {
       snapshot.forEach((doc) => {
         items.push({ id: doc.id, ...doc.data() } as Product);
       });
+
+      // --- LÓGICA DO ALERTA SONORO PARA O CLIENTE ---
+      // Se não for o primeiro carregamento (loading false) e se for um usuário comum
+      if (!loading && selectedRole === 'user') {
+        const previousProducts = prevProductsRef.current;
+        // Verifica se algum produto que TINHA estoque agora TEM ZERO
+        const justSoldOut = items.some(newItem => {
+          const oldItem = previousProducts.find(p => p.id === newItem.id);
+          return oldItem && oldItem.quantity > 0 && newItem.quantity === 0;
+        });
+
+        if (justSoldOut) {
+          playSound('alert'); // Toca o som de notificação
+        }
+      }
+
+      // Atualiza a referência para a próxima comparação
+      prevProductsRef.current = items;
+      
       setProducts(items);
       setFilteredProducts(items);
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [loading, selectedRole]); // Dependência para saber quem está logado
 
+  // Filtro de Busca
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
@@ -168,7 +208,7 @@ function App() {
             fps: 10, 
             qrbox: { width: 250, height: 150 },
             aspectRatio: 1.0,
-            videoConstraints: { facingMode: "environment" } // Câmera Traseira
+            videoConstraints: { facingMode: "environment" } 
           },
           false
         );
@@ -187,7 +227,7 @@ function App() {
     }
   }, [showCamera, showQuickEntry]);
 
-  // --- PROCESSADOR DE CÓDIGOS COM TRAVA ---
+  // --- PROCESSADOR DE CÓDIGOS ---
   const handleProcessCode = (code: string) => {
     setScanError('');
     const term = code.trim().toLowerCase();
@@ -195,13 +235,10 @@ function App() {
 
     const now = Date.now();
     
-    // VERIFICAÇÃO DA TRAVA (2.5 Segundos)
-    // Se for o MESMO código e passou menos de 2500ms, ignora
+    // Trava de 2.5s para a câmera não ler o mesmo código repetido
     if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) {
       return; 
     }
-
-    // Atualiza a referência do último scan
     lastScanRef.current = { code: term, time: now };
 
     const found = products.find(p => 
@@ -210,6 +247,7 @@ function App() {
     );
 
     if (found) {
+      playSound('success'); // TOCA SOM DE SUCESSO
       setScannedItems(prev => {
         const existingIndex = prev.findIndex(item => item.product.id === found.id);
         if (existingIndex >= 0) {
@@ -222,6 +260,7 @@ function App() {
       });
       setQuickScanInput(''); 
     } else {
+      playSound('error'); // TOCA SOM DE ERRO
       setScanError(`Produto não cadastrado: ${code}`);
     }
   };
@@ -264,6 +303,7 @@ function App() {
     } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
   };
 
+  // --- CRUD ---
   const handleUpdateQuantity = async (id: string, newQty: number) => {
     if (newQty < 0) return;
     const productRef = doc(db, PRODUCTS_COLLECTION, id);
@@ -280,7 +320,6 @@ function App() {
     } catch (error) { alert("Erro ao editar."); }
   };
 
-  // --- LÓGICA DA ENTRADA RÁPIDA ---
   const handleQuickScanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleProcessCode(quickScanInput);
