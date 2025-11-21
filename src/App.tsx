@@ -45,7 +45,9 @@ import {
   ClipboardList,
   ArrowRight,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  ChevronDown, // Ícone para expandir
+  ChevronUp    // Ícone para recolher
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
@@ -136,6 +138,9 @@ function App() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   
+  // Estado para controlar quais grupos estão expandidos (Accordion)
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
   // Estados do Gerador
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
@@ -231,6 +236,39 @@ function App() {
     }
   }, [searchTerm, products]);
 
+  // --- FUNÇÃO DE AGRUPAMENTO (O CORAÇÃO DA NOVA VISUALIZAÇÃO) ---
+  const groupProducts = (items: Product[]) => {
+    const groups: Record<string, { info: Product, total: number, items: Product[] }> = {};
+    
+    items.forEach(product => {
+      const key = product.name; // Agrupa pelo nome exato
+      if (!groups[key]) {
+        groups[key] = {
+          info: product, // Pega info do primeiro para exibir no card pai
+          total: 0,
+          items: []
+        };
+      }
+      groups[key].items.push(product);
+      groups[key].total += product.quantity;
+    });
+
+    // Ordena os filhos dentro do grupo por tamanho (opcional, mas fica bonito)
+    Object.values(groups).forEach(group => {
+        group.items.sort((a, b) => (a.size > b.size ? 1 : -1));
+    });
+
+    return groups;
+  };
+
+  const toggleGroup = (groupName: string) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [groupName]: !prev[groupName]
+    }));
+  };
+
+  // ... (Lógica de Câmera e Grade Mantida) ...
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
@@ -362,6 +400,9 @@ function App() {
     );
   }
 
+  // --- LAYOUT AGRUPADO PARA REVENDEDOR E ADMIN ---
+  const groupedProducts = groupProducts(filteredProducts);
+
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -369,34 +410,67 @@ function App() {
           <div className="max-w-md mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
               <div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>
-              <div><h1 className="font-bold text-lg">Estoque</h1><div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div></div>
+              <div>
+                <h1 className="font-bold text-lg">Estoque</h1>
+                <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              {!permissionGranted && (<button onClick={requestNotificationPermission} className="text-xs bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse border border-blue-400"><BellRing size={14} /> Ativar Alertas</button>)}
+              {!permissionGranted && (<button onClick={requestNotificationPermission} className="text-xs bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse border border-blue-400"><BellRing size={14} /> Alertas</button>)}
               <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
             </div>
           </div>
         </header>
         <main className="max-w-md mx-auto p-4 space-y-4">
-          <div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
+          <div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
+          
           <div className="space-y-3 pb-20">
-            {loading ? <p className="text-center text-slate-400">Carregando...</p> : filteredProducts.length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : filteredProducts.map((p) => (
-              <div key={p.id} className={`bg-white p-3 rounded-xl border-2 shadow-sm flex gap-3 ${p.quantity === 0 ? 'border-red-100 bg-red-50' : 'border-transparent'}`}>
-                <div className="w-16 h-16 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
-                <div className="flex-1 flex flex-col justify-between min-w-0">
-                  <div>
-                    <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{p.name}</h3>
-                    {/* MUDANÇA AQUI: SKU PAI + BARCODE */}
-                    <div className="text-sm font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : ''}</div>
-                    <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode || '---'}</div>
-                    
-                    <div className="flex gap-1 mt-1 flex-wrap">
-                      <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase text-slate-600">{p.color}</span>
-                      <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border text-slate-600">{p.size}</span>
+            {loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (
+              <div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* CARD PAI (CLICÁVEL) */}
+                <div 
+                  onClick={() => toggleGroup(name)}
+                  className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">
+                      {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3>
+                      <div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div>
+                      <div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-blue-600">{group.total}</div>
+                      <div className="text-[9px] text-slate-400 uppercase">Total</div>
+                    </div>
+                    {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+                  </div>
                 </div>
-                <div className="flex flex-col items-end justify-center shrink-0">{p.quantity > 0 ? <><span className="text-2xl font-bold text-green-600">{p.quantity}</span><span className="text-[9px] font-bold text-green-600 uppercase">Disp.</span></> : <div className="bg-red-100 text-red-600 px-2 py-1 rounded text-center"><span className="font-bold text-[10px] uppercase block">Esgotado</span></div>}</div>
+
+                {/* FILHOS (EXPANSÍVEL) */}
+                {expandedGroups[name] && (
+                  <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
+                    {group.items.map(p => (
+                      <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span>
+                          <span className="text-xs text-slate-600 uppercase">{p.color}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {p.quantity > 0 ? (
+                            <span className="text-green-600 font-bold text-lg">{p.quantity} <span className="text-[10px]">un</span></span>
+                          ) : (
+                            <span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -443,32 +517,74 @@ function App() {
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
               <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
             </div>
+            
+            {/* --- NOVA LISTA AGRUPADA PARA ADMIN --- */}
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
-              {filteredProducts.map((p) => (
-                <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-900 text-sm truncate">{p.name}</div>
-                      
-                      {/* MUDANÇA AQUI: SKU PAI + BARCODE */}
-                      <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : '---'}</div>
-                      <div className="text-xs text-slate-500 font-mono flex items-center gap-1"><ScanBarcode size={12} /> {p.barcode || '---'}</div>
-
-                      <div className="flex gap-1 mt-1 flex-wrap"><span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span><span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span></div>
+              {Object.entries(groupedProducts).length === 0 ? (
+                <div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>
+              ) : Object.entries(groupedProducts).map(([name, group]) => (
+                <div key={name} className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
+                  
+                  {/* CARD PAI (CABEÇALHO) */}
+                  <div 
+                    onClick={() => toggleGroup(name)}
+                    className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">
+                        {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 text-sm truncate">{name}</div>
+                        <div className="text-sm font-bold text-slate-700 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : '---'}</div>
+                        <div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <div className="text-right bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                        <div className="text-xl font-bold text-slate-800">{group.total}</div>
+                        <div className="text-[9px] text-slate-500 uppercase font-bold">Total</div>
+                      </div>
+                      {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
-                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10"><button onClick={() => handleUpdateQuantity(p, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div><button onClick={() => handleUpdateQuantity(p, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
-                    <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
-                    <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
-                  </div>
+
+                  {/* LISTA DE FILHOS (EXPANDIDA) */}
+                  {expandedGroups[name] && (
+                    <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
+                      {group.items.map(p => (
+                        <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span>
+                              <span className="text-xs text-slate-600 uppercase font-bold">{p.color}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                              <ScanBarcode size={10} /> {p.barcode || '---'}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8">
+                              <button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity - 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
+                              <div className="w-10 text-center font-bold text-slate-800 text-sm">{p.quantity}</div>
+                              <button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity + 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); setEditingProduct(p); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 bg-white border border-slate-200 rounded-lg"><Pencil size={14} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 bg-white border border-slate-200 rounded-lg"><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </>
         )}
 
+        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
         {adminView === 'add' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
