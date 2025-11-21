@@ -50,7 +50,8 @@ import {
   ChevronUp,
   ShoppingCart,
   MessageCircle,
-  Copy
+  Minus,
+  Flashlight // Ícone de lanterna (se disponível no futuro, deixamos preparado)
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
@@ -271,33 +272,14 @@ function App() {
     });
   };
 
-  // --- GERAR MENSAGEM WHATSAPP FORMATADA ---
   const generateWhatsAppMessage = () => {
     if (!customerName) return alert("Digite o nome do cliente!");
     if (cart.length === 0) return alert("Carrinho vazio!");
-
     const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-BR');
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const orderId = Math.floor(Math.random() * 900000) + 100000;
-
-    // Formatação Exata Solicitada
-    let message = `🛒 *PEDIDO:* ${orderId}\n\n`;
-    message += `🗓️ *DATA* ${dateStr}\n`;
-    message += `⌚ *HORA:* ${timeStr}\n\n`;
-    message += `🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`;
-
-    cart.forEach(item => {
-      // Tenta usar o SKU completo (Ex: 6204-MARROM-39/40)
-      // Se não tiver, monta manualmente
-      const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`;
-      
-      message += `${displaySku} --- ${item.quantity}\n`;
-      message += `-\n`;
-    });
-
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+    let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`;
+    cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; message += `${displaySku} --- ${item.quantity}\n-\n`; });
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const groupProducts = (items: Product[]) => {
@@ -314,11 +296,20 @@ function App() {
 
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
-  // ... (Manter funções de câmera, admin, etc.) ...
+  // --- LÓGICA DA CÂMERA TELA CHEIA ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
-        const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0, videoConstraints: { facingMode: "environment" } }, false);
+        const scanner = new Html5QrcodeScanner(
+          "reader",
+          { 
+            fps: 10, 
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: window.innerWidth / window.innerHeight,
+            videoConstraints: { facingMode: "environment" } 
+          },
+          false
+        );
         scanner.render((decodedText) => handleProcessCode(decodedText), (error) => {});
         scannerRef.current = scanner;
       }, 100);
@@ -332,16 +323,42 @@ function App() {
     const now = Date.now();
     if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
     lastScanRef.current = { code: term, time: now };
+
     const found = products.find(p => (p.sku && p.sku.toLowerCase() === term) || (p.barcode && p.barcode.toLowerCase() === term));
     if (found) {
       playSound('success');
       setScannedItems(prev => {
         const existingIndex = prev.findIndex(item => item.product.id === found.id);
-        if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; }
-        else { return [{ product: found, count: 1 }, ...prev]; }
+        if (existingIndex >= 0) { 
+          const newList = [...prev]; 
+          newList[existingIndex].count += 1; 
+          return newList; 
+        }
+        else { 
+          return [{ product: found, count: 1 }, ...prev]; 
+        }
       });
       setQuickScanInput(''); 
-    } else { playSound('error'); setScanError(`Produto não cadastrado: ${code}`); }
+    } else { 
+      playSound('error'); 
+      setScanError(`Não encontrado: ${code}`);
+      setTimeout(() => setScanError(''), 3000);
+    }
+  };
+
+  // NOVAS FUNÇÕES PARA EDITAR O BIP (SCANNED ITEMS)
+  const handleUpdateScannedQty = (productId: string, delta: number) => {
+    setScannedItems(prev => prev.map(item => {
+      if (item.product.id === productId) {
+        const newQty = item.count + delta;
+        return newQty > 0 ? { ...item, count: newQty } : item;
+      }
+      return item;
+    }));
+  };
+
+  const handleRemoveScannedItem = (productId: string) => {
+    setScannedItems(prev => prev.filter(item => item.product.id !== productId));
   };
 
   useEffect(() => {
@@ -390,7 +407,6 @@ function App() {
   };
 
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
-  
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
@@ -400,7 +416,6 @@ function App() {
       setEditingProduct(null);
     } catch (error) { alert("Erro ao editar."); }
   };
-
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
   
   const handleCommitQuickEntry = async () => {
@@ -426,105 +441,37 @@ function App() {
     return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
   };
 
-  // --- LAYOUT AGRUPADO PARA REVENDEDOR ---
   const groupedProducts = groupProducts(filteredProducts);
-
-  // --- RENDER ---
 
   if (!selectedRole) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <div className="bg-slate-900 p-8 rounded-2xl shadow-2xl border border-slate-800 max-w-md w-full">
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-inner border border-slate-700"><RefreshCw className="w-8 h-8 text-blue-500" /></div>
-            <h1 className="text-2xl font-bold text-white">Sistema ERP Flash</h1>
-            <p className="text-slate-400 text-sm mt-2">Controle de Estoque Avançado</p>
-          </div>
-          <div className="flex flex-col gap-4 w-full">
-            <button onClick={() => { const s = prompt("Senha ADM:"); if (s === "1234") setSelectedRole('admin'); else alert("Erro!"); }} className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold shadow-lg flex items-center justify-center gap-3 border border-slate-700"><Package size={20} /> <span>Sou Fornecedor (Painel)</span></button>
-            <button onClick={() => setSelectedRole('user')} className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg flex items-center justify-center gap-3"><Smartphone size={20} /> <span>Sou Revendedor (Alertas)</span></button>
-          </div>
+          <div className="flex flex-col items-center mb-8"><div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-inner border border-slate-700"><RefreshCw className="w-8 h-8 text-blue-500" /></div><h1 className="text-2xl font-bold text-white">Sistema ERP Flash</h1><p className="text-slate-400 text-sm mt-2">Controle de Estoque Avançado</p></div>
+          <div className="flex flex-col gap-4 w-full"><button onClick={() => { const s = prompt("Senha ADM:"); if (s === "1234") setSelectedRole('admin'); else alert("Erro!"); }} className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold shadow-lg flex items-center justify-center gap-3 border border-slate-700"><Package size={20} /> <span>Sou Fornecedor (Painel)</span></button><button onClick={() => setSelectedRole('user')} className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg flex items-center justify-center gap-3"><Smartphone size={20} /> <span>Sou Revendedor (Alertas)</span></button></div>
         </div>
       </div>
     );
   }
 
-  // --- TELA DO REVENDEDOR ---
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50">
         <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
           <div className="max-w-md mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
-              {userView === 'cart' ? (
-                <button onClick={() => setUserView('stock')} className="bg-blue-700 p-2 rounded-lg hover:bg-blue-800 transition-colors"><ChevronLeft size={24}/></button>
-              ) : (
-                <div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>
-              )}
+              {userView === 'cart' ? (<button onClick={() => setUserView('stock')} className="bg-blue-700 p-2 rounded-lg hover:bg-blue-800 transition-colors"><ChevronLeft size={24}/></button>) : (<div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>)}
               <div><h1 className="font-bold text-lg">{userView === 'stock' ? 'Estoque' : 'Seu Pedido'}</h1><div className="flex items-center gap-1.5">{userView === 'stock' ? (<><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></>) : (<span className="text-xs text-blue-100 font-medium">Finalizar Compra</span>)}</div></div>
             </div>
             <div className="flex items-center gap-2">
-              {userView === 'stock' && (
-                <button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>
-              )}
+              {userView === 'stock' && (<button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>)}
               <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
             </div>
           </div>
         </header>
-
         <main className="max-w-md mx-auto p-4 space-y-4">
-          {userView === 'stock' && (
-            <>
-              <div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-              <div className="space-y-3 pb-20">
-                {loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (
-                  <div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
-                        <div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div>
-                      </div>
-                      <div className="flex items-center gap-3"><div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div>
-                    </div>
-                    {expandedGroups[name] && (
-                      <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
-                        {group.items.map(p => (
-                          <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
-                            <div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div>
-                            <div className="flex items-center gap-3">{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {userView === 'cart' && (
-            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div>
-              <div className="p-4 space-y-4">
-                {cart.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>
-                ) : (
-                  <>
-                    <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-                      {cart.map(item => (
-                        <div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                          <div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div></div></div>
-                          <div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div>
-                    <button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {userView === 'stock' && (<><div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div><div className="space-y-3 pb-20">{loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (<div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"><div className="flex items-center gap-3 min-w-0"><div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div><div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div></div>{expandedGroups[name] && (<div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">{group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200"><div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div><div className="flex items-center gap-3">{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div></div>))}</div>)}</div>))}</div></>)}
+          {userView === 'cart' && (<div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"><div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div><div className="p-4 space-y-4">{cart.length === 0 ? (<div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>) : (<><div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">{cart.map(item => (<div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div></div></div><div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div></div>))}</div><div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div><button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button></>)}</div></div>)}
         </main>
       </div>
     );
@@ -569,22 +516,26 @@ function App() {
               <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
             </div>
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
-              {filteredProducts.map((p) => (
-                <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-900 text-sm truncate">{p.name}</div>
-                      <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : '---'}</div>
-                      <div className="text-xs text-slate-500 font-mono flex items-center gap-1"><ScanBarcode size={12} /> {p.barcode || '---'}</div>
-                      <div className="flex gap-1 mt-1 flex-wrap"><span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span><span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span></div>
+              {Object.entries(groupedProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedProducts).map(([name, group]) => (
+                <div key={name} className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
+                  <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0"><div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-900 text-sm truncate">{name}</div><div className="text-sm font-bold text-slate-700 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : '---'}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div></div>
+                    <div className="flex items-center gap-3"><div className="text-right bg-slate-100 px-3 py-1 rounded-lg border border-slate-200"><div className="text-xl font-bold text-slate-800">{group.total}</div><div className="text-[9px] text-slate-500 uppercase font-bold">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div>
+                  </div>
+                  {expandedGroups[name] && (
+                    <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
+                      {group.items.map(p => (
+                        <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                          <div className="min-w-0 flex-1"><div className="flex items-center gap-2 mb-1"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase font-bold">{p.color}</span></div><div className="text-[10px] text-slate-400 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode || '---'}</div></div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8"><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity - 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-10 text-center font-bold text-slate-800 text-sm">{p.quantity}</div><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity + 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
+                            <button onClick={(e) => { e.stopPropagation(); setEditingProduct(p); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 bg-white border border-slate-200 rounded-lg"><Pencil size={14} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 bg-white border border-slate-200 rounded-lg"><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
-                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10"><button onClick={() => handleUpdateQuantity(p, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div><button onClick={() => handleUpdateQuantity(p, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
-                    <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
-                    <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -603,26 +554,111 @@ function App() {
           </div>
         )}
 
+        {/* --- POPUP DE ENTRADA RÁPIDA TELA CHEIA (FULLSCREEN) --- */}
         {showQuickEntry && (
-          <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="p-4 md:p-6 bg-slate-800 border-b border-slate-700 flex justify-between items-center"><h2 className="text-lg md:text-2xl font-bold text-white flex items-center gap-2"><Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida</h2><button onClick={() => { setShowQuickEntry(false); setScannedItems([]); setShowCamera(false); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button></div>
-              <div className="p-4 md:p-6 bg-slate-900/50 border-b border-slate-800">
-                {showCamera ? (<div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black"><div id="reader" className="w-full h-64"></div><button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR</button></div>) : (<button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA</button>)}
-                <form onSubmit={handleQuickScanSubmit}><div className="relative"><div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div><input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-lg text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} /></div></form>
-                {scanError && (<div className="mt-3 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2 animate-in slide-in-from-top-2"><AlertCircle size={18} /> {scanError}</div>)}
+          <div className="fixed inset-0 bg-black z-50 flex flex-col">
+            
+            {/* CÂMERA (Fundo) */}
+            <div className="flex-1 relative bg-black overflow-hidden">
+              {showCamera ? (
+                <div className="absolute inset-0">
+                  <div id="reader" className="w-full h-full object-cover"></div>
+                  {/* MIRA LASER (Overlay Visual) */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-64 h-64 border-2 border-white/50 rounded-lg relative">
+                      <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
+                      <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div>
+                      <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div>
+                      <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div>
+                      <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div>
+                    </div>
+                  </div>
+                  {/* Botão Fechar Câmera */}
+                  <button onClick={() => { setShowCamera(false); setShowQuickEntry(false); }} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full z-50"><X size={24} /></button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-500">
+                  <p>Carregando Câmera...</p>
+                </div>
+              )}
+              
+              {/* FEEDBACK VISUAL (O "Coloridinho") */}
+              {scanError && (
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none">
+                  <AlertCircle size={24} /> {scanError.replace('Não encontrado: ', 'PRODUTO NÃO CADASTRADO: ')}
+                </div>
+              )}
+              {/* Feedback de Sucesso (Recuperando o último item da lista se houver) */}
+              {scannedItems.length > 0 && !scanError && (
+                 <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-green-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none">
+                   <Check size={24} /> LIDO: {scannedItems[0].product.name}
+                 </div>
+              )}
+            </div>
+
+            {/* GAVETA INFERIOR (Lista) */}
+            <div className="bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.5)] flex flex-col max-h-[40vh]">
+              {/* Cabeçalho da Gaveta */}
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span>
+                  <span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span>
+                </div>
+                <button 
+                  onClick={handleCommitQuickEntry}
+                  disabled={scannedItems.length === 0 || isSavingBatch}
+                  className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}
+                >
+                  {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR
+                </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-950">
-                {scannedItems.length === 0 ? (<div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50"><ScanBarcode size={64} className="mb-4" /><p className="text-lg font-medium">Lista vazia</p></div>) : (<div className="space-y-2">{scannedItems.map((item, idx) => (<div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between animate-in slide-in-from-left"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div><div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku ? item.product.sku.split('-')[0] : ''}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div></div><div className="flex items-center gap-4"><div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30">+{item.count}</div></div></div>))}</div>)}
+
+              {/* Lista Rolável */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+                {scannedItems.map((item) => (
+                  <div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">
+                        {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div>
+                        <div className="text-xs text-slate-500 font-mono">{item.product.sku || item.product.barcode}</div>
+                      </div>
+                    </div>
+                    
+                    {/* CONTROLES +/- */}
+                    <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
+                      <button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button>
+                      <span className="w-6 text-center font-bold text-slate-800">{item.count}</span>
+                      <button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button>
+                    </div>
+                    <button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+                {scannedItems.length === 0 && (
+                  <div className="text-center py-4 text-slate-400 text-sm">
+                    Aponte a câmera para começar...
+                  </div>
+                )}
               </div>
-              <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center">
-                <div className="text-slate-400 text-sm"><span className="text-white font-bold">{scannedItems.reduce((acc, item) => acc + item.count, 0)}</span> itens</div>
-                <button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-6 py-4 rounded-xl font-bold flex items-center gap-2 text-base md:text-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={24} />}{isSavingBatch ? '...' : 'CONFIRMAR'}</button>
+              
+              {/* Input Manual (Caso a câmera falhe) */}
+              <div className="p-2 bg-white border-t border-slate-100">
+                 <form onSubmit={handleQuickScanSubmit}>
+                    <input 
+                      value={quickScanInput}
+                      onChange={e => setQuickScanInput(e.target.value)}
+                      placeholder="Digitar código manual..." 
+                      className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                 </form>
               </div>
             </div>
           </div>
         )}
 
+        {/* --- MODAL DE EDIÇÃO --- */}
         {editingProduct && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 p-6 rounded-xl w-full max-w-md border border-slate-700 shadow-2xl">
