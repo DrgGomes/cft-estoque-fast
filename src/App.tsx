@@ -49,9 +49,9 @@ import {
   ChevronUp,
   ShoppingCart,
   MessageCircle,
-  Minus
+  Minus,
+  RotateCcw // Ícone para tentar novamente
 } from 'lucide-react';
-// MUDANÇA AQUI: Importando a classe Core em vez do Scanner
 import { Html5Qrcode } from "html5-qrcode";
 
 // --- SONS ---
@@ -161,12 +161,12 @@ function App() {
   // Estados Entrada Rápida
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [cameraLoading, setCameraLoading] = useState(false); // Novo estado de loading da camera
+  const [cameraLoading, setCameraLoading] = useState(false);
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   const scanInputRef = useRef<HTMLInputElement>(null);
-  const scannerRef = useRef<Html5Qrcode | null>(null); // Mudança de tipo
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
   useEffect(() => {
@@ -242,42 +242,50 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- LÓGICA DA CÂMERA (MÉTODO ROBUSTO) ---
+  // --- FUNÇÃO DE START CÂMERA ROBUSTA ---
+  const startCamera = () => {
+    if (scannerRef.current?.isScanning) return; // Já está rodando
+
+    setCameraLoading(true);
+    setScanError('');
+
+    // Delay maior para garantir DOM
+    setTimeout(() => {
+      const html5QrCode = new Html5Qrcode("reader");
+      scannerRef.current = html5QrCode;
+
+      const config = { 
+        fps: 10, 
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: window.innerWidth / window.innerHeight
+      };
+
+      html5QrCode.start(
+        { facingMode: "environment" }, 
+        config,
+        (decodedText) => {
+          handleProcessCode(decodedText);
+        },
+        (errorMessage) => {
+          // Ignora erros de frame vazio
+        }
+      ).then(() => {
+        setCameraLoading(false);
+      }).catch(err => {
+        console.error("Erro ao iniciar câmera", err);
+        setCameraLoading(false);
+        setScanError("Permissão negada ou erro na câmera.");
+      });
+    }, 500); // Delay de 500ms
+  };
+
+  // --- LÓGICA DE EFEITO DE CÂMERA ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
-      setCameraLoading(true);
-      // Pequeno delay para garantir que a DIV 'reader' existe no DOM
-      setTimeout(() => {
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-
-        const config = { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: window.innerWidth / window.innerHeight
-        };
-
-        html5QrCode.start(
-          { facingMode: "environment" }, 
-          config,
-          (decodedText) => {
-            handleProcessCode(decodedText);
-          },
-          (errorMessage) => {
-            // Ignora erros de scan frame a frame
-          }
-        ).then(() => {
-          setCameraLoading(false);
-        }).catch(err => {
-          console.error("Erro ao iniciar câmera", err);
-          setCameraLoading(false);
-          setScanError("Erro ao acessar câmera. Verifique permissões.");
-        });
-
-      }, 300);
+      startCamera();
     }
 
-    // Cleanup function
+    // Cleanup
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().then(() => {
@@ -293,7 +301,6 @@ function App() {
     if (!term) return;
     const now = Date.now();
     
-    // Trava de 2.5s para não ler duplicado
     if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
     lastScanRef.current = { code: term, time: now };
 
@@ -308,7 +315,7 @@ function App() {
       setQuickScanInput(''); 
     } else { 
       playSound('error'); 
-      setScanError(`Produto não cadastrado: ${code}`);
+      setScanError(`Não encontrado: ${code}`);
       setTimeout(() => setScanError(''), 3000);
     }
   };
@@ -327,7 +334,7 @@ function App() {
     setScannedItems(prev => prev.filter(item => item.product.id !== productId));
   };
 
-  // ... (Funções de grade e CRUD mantidas) ...
+  // ... (Funções de Grade, CRUD, Mensagem WhatsApp mantidas iguais) ...
   useEffect(() => {
     const newRows: VariationRow[] = [];
     colors.forEach(color => { sizes.forEach(size => {
@@ -400,7 +407,6 @@ function App() {
       setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!");
     } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
   };
-
   const handleAddToCart = (product: Product) => {
     if (product.quantity <= 0) return alert("Produto sem estoque!");
     setCart(prev => {
@@ -450,9 +456,6 @@ function App() {
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); };
 
-  // --- LAYOUT AGRUPADO PARA REVENDEDOR ---
-  const groupedProducts = groupProducts(filteredProducts);
-
   // --- RENDER ---
 
   if (!selectedRole) {
@@ -467,6 +470,7 @@ function App() {
   }
 
   if (selectedRole === 'user') {
+    const groupedProducts = groupProducts(filteredProducts);
     return (
       <div className="min-h-screen bg-slate-50">
         <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
@@ -490,6 +494,8 @@ function App() {
   }
 
   // --- ADMIN ---
+  const groupedAdminProducts = groupProducts(filteredProducts);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
@@ -508,7 +514,7 @@ function App() {
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
-            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
+            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
           </div>
@@ -528,7 +534,7 @@ function App() {
               <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
             </div>
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
-              {Object.entries(groupedProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedProducts).map(([name, group]) => (
+              {Object.entries(groupedAdminProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedAdminProducts).map(([name, group]) => (
                 <div key={name} className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
                   <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-3 min-w-0"><div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-900 text-sm truncate">{name}</div><div className="text-sm font-bold text-slate-700 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : '---'}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div></div>
@@ -554,6 +560,7 @@ function App() {
           </>
         )}
 
+        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
         {adminView === 'add' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
@@ -566,112 +573,33 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA (FULL SCREEN) --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black z-50 flex flex-col">
-            
-            {/* CÂMERA (Fundo Full Screen) */}
             <div className="flex-1 relative bg-black overflow-hidden">
               {showCamera ? (
                 <div className="absolute inset-0">
                   <div id="reader" className="w-full h-full object-cover"></div>
-                  
-                  {/* MIRA LASER */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-64 h-64 border-2 border-white/50 rounded-lg relative">
-                      <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
-                      <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div>
-                      <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div>
-                      <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div>
-                      <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div>
-                    </div>
-                  </div>
-
-                  {/* BOTÃO FECHAR */}
-                  <button 
-                    onClick={() => { setShowCamera(false); setShowQuickEntry(false); }} 
-                    className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full z-50"
-                  >
-                    <X size={24} />
-                  </button>
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-64 h-64 border-2 border-white/50 rounded-lg relative"><div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div><div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div><div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div><div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div><div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div></div></div>
+                  <button onClick={() => { setShowCamera(false); setShowQuickEntry(false); }} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full z-50"><X size={24} /></button>
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-slate-500 flex-col gap-2">
-                  {cameraLoading ? <RefreshCw className="animate-spin" /> : <AlertCircle />}
+                  {cameraLoading ? <RefreshCw className="animate-spin" /> : (
+                    <button onClick={startCamera} className="bg-slate-800 text-white px-6 py-3 rounded-full flex items-center gap-2 border border-slate-700 hover:bg-slate-700 transition-colors"><RotateCcw size={20}/> INICIAR CÂMERA MANUALMENTE</button>
+                  )}
                   <p>{scanError || 'Carregando Câmera...'}</p>
                 </div>
               )}
-              
-              {/* FEEDBACK VISUAL (O "Coloridinho") */}
-              {scanError && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50">
-                  <AlertCircle size={24} /> {scanError.replace('Não encontrado: ', 'PRODUTO NÃO CADASTRADO: ')}
-                </div>
-              )}
+              {scanError && (<div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50"><AlertCircle size={24} /> {scanError.replace('Não encontrado: ', 'PRODUTO NÃO CADASTRADO: ')}</div>)}
             </div>
-
-            {/* GAVETA INFERIOR (Lista e Controles) */}
             <div className="bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.5)] flex flex-col max-h-[40vh]">
-              {/* Cabeçalho da Gaveta */}
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span>
-                  <span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span>
-                </div>
-                <button 
-                  onClick={handleCommitQuickEntry}
-                  disabled={scannedItems.length === 0 || isSavingBatch}
-                  className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}
-                >
-                  {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR
-                </button>
-              </div>
-
-              {/* Lista Rolável */}
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl"><div className="flex flex-col"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span><span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span></div><button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR</button></div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-                {scannedItems.map((item) => (
-                  <div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">
-                        {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div>
-                        <div className="text-xs text-slate-500 font-mono flex gap-1">
-                          <span className="bg-slate-100 px-1 rounded">{item.product.size}</span>
-                          <span className="uppercase">{item.product.color}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* CONTROLES +/- */}
-                    <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
-                      <button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button>
-                      <span className="w-6 text-center font-bold text-slate-800">{item.count}</span>
-                      <button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button>
-                    </div>
-                    <button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button>
-                  </div>
-                ))}
-                {scannedItems.length === 0 && (
-                  <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
-                    <ScanBarcode size={32} className="opacity-20" />
-                    <span>Aponte a câmera para começar...</span>
-                  </div>
-                )}
+                {scannedItems.map((item) => (<div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2"><div className="flex items-center gap-3 overflow-hidden"><div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div><div className="text-xs text-slate-500 font-mono flex gap-1"><span className="bg-slate-100 px-1 rounded">{item.product.size}</span><span className="uppercase">{item.product.color}</span></div></div></div><div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1"><button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button><span className="w-6 text-center font-bold text-slate-800">{item.count}</span><button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button></div><button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button></div>))}
+                {scannedItems.length === 0 && (<div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2"><ScanBarcode size={32} className="opacity-20" /><span>Aponte a câmera para começar...</span></div>)}
               </div>
-              
-              {/* Input Manual */}
-              <div className="p-2 bg-white border-t border-slate-100 pb-6">
-                 <form onSubmit={handleQuickScanSubmit}>
-                    <input 
-                      value={quickScanInput}
-                      onChange={e => setQuickScanInput(e.target.value)}
-                      placeholder="Digitar código manual..." 
-                      className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                 </form>
-              </div>
+              <div className="p-2 bg-white border-t border-slate-100 pb-6"><form onSubmit={handleQuickScanSubmit}><input value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digitar código manual..." className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></form></div>
             </div>
           </div>
         )}
