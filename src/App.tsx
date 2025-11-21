@@ -42,7 +42,7 @@ import {
   BellRing,
   LayoutGrid,
   ChevronLeft,
-  ClipboardList, // Ícone do Relatório
+  ClipboardList,
   ArrowRight,
   TrendingUp,
   TrendingDown
@@ -94,7 +94,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "estoque-loja";
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
-const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`; // Nova coleção de histórico
+const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 
 // Tipos
 type Product = {
@@ -111,8 +111,6 @@ type Product = {
 
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
 type ScannedItem = { product: Product; count: number; };
-
-// Tipo do Histórico
 type HistoryItem = {
   id: string;
   productId: string;
@@ -130,14 +128,11 @@ function App() {
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [history, setHistory] = useState<HistoryItem[]>([]); // Estado do histórico
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Adicionado 'history' nas rotas
   const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history'>('menu');
-  
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   
@@ -184,7 +179,6 @@ function App() {
     }
   };
 
-  // Busca Produtos
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -210,7 +204,6 @@ function App() {
     return () => unsubscribe();
   }, [loading, selectedRole]);
 
-  // Busca Histórico (Limitado aos últimos 50 para não pesar)
   useEffect(() => {
     if (selectedRole === 'admin') {
       const q = query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(50));
@@ -238,7 +231,6 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // ... (Lógica de Câmera e Grade Mantida - simplificado aqui para caber, mas é o mesmo do anterior) ...
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
@@ -298,42 +290,19 @@ function App() {
     } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
   };
 
-  // --- ATUALIZAR ESTOQUE COM REGISTRO DE HISTÓRICO ---
   const handleUpdateQuantity = async (product: Product, newQty: number) => {
     if (newQty < 0) return;
-    
-    // Calcula a diferença
     const diff = newQty - product.quantity;
     if (diff === 0) return;
-
     const type = diff > 0 ? 'entry' : 'exit';
-
     try {
       const batch = writeBatch(db);
-      
-      // 1. Atualiza Produto
       const productRef = doc(db, PRODUCTS_COLLECTION, product.id);
       batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() });
-
-      // 2. Cria Registro no Histórico
       const historyRef = doc(collection(db, HISTORY_COLLECTION));
-      batch.set(historyRef, {
-        productId: product.id,
-        productName: product.name,
-        sku: product.sku || '',
-        image: product.image || '',
-        type: type,
-        amount: Math.abs(diff),
-        previousQty: product.quantity,
-        newQty: newQty,
-        timestamp: serverTimestamp()
-      });
-
+      batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() });
       await batch.commit();
-    } catch (e) {
-      console.error("Erro ao atualizar estoque", e);
-      alert("Erro ao atualizar.");
-    }
+    } catch (e) { console.error(e); alert("Erro."); }
   };
 
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
@@ -350,7 +319,6 @@ function App() {
 
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
   
-  // --- ENTRADA RÁPIDA COM HISTÓRICO ---
   const handleCommitQuickEntry = async () => {
     if (scannedItems.length === 0) return;
     setIsSavingBatch(true);
@@ -360,34 +328,18 @@ function App() {
         const docRef = doc(db, PRODUCTS_COLLECTION, item.product.id);
         const newTotal = item.product.quantity + item.count;
         batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() });
-
-        // Registra Histórico
         const historyRef = doc(collection(db, HISTORY_COLLECTION));
-        batch.set(historyRef, {
-          productId: item.product.id,
-          productName: item.product.name,
-          sku: item.product.sku || '',
-          image: item.product.image || '',
-          type: 'entry', // Entrada rápida é sempre entrada
-          amount: item.count,
-          previousQty: item.product.quantity,
-          newQty: newTotal,
-          timestamp: serverTimestamp()
-        });
+        batch.set(historyRef, { productId: item.product.id, productName: item.product.name, sku: item.product.sku || '', image: item.product.image || '', type: 'entry', amount: item.count, previousQty: item.product.quantity, newQty: newTotal, timestamp: serverTimestamp() });
       });
       await batch.commit();
       setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!");
     } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
   };
 
-  // Função auxiliar para formatar data
   const formatDate = (timestamp: any) => {
     if (!timestamp) return '...';
-    const date = timestamp.toDate(); // Converte timestamp do Firestore
-    return new Intl.DateTimeFormat('pt-BR', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).format(date);
+    const date = timestamp.toDate();
+    return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
   };
 
   // --- UI ---
@@ -417,17 +369,10 @@ function App() {
           <div className="max-w-md mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
               <div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>
-              <div>
-                <h1 className="font-bold text-lg">Estoque</h1>
-                <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div>
-              </div>
+              <div><h1 className="font-bold text-lg">Estoque</h1><div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div></div>
             </div>
             <div className="flex items-center gap-2">
-              {!permissionGranted && (
-                <button onClick={requestNotificationPermission} className="text-xs bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse border border-blue-400">
-                  <BellRing size={14} /> Ativar Alertas
-                </button>
-              )}
+              {!permissionGranted && (<button onClick={requestNotificationPermission} className="text-xs bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse border border-blue-400"><BellRing size={14} /> Ativar Alertas</button>)}
               <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
             </div>
           </div>
@@ -441,7 +386,10 @@ function App() {
                 <div className="flex-1 flex flex-col justify-between min-w-0">
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{p.name}</h3>
-                    <div className="text-sm font-bold text-slate-600 mt-0.5">{p.sku ? p.sku.split('-')[0] : ''}</div>
+                    {/* MUDANÇA AQUI: SKU PAI + BARCODE */}
+                    <div className="text-sm font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : ''}</div>
+                    <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode || '---'}</div>
+                    
                     <div className="flex gap-1 mt-1 flex-wrap">
                       <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border uppercase text-slate-600">{p.color}</span>
                       <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded border text-slate-600">{p.size}</span>
@@ -463,153 +411,55 @@ function App() {
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            {adminView !== 'menu' ? (
-              <button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors">
-                <ChevronLeft className="w-6 h-6 text-white" />
-              </button>
-            ) : (
-              <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
-            )}
+            {adminView !== 'menu' ? (<button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors"><ChevronLeft className="w-6 h-6 text-white" /></button>) : (<div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>)}
             <div><h1 className="font-bold text-white md:block">Painel ERP</h1></div>
           </div>
-          
           <div className="flex items-center gap-2 md:gap-3">
-            <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700">
-              <LogOut size={16} /> <span className="hidden md:inline">Sair</span>
-            </button>
+            <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> <span className="hidden md:inline">Sair</span></button>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
-        
-        {/* --- MENU PRINCIPAL --- */}
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-            <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div>
-              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div>
-            </button>
-
-            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div>
-              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div>
-            </button>
-
-            <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div>
-              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div>
-            </button>
-
-            {/* NOVO BOTÃO DE RELATÓRIO */}
-            <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg">
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div>
-              <div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div>
-            </button>
+            <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
+            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
+            <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
+            <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
           </div>
         )}
 
-        {/* --- TELA DE RELATÓRIO (NOVA) --- */}
         {adminView === 'history' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
-            <div className="p-4 border-b border-slate-800 flex items-center gap-2 bg-slate-800/50">
-              <ClipboardList className="text-purple-400" />
-              <h2 className="text-lg font-bold text-white">Movimentações Recentes</h2>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="text-xs text-slate-500 border-b border-slate-800 uppercase">
-                    <th className="p-4">Tempo</th>
-                    <th className="p-4">Produto / SKU</th>
-                    <th className="p-4 text-center">Tipo</th>
-                    <th className="p-4 text-right">Detalhe</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {history.length === 0 ? (
-                    <tr><td colSpan={4} className="p-8 text-center text-slate-500">Nenhuma movimentação registrada.</td></tr>
-                  ) : history.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="p-4 align-top">
-                        <div className="text-sm text-white font-mono">{formatDate(item.timestamp).split(' ')[0]}</div>
-                        <div className="text-xs text-slate-500 font-mono">{formatDate(item.timestamp).split(' ')[1]}</div>
-                      </td>
-                      <td className="p-4 align-top">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-slate-800 rounded border border-slate-700 overflow-hidden shrink-0">
-                            {item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-500"/>}
-                          </div>
-                          <div>
-                            <div className="text-sm font-bold text-slate-200">{item.productName}</div>
-                            <div className="text-xs text-slate-500 font-mono">{item.sku}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-4 align-top text-center">
-                        {item.type === 'entry' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-bold border border-green-500/20">
-                            <TrendingUp size={12} /> ENTRADA
-                          </span>
-                        ) : item.type === 'exit' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-bold border border-red-500/20">
-                            <TrendingDown size={12} /> SAÍDA
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-500">Correção</span>
-                        )}
-                      </td>
-                      <td className="p-4 align-top text-right">
-                        <div className="flex items-center justify-end gap-2 text-sm font-mono">
-                          <span className="text-slate-400">{item.previousQty}</span>
-                          <ArrowRight size={12} className="text-slate-600" />
-                          <span className="text-white font-bold">{item.newQty}</span>
-                        </div>
-                        <div className={`text-xs font-bold mt-1 ${item.type === 'entry' ? 'text-green-500' : 'text-red-500'}`}>
-                          {item.type === 'entry' ? '+' : '-'}{item.amount}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <div className="p-4 border-b border-slate-800 flex items-center gap-2 bg-slate-800/50"><ClipboardList className="text-purple-400" /><h2 className="text-lg font-bold text-white">Movimentações Recentes</h2></div>
+            <div className="overflow-x-auto"><table className="w-full text-left border-collapse"><thead><tr className="text-xs text-slate-500 border-b border-slate-800 uppercase"><th className="p-4">Tempo</th><th className="p-4">Produto / SKU</th><th className="p-4 text-center">Tipo</th><th className="p-4 text-right">Detalhe</th></tr></thead><tbody className="divide-y divide-slate-800">{history.length === 0 ? (<tr><td colSpan={4} className="p-8 text-center text-slate-500">Nenhuma movimentação registrada.</td></tr>) : history.map((item) => (<tr key={item.id} className="hover:bg-slate-800/30 transition-colors"><td className="p-4 align-top"><div className="text-sm text-white font-mono">{formatDate(item.timestamp).split(' ')[0]}</div><div className="text-xs text-slate-500 font-mono">{formatDate(item.timestamp).split(' ')[1]}</div></td><td className="p-4 align-top"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-slate-800 rounded border border-slate-700 overflow-hidden shrink-0">{item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-500"/>}</div><div><div className="text-sm font-bold text-slate-200">{item.productName}</div><div className="text-xs text-slate-500 font-mono">{item.sku}</div></div></div></td><td className="p-4 align-top text-center">{item.type === 'entry' ? (<span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-bold border border-green-500/20"><TrendingUp size={12} /> ENTRADA</span>) : item.type === 'exit' ? (<span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-bold border border-red-500/20"><TrendingDown size={12} /> SAÍDA</span>) : (<span className="text-xs text-slate-500">Correção</span>)}</td><td className="p-4 align-top text-right"><div className="flex items-center justify-end gap-2 text-sm font-mono"><span className="text-slate-400">{item.previousQty}</span><ArrowRight size={12} className="text-slate-600" /><span className="text-white font-bold">{item.newQty}</span></div><div className={`text-xs font-bold mt-1 ${item.type === 'entry' ? 'text-green-500' : 'text-red-500'}`}>{item.type === 'entry' ? '+' : '-'}{item.amount}</div></td></tr>))}</tbody></table></div>
           </div>
         )}
 
-        {/* --- LISTA DE ESTOQUE --- */}
         {adminView === 'stock' && (
           <>
             <div className="bg-slate-800 p-3 md:p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
-              <div className="flex-1 relative z-10">
-                <label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label>
-                <input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" />
-              </div>
+              <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
             </div>
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
               {filteredProducts.map((p) => (
                 <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">
-                      {p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
-                    </div>
+                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div>
                     <div className="min-w-0">
                       <div className="font-bold text-slate-900 text-sm truncate">{p.name}</div>
+                      
+                      {/* MUDANÇA AQUI: SKU PAI + BARCODE */}
                       <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : '---'}</div>
-                      <div className="flex gap-1 mt-1 flex-wrap">
-                        <span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span>
-                        <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span>
-                      </div>
+                      <div className="text-xs text-slate-500 font-mono flex items-center gap-1"><ScanBarcode size={12} /> {p.barcode || '---'}</div>
+
+                      <div className="flex gap-1 mt-1 flex-wrap"><span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span><span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span></div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
-                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10">
-                      <button onClick={() => handleUpdateQuantity(p, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
-                      <div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div>
-                      <button onClick={() => handleUpdateQuantity(p, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
-                    </div>
+                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10"><button onClick={() => handleUpdateQuantity(p, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div><button onClick={() => handleUpdateQuantity(p, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
                     <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
                     <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
                   </div>
@@ -619,7 +469,6 @@ function App() {
           </>
         )}
 
-        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
         {adminView === 'add' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
@@ -632,36 +481,17 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="p-4 md:p-6 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
-                <h2 className="text-lg md:text-2xl font-bold text-white flex items-center gap-2"><Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida</h2>
-                <button onClick={() => { setShowQuickEntry(false); setScannedItems([]); setShowCamera(false); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button>
-              </div>
+              <div className="p-4 md:p-6 bg-slate-800 border-b border-slate-700 flex justify-between items-center"><h2 className="text-lg md:text-2xl font-bold text-white flex items-center gap-2"><Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida</h2><button onClick={() => { setShowQuickEntry(false); setScannedItems([]); setShowCamera(false); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button></div>
               <div className="p-4 md:p-6 bg-slate-900/50 border-b border-slate-800">
-                {showCamera ? (
-                  <div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black"><div id="reader" className="w-full h-64"></div><button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR</button></div>
-                ) : (
-                   <button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA</button>
-                )}
+                {showCamera ? (<div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black"><div id="reader" className="w-full h-64"></div><button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR</button></div>) : (<button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA</button>)}
                 <form onSubmit={handleQuickScanSubmit}><div className="relative"><div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div><input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-lg text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} /></div></form>
                 {scanError && (<div className="mt-3 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2 animate-in slide-in-from-top-2"><AlertCircle size={18} /> {scanError}</div>)}
               </div>
               <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-950">
-                {scannedItems.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50"><ScanBarcode size={64} className="mb-4" /><p className="text-lg font-medium">Lista vazia</p></div>
-                ) : (
-                  <div className="space-y-2">
-                    {scannedItems.map((item, idx) => (
-                      <div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between animate-in slide-in-from-left">
-                        <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div><div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku ? item.product.sku.split('-')[0] : ''}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div></div>
-                        <div className="flex items-center gap-4"><div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30">+{item.count}</div></div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {scannedItems.length === 0 ? (<div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50"><ScanBarcode size={64} className="mb-4" /><p className="text-lg font-medium">Lista vazia</p></div>) : (<div className="space-y-2">{scannedItems.map((item, idx) => (<div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between animate-in slide-in-from-left"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div><div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku ? item.product.sku.split('-')[0] : ''}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div></div><div className="flex items-center gap-4"><div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30">+{item.count}</div></div></div>))}</div>)}
               </div>
               <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center">
                 <div className="text-slate-400 text-sm"><span className="text-white font-bold">{scannedItems.reduce((acc, item) => acc + item.count, 0)}</span> itens</div>
@@ -671,7 +501,6 @@ function App() {
           </div>
         )}
 
-        {/* --- MODAL DE EDIÇÃO --- */}
         {editingProduct && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 p-6 rounded-xl w-full max-w-md border border-slate-700 shadow-2xl">
