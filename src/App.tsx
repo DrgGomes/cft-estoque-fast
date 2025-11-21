@@ -34,10 +34,12 @@ import {
   Check,
   Layers,
   Pencil,
-  Zap, // Ícone do Raio
+  Zap,
   AlertCircle,
-  ArrowRight
+  Camera, // Ícone da Camera
+  StopCircle
 } from 'lucide-react';
+import { Html5QrcodeScanner } from "html5-qrcode"; // Importando o Leitor
 
 // --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
@@ -77,7 +79,6 @@ type VariationRow = {
   barcode: string;
 };
 
-// Tipo para a Entrada Rápida
 type ScannedItem = {
   product: Product;
   count: number;
@@ -106,14 +107,16 @@ function App() {
   // Estados de Edição
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  // --- ESTADOS DA ENTRADA RÁPIDA ---
+  // --- ESTADOS DA ENTRADA RÁPIDA & CÂMERA ---
   const [showQuickEntry, setShowQuickEntry] = useState(false);
+  const [showCamera, setShowCamera] = useState(false); // Controla se a câmera está aberta
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const scannerRef = useRef<any>(null); // Referência para limpar o scanner
 
-  // Autenticação e Busca (Padrão)
+  // Autenticação e Busca
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) setUser(u);
@@ -151,7 +154,71 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- LÓGICA DA GRADE (Resumida para caber) ---
+  // --- LÓGICA DA CÂMERA ---
+  useEffect(() => {
+    if (showCamera && showQuickEntry) {
+      // Pequeno delay para garantir que a DIV existe
+      setTimeout(() => {
+        const scanner = new Html5QrcodeScanner(
+          "reader",
+          { 
+            fps: 10, 
+            qrbox: { width: 250, height: 150 }, // Caixa retangular para código de barras
+            aspectRatio: 1.0 
+          },
+          false
+        );
+
+        scanner.render((decodedText) => {
+          // SUCESSO NA LEITURA
+          handleProcessCode(decodedText);
+          // Opcional: Fechar câmera após ler? Por enquanto deixamos aberta para bipar vários
+          // setShowCamera(false); 
+        }, (error) => {
+          // Erro de leitura normal (não encontrou nada no frame), ignorar
+        });
+
+        scannerRef.current = scanner;
+      }, 100);
+    } else {
+      // Se fechar a câmera, limpar
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch((e: any) => console.error(e));
+        scannerRef.current = null;
+      }
+    }
+  }, [showCamera, showQuickEntry]);
+
+  // Função auxiliar para processar qualquer código (digitado ou câmera)
+  const handleProcessCode = (code: string) => {
+    setScanError('');
+    const term = code.trim().toLowerCase();
+    if (!term) return;
+
+    const found = products.find(p => 
+      (p.sku && p.sku.toLowerCase() === term) || 
+      (p.barcode && p.barcode.toLowerCase() === term)
+    );
+
+    if (found) {
+      setScannedItems(prev => {
+        const existingIndex = prev.findIndex(item => item.product.id === found.id);
+        if (existingIndex >= 0) {
+          const newList = [...prev];
+          newList[existingIndex].count += 1;
+          return newList;
+        } else {
+          return [{ product: found, count: 1 }, ...prev];
+        }
+      });
+      setQuickScanInput(''); 
+      // Feedback sonoro ou visual poderia entrar aqui
+    } else {
+      setScanError(`Produto não cadastrado: ${code}`);
+    }
+  };
+
+  // --- LÓGICA DA GRADE ---
   useEffect(() => {
     const newRows: VariationRow[] = [];
     colors.forEach(color => {
@@ -189,7 +256,6 @@ function App() {
     } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
   };
 
-  // --- CRUD ---
   const handleUpdateQuantity = async (id: string, newQty: number) => {
     if (newQty < 0) return;
     const productRef = doc(db, PRODUCTS_COLLECTION, id);
@@ -206,72 +272,27 @@ function App() {
     } catch (error) { alert("Erro ao editar."); }
   };
 
-  // --- LÓGICA DA ENTRADA RÁPIDA (NOVA) ---
-  
-  const handleQuickScan = (e: React.FormEvent) => {
+  // --- LÓGICA DA ENTRADA RÁPIDA (DIGITAÇÃO) ---
+  const handleQuickScanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setScanError(''); // Limpa erro anterior
-
-    const term = quickScanInput.trim().toLowerCase();
-    if (!term) return;
-
-    // 1. Procura o produto
-    const found = products.find(p => 
-      (p.sku && p.sku.toLowerCase() === term) || 
-      (p.barcode && p.barcode.toLowerCase() === term)
-    );
-
-    if (found) {
-      // 2. Se achou, adiciona na lista temporária
-      setScannedItems(prev => {
-        const existingIndex = prev.findIndex(item => item.product.id === found.id);
-        if (existingIndex >= 0) {
-          // Se já está na lista, aumenta +1
-          const newList = [...prev];
-          newList[existingIndex].count += 1;
-          return newList;
-        } else {
-          // Se não está, adiciona novo
-          return [{ product: found, count: 1 }, ...prev];
-        }
-      });
-      setQuickScanInput(''); // Limpa campo para o próximo bip
-    } else {
-      // 3. Se não achou, mostra erro
-      setScanError(`Produto não encontrado: ${quickScanInput}`);
-      setQuickScanInput('');
-    }
+    handleProcessCode(quickScanInput);
   };
 
   const handleCommitQuickEntry = async () => {
     if (scannedItems.length === 0) return;
     setIsSavingBatch(true);
-    
     try {
       const batch = writeBatch(db);
-      
       scannedItems.forEach(item => {
         const docRef = doc(db, PRODUCTS_COLLECTION, item.product.id);
-        // Soma a quantidade atual do banco + a quantidade bipada
-        // Nota: Para precisão absoluta em multiusuário, idealmente usaria 'increment', 
-        // mas para simplificar aqui usaremos a soma lógica baseada no estado atual.
         const newTotal = item.product.quantity + item.count;
-        batch.update(docRef, { 
-          quantity: newTotal,
-          updatedAt: serverTimestamp()
-        });
+        batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() });
       });
-
       await batch.commit();
       setScannedItems([]);
       setShowQuickEntry(false);
       alert("Entrada de estoque realizada com sucesso!");
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao salvar entrada.");
-    } finally {
-      setIsSavingBatch(false);
-    }
+    } catch (e) { console.error(e); alert("Erro ao salvar entrada."); } finally { setIsSavingBatch(false); }
   };
 
   // --- UI ---
@@ -334,14 +355,12 @@ function App() {
           <div className="flex items-center gap-3">
             {adminView === 'list' && (
               <>
-                {/* BOTÃO ENTRADA RÁPIDA */}
                 <button 
-                  onClick={() => { setShowQuickEntry(true); setTimeout(() => scanInputRef.current?.focus(), 100); }}
+                  onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }}
                   className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-blue-900/20 border border-blue-500/50"
                 >
                   <Zap size={18} className="fill-white" /> ENTRADA RÁPIDA
                 </button>
-                {/* BOTÃO NOVO PRODUTO */}
                 <button 
                   onClick={() => setAdminView('add')}
                   className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-green-900/20"
@@ -382,7 +401,6 @@ function App() {
             </div>
           </>
         ) : (
-          // --- TELA DO GERADOR DE GRADE ---
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
             <button onClick={() => setAdminView('list')} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full hover:bg-slate-700"><X size={20} /></button>
             <div className="p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2><p className="text-slate-400 text-sm mt-1">Monte a grade completa.</p></div>
@@ -395,107 +413,55 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA (NOVO) --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA COM CAMERA --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden flex flex-col max-h-[90vh]">
-              
-              {/* Cabeçalho Popup */}
               <div className="p-6 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida de Estoque
-                </h2>
-                <button onClick={() => { setShowQuickEntry(false); setScannedItems([]); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button>
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Zap className="text-yellow-400 fill-yellow-400" /> Entrada Rápida</h2>
+                <button onClick={() => { setShowQuickEntry(false); setScannedItems([]); setShowCamera(false); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button>
               </div>
-
-              {/* Área de Input */}
               <div className="p-6 bg-slate-900/50 border-b border-slate-800">
-                <form onSubmit={handleQuickScan}>
-                  <div className="relative">
-                    <div className="absolute left-4 top-4 text-blue-400 animate-pulse">
-                      <ScanBarcode size={24} />
-                    </div>
-                    <input 
-                      ref={scanInputRef}
-                      value={quickScanInput}
-                      onChange={e => setQuickScanInput(e.target.value)}
-                      placeholder="Bipe o código de barras ou digite o SKU e dê Enter..."
-                      className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-xl text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono"
-                      autoFocus
-                    />
-                  </div>
-                </form>
                 
-                {/* Mensagem de Erro */}
-                {scanError && (
-                  <div className="mt-3 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2 animate-in slide-in-from-top-2">
-                    <AlertCircle size={18} /> {scanError}
-                  </div>
-                )}
-              </div>
-
-              {/* Lista de Bipagem (Carrinho) */}
-              <div className="flex-1 overflow-y-auto p-6 bg-slate-950">
-                {scannedItems.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50">
-                    <ScanBarcode size={64} className="mb-4" />
-                    <p className="text-lg font-medium">Aguardando leitura...</p>
-                    <p className="text-sm">Bipe os produtos para adicionar à lista de entrada.</p>
+                {/* AREA DA CAMERA */}
+                {showCamera ? (
+                  <div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black">
+                    <div id="reader" className="w-full h-64"></div>
+                    <button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR CÂMERA</button>
                   </div>
                 ) : (
+                   <button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA DO CELULAR</button>
+                )}
+
+                <form onSubmit={handleQuickScanSubmit}>
+                  <div className="relative">
+                    <div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div>
+                    <input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digite o SKU ou Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-xl text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} />
+                  </div>
+                </form>
+                {scanError && (<div className="mt-3 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2 animate-in slide-in-from-top-2"><AlertCircle size={18} /> {scanError}</div>)}
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-950">
+                {scannedItems.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50"><ScanBarcode size={64} className="mb-4" /><p className="text-lg font-medium">Lista vazia</p></div>
+                ) : (
                   <div className="space-y-2">
-                    <div className="flex justify-between text-xs font-bold text-slate-500 uppercase px-2 mb-2">
-                      <span>Produto Identificado</span>
-                      <span>Qtd. a Adicionar</span>
-                    </div>
                     {scannedItems.map((item, idx) => (
                       <div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between animate-in slide-in-from-left">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">
-                            {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}
-                          </div>
-                          <div>
-                            <div className="font-bold text-white">{item.product.name}</div>
-                            <div className="text-xs text-slate-400 font-mono">{item.product.sku}</div>
-                            <div className="flex gap-2 mt-1">
-                               <span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span>
-                               <span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span>
-                            </div>
-                          </div>
+                          <div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div>
+                          <div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right text-xs text-slate-500">
-                             Atual: {item.product.quantity}
-                          </div>
-                          <div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30 flex items-center gap-1">
-                            +{item.count}
-                          </div>
-                        </div>
+                        <div className="flex items-center gap-4"><div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30">+{item.count}</div></div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-
-              {/* Rodapé com Botão Salvar */}
               <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center">
-                <div className="text-slate-400 text-sm">
-                  <span className="text-white font-bold">{scannedItems.reduce((acc, item) => acc + item.count, 0)}</span> itens na lista
-                </div>
-                <button 
-                  onClick={handleCommitQuickEntry}
-                  disabled={scannedItems.length === 0 || isSavingBatch}
-                  className={`px-8 py-4 rounded-xl font-bold flex items-center gap-2 text-lg transition-all ${
-                    scannedItems.length === 0 
-                    ? 'bg-slate-800 text-slate-600 cursor-not-allowed' 
-                    : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20 hover:scale-105'
-                  }`}
-                >
-                  {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={24} />}
-                  {isSavingBatch ? 'PROCESSANDO...' : 'CONFIRMAR ENTRADA'}
-                </button>
+                <div className="text-slate-400 text-sm"><span className="text-white font-bold">{scannedItems.reduce((acc, item) => acc + item.count, 0)}</span> itens na lista</div>
+                <button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-8 py-4 rounded-xl font-bold flex items-center gap-2 text-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20 hover:scale-105'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={24} />}{isSavingBatch ? '...' : 'CONFIRMAR'}</button>
               </div>
-
             </div>
           </div>
         )}
