@@ -166,7 +166,7 @@ function App() {
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   
-  // Estado para feedback visual do scan
+  // Feedback visual do scan
   const [lastScannedFeedback, setLastScannedFeedback] = useState<{type: 'success' | 'error', msg: string} | null>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -246,52 +246,46 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- FUNÇÃO DE START CÂMERA MANUAL (BLINDADA) ---
+  // --- FUNÇÃO DE START CÂMERA MANUAL ---
   const startCamera = () => {
     if (scannerRef.current?.isScanning) return;
 
     setScanError('');
     setCameraLoading(true);
 
-    // Pequeno delay para o DOM renderizar
     setTimeout(() => {
-        try {
-            if (!document.getElementById("reader")) {
-                throw new Error("Elemento de vídeo não encontrado.");
-            }
-
-            const html5QrCode = new Html5Qrcode("reader");
-            scannerRef.current = html5QrCode;
-
-            const config = { 
-              fps: 10, 
-              qrbox: { width: 250, height: 250 }
-            };
-
-            html5QrCode.start(
-              { facingMode: "environment" }, 
-              config,
-              (decodedText) => {
-                handleProcessCode(decodedText);
-              },
-              (errorMessage) => {
-                // Ignora erros de frame vazio
-              }
-            ).then(() => {
-              setIsScanning(true);
-              setCameraLoading(false);
-            }).catch(err => {
-              console.error("Erro Start:", err);
-              setScanError("Erro ao abrir câmera. Verifique permissões.");
-              setCameraLoading(false);
-              setIsScanning(false);
-            });
-
-        } catch (e) {
-            console.error("Erro Crítico:", e);
-            setScanError("Falha ao inicializar scanner.");
+        if (!document.getElementById("reader")) {
+            setScanError("Erro: Elemento de vídeo não encontrado.");
             setCameraLoading(false);
+            return;
         }
+
+        const html5QrCode = new Html5Qrcode("reader");
+        scannerRef.current = html5QrCode;
+
+        // Configuração padrão sem aspectRatio para evitar cortes
+        const config = { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 }
+        };
+
+        html5QrCode.start(
+          { facingMode: "environment" }, 
+          config,
+          (decodedText) => {
+            handleProcessCode(decodedText);
+          },
+          (errorMessage) => {}
+        ).then(() => {
+          setIsScanning(true);
+          setCameraLoading(false);
+        }).catch(err => {
+          console.error("Erro ao iniciar câmera", err);
+          setScanError("Erro ao abrir câmera. Verifique permissões.");
+          setCameraLoading(false);
+          setIsScanning(false);
+        });
+
     }, 500);
   };
 
@@ -307,7 +301,7 @@ function App() {
     }
   };
 
-  // Cleanup ao fechar janela
+  // Cleanup
   useEffect(() => {
       if (!showQuickEntry) {
           if (scannerRef.current) {
@@ -325,7 +319,6 @@ function App() {
   }, [showQuickEntry]);
 
   const handleProcessCode = (code: string) => {
-    // setScanError(''); // Não limpamos erro aqui para não piscar a tela
     const term = code.trim().toLowerCase();
     if (!term) return;
     
@@ -349,7 +342,6 @@ function App() {
       setLastScannedFeedback({ type: 'error', msg: `Não encontrado: ${code}` });
     }
 
-    // Limpa o feedback visual após 3s
     setTimeout(() => setLastScannedFeedback(null), 3000);
   };
 
@@ -542,6 +534,19 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* ESTILO FORÇADO PARA GARANTIR VIDEO FULL SCREEN */}
+      <style>{`
+        #reader video {
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
+          position: absolute;
+          top: 0;
+          left: 0;
+          z-index: 0;
+        }
+      `}</style>
 
       <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
         {adminView === 'menu' && (
