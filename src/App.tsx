@@ -48,9 +48,9 @@ import {
   TrendingDown,
   ChevronDown,
   ChevronUp,
-  ShoppingCart, // Ícone do Carrinho
-  MessageCircle, // Ícone do WhatsApp
-  Copy           // Ícone de Copiar
+  ShoppingCart,
+  MessageCircle,
+  Copy
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
@@ -128,12 +128,7 @@ type HistoryItem = {
   newQty: number;
   timestamp: any;
 };
-
-// Tipo do Item do Carrinho
-type CartItem = {
-  product: Product;
-  quantity: number;
-};
+type CartItem = { product: Product; quantity: number; };
 
 function App() {
   const [user, setUser] = useState<any>(null);
@@ -143,15 +138,10 @@ function App() {
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
   const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history'>('menu');
-  
-  // NOVO: View do Usuário (Estoque ou Carrinho)
   const [userView, setUserView] = useState<'stock' | 'cart'>('stock');
-  // NOVO: Estado do Carrinho
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [customerName, setCustomerName] = useState(''); // Nome do cliente final
-
+  const [customerName, setCustomerName] = useState('');
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -251,18 +241,13 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- FUNÇÕES DO CARRINHO (NOVO) ---
+  // --- FUNÇÕES DO CARRINHO ---
   const handleAddToCart = (product: Product) => {
     if (product.quantity <= 0) return alert("Produto sem estoque!");
-    
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
-        // Não deixa adicionar mais que o estoque
-        if (existing.quantity >= product.quantity) {
-          alert("Quantidade máxima do estoque atingida!");
-          return prev;
-        }
+        if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; }
         return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
       }
       return [...prev, { product, quantity: 1 }];
@@ -270,20 +255,15 @@ function App() {
     playSound('success');
   };
 
-  const handleRemoveFromCart = (productId: string) => {
-    setCart(prev => prev.filter(item => item.product.id !== productId));
-  };
+  const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
 
   const handleUpdateCartQty = (productId: string, delta: number) => {
     setCart(prev => {
       return prev.map(item => {
         if (item.product.id === productId) {
           const newQty = item.quantity + delta;
-          if (newQty <= 0) return item; // Não deixa ir pra zero aqui, só remove no botão
-          if (newQty > item.product.quantity) {
-             alert("Estoque insuficiente!");
-             return item;
-          }
+          if (newQty <= 0) return item;
+          if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; }
           return { ...item, quantity: newQty };
         }
         return item;
@@ -291,7 +271,7 @@ function App() {
     });
   };
 
-  // --- GERAR MENSAGEM WHATSAPP ---
+  // --- GERAR MENSAGEM WHATSAPP FORMATADA ---
   const generateWhatsAppMessage = () => {
     if (!customerName) return alert("Digite o nome do cliente!");
     if (cart.length === 0) return alert("Carrinho vazio!");
@@ -299,16 +279,20 @@ function App() {
     const now = new Date();
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const orderId = Math.floor(Math.random() * 900000) + 100000; // ID Aleatório de 6 dígitos
+    const orderId = Math.floor(Math.random() * 900000) + 100000;
 
-    let message = `PEDIDO: ${orderId}    |||   DATA ${dateStr}    |||   HORA: ${timeStr}\n\n`;
-    message += `CLIENTE: ${customerName.toUpperCase()}\n\n`;
+    // Formatação Exata Solicitada
+    let message = `🛒 *PEDIDO:* ${orderId}\n\n`;
+    message += `🗓️ *DATA* ${dateStr}\n`;
+    message += `⌚ *HORA:* ${timeStr}\n\n`;
+    message += `🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`;
 
     cart.forEach(item => {
-      // Formato: SKU --- QTD
-      // Tenta pegar o SKU completo, se não tiver, monta um básico
-      const skuDisplay = item.product.sku || `${item.product.name} (${item.product.color} ${item.product.size})`;
-      message += `${skuDisplay} --- ${item.quantity}\n`;
+      // Tenta usar o SKU completo (Ex: 6204-MARROM-39/40)
+      // Se não tiver, monta manualmente
+      const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`;
+      
+      message += `${displaySku} --- ${item.quantity}\n`;
       message += `-\n`;
     });
 
@@ -330,7 +314,7 @@ function App() {
 
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
-  // ... (Manter funções de câmera, admin, etc. do código anterior) ...
+  // ... (Manter funções de câmera, admin, etc.) ...
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
@@ -445,7 +429,7 @@ function App() {
   // --- LAYOUT AGRUPADO PARA REVENDEDOR ---
   const groupedProducts = groupProducts(filteredProducts);
 
-  // --------------------- RENDER ---------------------
+  // --- RENDER ---
 
   if (!selectedRole) {
     return (
@@ -472,97 +456,42 @@ function App() {
         <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
           <div className="max-w-md mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
-              {/* BOTÃO VOLTAR OU LOGO */}
               {userView === 'cart' ? (
                 <button onClick={() => setUserView('stock')} className="bg-blue-700 p-2 rounded-lg hover:bg-blue-800 transition-colors"><ChevronLeft size={24}/></button>
               ) : (
                 <div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>
               )}
-              
-              <div>
-                <h1 className="font-bold text-lg">{userView === 'stock' ? 'Estoque' : 'Seu Pedido'}</h1>
-                <div className="flex items-center gap-1.5">
-                  {userView === 'stock' ? (
-                    <><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></>
-                  ) : (
-                    <span className="text-xs text-blue-100 font-medium">Finalizar Compra</span>
-                  )}
-                </div>
-              </div>
+              <div><h1 className="font-bold text-lg">{userView === 'stock' ? 'Estoque' : 'Seu Pedido'}</h1><div className="flex items-center gap-1.5">{userView === 'stock' ? (<><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></>) : (<span className="text-xs text-blue-100 font-medium">Finalizar Compra</span>)}</div></div>
             </div>
-            
             <div className="flex items-center gap-2">
-              {/* BOTÃO DO CARRINHO */}
               {userView === 'stock' && (
-                <button 
-                  onClick={() => setUserView('cart')}
-                  className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"
-                >
-                  <ShoppingCart size={20} />
-                  {cart.length > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">
-                      {cart.length}
-                    </span>
-                  )}
-                </button>
+                <button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>
               )}
-              
               <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
             </div>
           </div>
         </header>
 
         <main className="max-w-md mx-auto p-4 space-y-4">
-          
-          {/* --- TELA DE ESTOQUE (REVENDEDOR) --- */}
           {userView === 'stock' && (
             <>
               <div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-              
               <div className="space-y-3 pb-20">
                 {loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (
                   <div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">
-                          {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3>
-                          <div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div>
-                          <div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div>
-                        </div>
+                        <div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
+                        <div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>
-                        {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
-                      </div>
+                      <div className="flex items-center gap-3"><div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div>
                     </div>
-
                     {expandedGroups[name] && (
                       <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
                         {group.items.map(p => (
                           <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span>
-                              <span className="text-xs text-slate-600 uppercase">{p.color}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              {p.quantity > 0 ? (
-                                <>
-                                  <span className="text-green-600 font-bold text-sm">{p.quantity} un</span>
-                                  {/* BOTÃO ADICIONAR AO CARRINHO */}
-                                  <button 
-                                    onClick={() => handleAddToCart(p)}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"
-                                  >
-                                    <Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span>
-                                  </button>
-                                </>
-                              ) : (
-                                <span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>
-                              )}
-                            </div>
+                            <div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div>
+                            <div className="flex items-center gap-3">{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div>
                           </div>
                         ))}
                       </div>
@@ -573,74 +502,29 @@ function App() {
             </>
           )}
 
-          {/* --- TELA DE CARRINHO (REVENDEDOR) --- */}
           {userView === 'cart' && (
             <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50">
-                <h2 className="font-bold text-slate-800 flex items-center gap-2">
-                  <ShoppingCart className="text-blue-600" /> Resumo do Pedido
-                </h2>
-              </div>
-              
+              <div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div>
               <div className="p-4 space-y-4">
                 {cart.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400">
-                    <ShoppingCart size={48} className="mx-auto mb-2 opacity-20" />
-                    <p>Seu carrinho está vazio.</p>
-                    <button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button>
-                  </div>
+                  <div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>
                 ) : (
                   <>
                     <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                       {cart.map(item => (
                         <div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">
-                               {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div>
-                              <div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden">
-                              <button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button>
-                              <span className="text-xs font-bold px-1">{item.quantity}</span>
-                              <button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button>
-                            </div>
-                            <button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
-                          </div>
+                          <div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div></div></div>
+                          <div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div>
                         </div>
                       ))}
                     </div>
-
-                    <div className="pt-4 border-t border-slate-100">
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label>
-                      <input 
-                        value={customerName}
-                        onChange={e => setCustomerName(e.target.value)}
-                        placeholder="Ex: Maria Silva"
-                        className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
-                      />
-                    </div>
-
-                    <button 
-                      onClick={generateWhatsAppMessage}
-                      disabled={!customerName}
-                      className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${
-                        !customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'
-                      }`}
-                    >
-                      <MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP
-                    </button>
+                    <div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div>
+                    <button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button>
                   </>
                 )}
               </div>
             </div>
           )}
-
         </main>
       </div>
     );
@@ -685,33 +569,28 @@ function App() {
               <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar..." className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-3 py-2 md:px-4 md:py-3 text-base md:text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
             </div>
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
-              {Object.entries(groupedProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedProducts).map(([name, group]) => (
-                <div key={name} className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
-                  <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0"><div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-900 text-sm truncate">{name}</div><div className="text-sm font-bold text-slate-700 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : '---'}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div></div>
-                    <div className="flex items-center gap-3"><div className="text-right bg-slate-100 px-3 py-1 rounded-lg border border-slate-200"><div className="text-xl font-bold text-slate-800">{group.total}</div><div className="text-[9px] text-slate-500 uppercase font-bold">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div>
-                  </div>
-                  {expandedGroups[name] && (
-                    <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
-                      {group.items.map(p => (
-                        <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
-                          <div className="min-w-0 flex-1"><div className="flex items-center gap-2 mb-1"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase font-bold">{p.color}</span></div><div className="text-[10px] text-slate-400 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode || '---'}</div></div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8"><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity - 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-10 text-center font-bold text-slate-800 text-sm">{p.quantity}</div><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity + 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
-                            <button onClick={(e) => { e.stopPropagation(); setEditingProduct(p); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 bg-white border border-slate-200 rounded-lg"><Pencil size={14} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 bg-white border border-slate-200 rounded-lg"><Trash2 size={14} /></button>
-                          </div>
-                        </div>
-                      ))}
+              {filteredProducts.map((p) => (
+                <div key={p.id} className="bg-white p-2 md:p-3 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 text-sm truncate">{p.name}</div>
+                      <div className="text-sm md:text-base font-bold text-slate-700 mt-0.5">{p.sku ? p.sku.split('-')[0] : '---'}</div>
+                      <div className="text-xs text-slate-500 font-mono flex items-center gap-1"><ScanBarcode size={12} /> {p.barcode || '---'}</div>
+                      <div className="flex gap-1 mt-1 flex-wrap"><span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded border border-slate-700">{p.color}</span><span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-300">{p.size}</span></div>
                     </div>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2">
+                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8 md:h-10"><button onClick={() => handleUpdateQuantity(p, p.quantity - 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-8 md:w-12 text-center font-bold text-slate-800 text-sm md:text-lg">{p.quantity}</div><button onClick={() => handleUpdateQuantity(p, p.quantity + 1)} className="w-6 md:w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
+                    <button onClick={() => setEditingProduct(p)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
+                    <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                  </div>
                 </div>
               ))}
             </div>
           </>
         )}
 
-        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
         {adminView === 'add' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
