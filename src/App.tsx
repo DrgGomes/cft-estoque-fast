@@ -36,10 +36,10 @@ import {
   Pencil,
   Zap,
   AlertCircle,
-  Camera, // Ícone da Camera
+  Camera,
   StopCircle
 } from 'lucide-react';
-import { Html5QrcodeScanner } from "html5-qrcode"; // Importando o Leitor
+import { Html5QrcodeScanner } from "html5-qrcode";
 
 // --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
@@ -109,12 +109,12 @@ function App() {
 
   // --- ESTADOS DA ENTRADA RÁPIDA & CÂMERA ---
   const [showQuickEntry, setShowQuickEntry] = useState(false);
-  const [showCamera, setShowCamera] = useState(false); // Controla se a câmera está aberta
+  const [showCamera, setShowCamera] = useState(false);
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   const scanInputRef = useRef<HTMLInputElement>(null);
-  const scannerRef = useRef<any>(null); // Referência para limpar o scanner
+  const scannerRef = useRef<any>(null);
 
   // Autenticação e Busca
   useEffect(() => {
@@ -154,34 +154,34 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- LÓGICA DA CÂMERA ---
+  // --- LÓGICA DA CÂMERA (AJUSTADA PARA TRASEIRA) ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
-      // Pequeno delay para garantir que a DIV existe
       setTimeout(() => {
+        // Configurações para forçar câmera traseira
         const scanner = new Html5QrcodeScanner(
           "reader",
           { 
             fps: 10, 
-            qrbox: { width: 250, height: 150 }, // Caixa retangular para código de barras
-            aspectRatio: 1.0 
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.0,
+            // AQUI ESTÁ O SEGREDO: facingMode environment = Traseira
+            videoConstraints: {
+              facingMode: "environment"
+            }
           },
           false
         );
 
         scanner.render((decodedText) => {
-          // SUCESSO NA LEITURA
           handleProcessCode(decodedText);
-          // Opcional: Fechar câmera após ler? Por enquanto deixamos aberta para bipar vários
-          // setShowCamera(false); 
         }, (error) => {
-          // Erro de leitura normal (não encontrou nada no frame), ignorar
+          // Ignora erros de frame vazio
         });
 
         scannerRef.current = scanner;
       }, 100);
     } else {
-      // Se fechar a câmera, limpar
       if (scannerRef.current) {
         scannerRef.current.clear().catch((e: any) => console.error(e));
         scannerRef.current = null;
@@ -189,7 +189,6 @@ function App() {
     }
   }, [showCamera, showQuickEntry]);
 
-  // Função auxiliar para processar qualquer código (digitado ou câmera)
   const handleProcessCode = (code: string) => {
     setScanError('');
     const term = code.trim().toLowerCase();
@@ -212,7 +211,6 @@ function App() {
         }
       });
       setQuickScanInput(''); 
-      // Feedback sonoro ou visual poderia entrar aqui
     } else {
       setScanError(`Produto não cadastrado: ${code}`);
     }
@@ -272,7 +270,7 @@ function App() {
     } catch (error) { alert("Erro ao editar."); }
   };
 
-  // --- LÓGICA DA ENTRADA RÁPIDA (DIGITAÇÃO) ---
+  // --- LÓGICA DA ENTRADA RÁPIDA ---
   const handleQuickScanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleProcessCode(quickScanInput);
@@ -291,8 +289,8 @@ function App() {
       await batch.commit();
       setScannedItems([]);
       setShowQuickEntry(false);
-      alert("Entrada de estoque realizada com sucesso!");
-    } catch (e) { console.error(e); alert("Erro ao salvar entrada."); } finally { setIsSavingBatch(false); }
+      alert("Entrada realizada!");
+    } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
   };
 
   // --- UI ---
@@ -413,7 +411,7 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA COM CAMERA --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA COM CAMERA TRASEIRA --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden flex flex-col max-h-[90vh]">
