@@ -38,25 +38,49 @@ import {
   AlertCircle,
   Camera,
   StopCircle,
-  Volume2
+  BellRing // Ícone de notificação ativa
 } from 'lucide-react';
 import { Html5QrcodeScanner } from "html5-qrcode";
 
-// --- LINKS DOS SONS (Hospedados Online) ---
+// --- LINKS DOS SONS ---
 const SOUNDS = {
-  success: "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3", // Bip Clássico
-  error: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3",   // Erro Grave
-  alert: "https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3"    // Notificação Suave
+  success: "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3",
+  error: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3",
+  alert: "https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3"
 };
 
-// Função auxiliar para tocar som
 const playSound = (type: 'success' | 'error' | 'alert') => {
   try {
     const audio = new Audio(SOUNDS[type]);
-    audio.volume = 0.5; // 50% do volume
-    audio.play().catch(e => console.log("Audio bloqueado pelo navegador:", e));
-  } catch (e) {
-    console.error("Erro ao tocar som", e);
+    audio.volume = 0.5;
+    audio.play().catch(e => console.log("Audio bloqueado:", e));
+  } catch (e) { console.error(e); }
+};
+
+// --- FUNÇÃO DE NOTIFICAÇÃO DO SISTEMA (PUSH) ---
+const sendSystemNotification = (title: string, body: string) => {
+  if (!("Notification" in window)) return;
+
+  if (Notification.permission === "granted") {
+    try {
+      // Tenta registrar via ServiceWorker se disponível (PWA), senão via new Notification
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg) {
+          reg.showNotification(title, {
+            body,
+            icon: '/vite.svg', // Ícone padrão (depois podemos mudar)
+            vibrate: [200, 100, 200]
+          });
+        } else {
+          new Notification(title, {
+            body,
+            icon: '/vite.svg'
+          });
+        }
+      });
+    } catch (e) {
+      new Notification(title, { body });
+    }
   }
 };
 
@@ -70,12 +94,10 @@ const firebaseConfig = {
   appId: "1:513670906518:web:eec3f177a4779f3ddf78b7"
 };
 
-// --- Inicialização ---
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "estoque-loja";
-
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 
 // Tipos
@@ -111,11 +133,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [adminView, setAdminView] = useState<'list' | 'add'>('list');
+  const [permissionGranted, setPermissionGranted] = useState(false); // Estado da permissão
   
-  // Ref para guardar o estado anterior dos produtos (Para detectar quando ZERA)
   const prevProductsRef = useRef<Product[]>([]);
   
-  // Estados do Gerador de Grade
+  // Estados do Gerador e Edição
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
   const [baseImage, setBaseImage] = useState('');
@@ -125,11 +147,9 @@ function App() {
   const [tempSize, setTempSize] = useState('');
   const [generatedRows, setGeneratedRows] = useState<VariationRow[]>([]);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
-
-  // Estados de Edição
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  // --- ESTADOS DA ENTRADA RÁPIDA & CÂMERA ---
+  // Estados Entrada Rápida
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [quickScanInput, setQuickScanInput] = useState('');
@@ -145,10 +165,30 @@ function App() {
       if (u) setUser(u);
       else signInAnonymously(auth).catch((e) => console.error(e));
     });
+    
+    // Verifica permissão de notificação ao iniciar
+    if ("Notification" in window && Notification.permission === "granted") {
+      setPermissionGranted(true);
+    }
+
     return () => unsubscribe();
   }, []);
 
-  // --- BUSCAR PRODUTOS & DETECTAR MUDANÇA DE ESTOQUE (ALERTA REVENDEDOR) ---
+  // Função para pedir permissão
+  const requestNotificationPermission = () => {
+    if (!("Notification" in window)) {
+      alert("Este navegador não suporta notificações.");
+      return;
+    }
+    Notification.requestPermission().then((permission) => {
+      if (permission === "granted") {
+        setPermissionGranted(true);
+        sendSystemNotification("Notificações Ativadas!", "Agora você receberá alertas de estoque.");
+      }
+    });
+  };
+
+  // Monitoramento de Estoque (Com Push Notification)
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -157,30 +197,36 @@ function App() {
         items.push({ id: doc.id, ...doc.data() } as Product);
       });
 
-      // --- LÓGICA DO ALERTA SONORO PARA O CLIENTE ---
-      // Se não for o primeiro carregamento (loading false) e se for um usuário comum
       if (!loading && selectedRole === 'user') {
         const previousProducts = prevProductsRef.current;
-        // Verifica se algum produto que TINHA estoque agora TEM ZERO
-        const justSoldOut = items.some(newItem => {
+        
+        // Filtra quais produtos acabaram de zerar
+        const soldOutItems = items.filter(newItem => {
           const oldItem = previousProducts.find(p => p.id === newItem.id);
           return oldItem && oldItem.quantity > 0 && newItem.quantity === 0;
         });
 
-        if (justSoldOut) {
-          playSound('alert'); // Toca o som de notificação
+        if (soldOutItems.length > 0) {
+          playSound('alert');
+          // Dispara notificação no celular
+          const prodName = soldOutItems[0].name; // Pega o nome do primeiro que zerou
+          const count = soldOutItems.length;
+          const title = "⚠️ ESTOQUE ZEROU!";
+          const body = count > 1 
+            ? `${count} produtos acabaram de esgotar!` 
+            : `O produto ${prodName} acabou de esgotar!`;
+            
+          sendSystemNotification(title, body);
         }
       }
 
-      // Atualiza a referência para a próxima comparação
       prevProductsRef.current = items;
-      
       setProducts(items);
       setFilteredProducts(items);
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [loading, selectedRole]); // Dependência para saber quem está logado
+  }, [loading, selectedRole]);
 
   // Filtro de Busca
   useEffect(() => {
@@ -198,74 +244,47 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- LÓGICA DA CÂMERA ---
+  // --- CÂMERA ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
         const scanner = new Html5QrcodeScanner(
           "reader",
-          { 
-            fps: 10, 
-            qrbox: { width: 250, height: 150 },
-            aspectRatio: 1.0,
-            videoConstraints: { facingMode: "environment" } 
-          },
+          { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0, videoConstraints: { facingMode: "environment" } },
           false
         );
-
-        scanner.render((decodedText) => {
-          handleProcessCode(decodedText);
-        }, (error) => {});
-
+        scanner.render((decodedText) => handleProcessCode(decodedText), (error) => {});
         scannerRef.current = scanner;
       }, 100);
     } else {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch((e: any) => console.error(e));
-        scannerRef.current = null;
-      }
+      if (scannerRef.current) { scannerRef.current.clear().catch((e: any) => console.error(e)); scannerRef.current = null; }
     }
   }, [showCamera, showQuickEntry]);
 
-  // --- PROCESSADOR DE CÓDIGOS ---
   const handleProcessCode = (code: string) => {
     setScanError('');
     const term = code.trim().toLowerCase();
     if (!term) return;
-
     const now = Date.now();
-    
-    // Trava de 2.5s para a câmera não ler o mesmo código repetido
-    if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) {
-      return; 
-    }
+    if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
     lastScanRef.current = { code: term, time: now };
 
-    const found = products.find(p => 
-      (p.sku && p.sku.toLowerCase() === term) || 
-      (p.barcode && p.barcode.toLowerCase() === term)
-    );
-
+    const found = products.find(p => (p.sku && p.sku.toLowerCase() === term) || (p.barcode && p.barcode.toLowerCase() === term));
     if (found) {
-      playSound('success'); // TOCA SOM DE SUCESSO
+      playSound('success');
       setScannedItems(prev => {
         const existingIndex = prev.findIndex(item => item.product.id === found.id);
-        if (existingIndex >= 0) {
-          const newList = [...prev];
-          newList[existingIndex].count += 1;
-          return newList;
-        } else {
-          return [{ product: found, count: 1 }, ...prev];
-        }
+        if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; }
+        else { return [{ product: found, count: 1 }, ...prev]; }
       });
       setQuickScanInput(''); 
     } else {
-      playSound('error'); // TOCA SOM DE ERRO
+      playSound('error');
       setScanError(`Produto não cadastrado: ${code}`);
     }
   };
 
-  // --- LÓGICA DA GRADE ---
+  // --- GRADE & CRUD ---
   useEffect(() => {
     const newRows: VariationRow[] = [];
     colors.forEach(color => {
@@ -279,7 +298,6 @@ function App() {
       });
     });
     setGeneratedRows(newRows);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colors, sizes, baseSku]);
 
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
@@ -303,7 +321,6 @@ function App() {
     } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
   };
 
-  // --- CRUD ---
   const handleUpdateQuantity = async (id: string, newQty: number) => {
     if (newQty < 0) return;
     const productRef = doc(db, PRODUCTS_COLLECTION, id);
@@ -319,12 +336,7 @@ function App() {
       setEditingProduct(null);
     } catch (error) { alert("Erro ao editar."); }
   };
-
-  const handleQuickScanSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    handleProcessCode(quickScanInput);
-  };
-
+  const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
   const handleCommitQuickEntry = async () => {
     if (scannedItems.length === 0) return;
     setIsSavingBatch(true);
@@ -336,9 +348,7 @@ function App() {
         batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() });
       });
       await batch.commit();
-      setScannedItems([]);
-      setShowQuickEntry(false);
-      alert("Entrada realizada!");
+      setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!");
     } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
   };
 
@@ -369,9 +379,22 @@ function App() {
           <div className="max-w-md mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
               <div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>
-              <div><h1 className="font-bold text-lg">Estoque</h1><div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div></div>
+              <div>
+                <h1 className="font-bold text-lg">Estoque</h1>
+                <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></div>
+              </div>
             </div>
-            <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
+            
+            <div className="flex items-center gap-2">
+              {/* BOTÃO DE ATIVAR NOTIFICAÇÕES */}
+              {!permissionGranted && (
+                <button onClick={requestNotificationPermission} className="text-xs bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg flex items-center gap-1 animate-pulse border border-blue-400">
+                  <BellRing size={14} /> Ativar Alertas
+                </button>
+              )}
+              
+              <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
+            </div>
           </div>
         </header>
         <main className="max-w-md mx-auto p-4 space-y-4">
@@ -402,18 +425,8 @@ function App() {
           <div className="flex items-center gap-3">
             {adminView === 'list' && (
               <>
-                <button 
-                  onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }}
-                  className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-blue-900/20 border border-blue-500/50"
-                >
-                  <Zap size={18} className="fill-white" /> ENTRADA RÁPIDA
-                </button>
-                <button 
-                  onClick={() => setAdminView('add')}
-                  className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-green-900/20"
-                >
-                  <Plus size={18} /> Novo Produto
-                </button>
+                <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-blue-900/20 border border-blue-500/50"><Zap size={18} className="fill-white" /> ENTRADA RÁPIDA</button>
+                <button onClick={() => setAdminView('add')} className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-green-900/20"><Plus size={18} /> Novo Produto</button>
               </>
             )}
             <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> Sair</button>
@@ -460,7 +473,7 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA COM CAMERA TRASEIRA --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 w-full max-w-3xl rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden flex flex-col max-h-[90vh]">
@@ -469,23 +482,12 @@ function App() {
                 <button onClick={() => { setShowQuickEntry(false); setScannedItems([]); setShowCamera(false); }} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button>
               </div>
               <div className="p-6 bg-slate-900/50 border-b border-slate-800">
-                
-                {/* AREA DA CAMERA */}
                 {showCamera ? (
-                  <div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black">
-                    <div id="reader" className="w-full h-64"></div>
-                    <button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR CÂMERA</button>
-                  </div>
+                  <div className="mb-4 rounded-xl overflow-hidden border-2 border-blue-500 relative bg-black"><div id="reader" className="w-full h-64"></div><button onClick={() => setShowCamera(false)} className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><StopCircle size={14}/> PARAR</button></div>
                 ) : (
-                   <button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA DO CELULAR</button>
+                   <button onClick={() => setShowCamera(true)} className="w-full mb-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-blue-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Camera size={20} /> ABRIR CÂMERA</button>
                 )}
-
-                <form onSubmit={handleQuickScanSubmit}>
-                  <div className="relative">
-                    <div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div>
-                    <input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digite o SKU ou Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-xl text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} />
-                  </div>
-                </form>
+                <form onSubmit={handleQuickScanSubmit}><div className="relative"><div className="absolute left-4 top-4 text-blue-400 animate-pulse"><ScanBarcode size={24} /></div><input ref={scanInputRef} value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digite o SKU ou Bipe aqui..." className="w-full bg-slate-950 border-2 border-blue-500 rounded-xl pl-14 pr-4 py-4 text-xl text-white focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-600 shadow-inner font-mono" autoFocus={!showCamera} /></div></form>
                 {scanError && (<div className="mt-3 bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center gap-2 animate-in slide-in-from-top-2"><AlertCircle size={18} /> {scanError}</div>)}
               </div>
               <div className="flex-1 overflow-y-auto p-6 bg-slate-950">
@@ -495,10 +497,7 @@ function App() {
                   <div className="space-y-2">
                     {scannedItems.map((item, idx) => (
                       <div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between animate-in slide-in-from-left">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div>
-                          <div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div>
-                        </div>
+                        <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded border border-slate-700 overflow-hidden flex-shrink-0">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-3 text-slate-500" />}</div><div><div className="font-bold text-white">{item.product.name}</div><div className="text-xs text-slate-400 font-mono">{item.product.sku}</div><div className="flex gap-2 mt-1"><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.color}</span><span className="text-[10px] bg-slate-800 px-1.5 rounded border border-slate-700 text-slate-300">{item.product.size}</span></div></div></div>
                         <div className="flex items-center gap-4"><div className="bg-green-600/20 text-green-400 font-bold text-xl px-4 py-2 rounded-lg border border-green-500/30">+{item.count}</div></div>
                       </div>
                     ))}
@@ -520,19 +519,10 @@ function App() {
               <h2 className="text-xl font-bold text-white mb-4">Editar Produto</h2>
               <form onSubmit={handleSaveEdit} className="space-y-4">
                 <input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" placeholder="Nome" />
-                <div className="grid grid-cols-2 gap-4">
-                   <input value={editingProduct.sku || ''} onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white font-mono" placeholder="SKU" />
-                   <input value={editingProduct.barcode || ''} onChange={e => setEditingProduct({...editingProduct, barcode: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white font-mono" placeholder="Barcode" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" placeholder="Cor" />
-                   <input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" placeholder="Tam" />
-                </div>
+                <div className="grid grid-cols-2 gap-4"><input value={editingProduct.sku || ''} onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white font-mono" placeholder="SKU" /><input value={editingProduct.barcode || ''} onChange={e => setEditingProduct({...editingProduct, barcode: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white font-mono" placeholder="Barcode" /></div>
+                <div className="grid grid-cols-2 gap-4"><input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" placeholder="Cor" /><input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white" placeholder="Tam" /></div>
                 <input value={editingProduct.image || ''} onChange={e => setEditingProduct({...editingProduct, image: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs" placeholder="URL Imagem" />
-                <div className="flex gap-3 pt-4">
-                   <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-slate-800 text-white py-3 rounded-lg">Cancelar</button>
-                   <button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg">Salvar</button>
-                </div>
+                <div className="flex gap-3 pt-4"><button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-slate-800 text-white py-3 rounded-lg">Cancelar</button><button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg">Salvar</button></div>
               </form>
             </div>
           </div>
