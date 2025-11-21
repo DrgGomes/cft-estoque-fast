@@ -40,7 +40,6 @@ import {
   Camera,
   StopCircle,
   BellRing,
-  LayoutGrid,
   ChevronLeft,
   ClipboardList,
   ArrowRight,
@@ -50,10 +49,10 @@ import {
   ChevronUp,
   ShoppingCart,
   MessageCircle,
-  Minus,
-  Flashlight // Ícone de lanterna (se disponível no futuro, deixamos preparado)
+  Minus
 } from 'lucide-react';
-import { Html5QrcodeScanner } from "html5-qrcode";
+// MUDANÇA AQUI: Importando a classe Core em vez do Scanner
+import { Html5Qrcode } from "html5-qrcode";
 
 // --- SONS ---
 const SOUNDS = {
@@ -162,11 +161,12 @@ function App() {
   // Estados Entrada Rápida
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false); // Novo estado de loading da camera
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   const scanInputRef = useRef<HTMLInputElement>(null);
-  const scannerRef = useRef<any>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null); // Mudança de tipo
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
   useEffect(() => {
@@ -242,78 +242,49 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- FUNÇÕES DO CARRINHO ---
-  const handleAddToCart = (product: Product) => {
-    if (product.quantity <= 0) return alert("Produto sem estoque!");
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; }
-        return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      }
-      return [...prev, { product, quantity: 1 }];
-    });
-    playSound('success');
-  };
-
-  const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
-
-  const handleUpdateCartQty = (productId: string, delta: number) => {
-    setCart(prev => {
-      return prev.map(item => {
-        if (item.product.id === productId) {
-          const newQty = item.quantity + delta;
-          if (newQty <= 0) return item;
-          if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; }
-          return { ...item, quantity: newQty };
-        }
-        return item;
-      });
-    });
-  };
-
-  const generateWhatsAppMessage = () => {
-    if (!customerName) return alert("Digite o nome do cliente!");
-    if (cart.length === 0) return alert("Carrinho vazio!");
-    const now = new Date();
-    const orderId = Math.floor(Math.random() * 900000) + 100000;
-    let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`;
-    cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; message += `${displaySku} --- ${item.quantity}\n-\n`; });
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-  };
-
-  const groupProducts = (items: Product[]) => {
-    const groups: Record<string, { info: Product, total: number, items: Product[] }> = {};
-    items.forEach(product => {
-      const key = product.name;
-      if (!groups[key]) groups[key] = { info: product, total: 0, items: [] };
-      groups[key].items.push(product);
-      groups[key].total += product.quantity;
-    });
-    Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1)));
-    return groups;
-  };
-
-  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
-
-  // --- LÓGICA DA CÂMERA TELA CHEIA ---
+  // --- LÓGICA DA CÂMERA (MÉTODO ROBUSTO) ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
+      setCameraLoading(true);
+      // Pequeno delay para garantir que a DIV 'reader' existe no DOM
       setTimeout(() => {
-        const scanner = new Html5QrcodeScanner(
-          "reader",
-          { 
-            fps: 10, 
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: window.innerWidth / window.innerHeight,
-            videoConstraints: { facingMode: "environment" } 
+        const html5QrCode = new Html5Qrcode("reader");
+        scannerRef.current = html5QrCode;
+
+        const config = { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: window.innerWidth / window.innerHeight
+        };
+
+        html5QrCode.start(
+          { facingMode: "environment" }, 
+          config,
+          (decodedText) => {
+            handleProcessCode(decodedText);
           },
-          false
-        );
-        scanner.render((decodedText) => handleProcessCode(decodedText), (error) => {});
-        scannerRef.current = scanner;
-      }, 100);
-    } else { if (scannerRef.current) { scannerRef.current.clear().catch((e: any) => console.error(e)); scannerRef.current = null; } }
+          (errorMessage) => {
+            // Ignora erros de scan frame a frame
+          }
+        ).then(() => {
+          setCameraLoading(false);
+        }).catch(err => {
+          console.error("Erro ao iniciar câmera", err);
+          setCameraLoading(false);
+          setScanError("Erro ao acessar câmera. Verifique permissões.");
+        });
+
+      }, 300);
+    }
+
+    // Cleanup function
+    return () => {
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().then(() => {
+          scannerRef.current?.clear();
+        }).catch(err => console.error("Erro ao parar câmera", err));
+      }
+    };
   }, [showCamera, showQuickEntry]);
 
   const handleProcessCode = (code: string) => {
@@ -321,6 +292,8 @@ function App() {
     const term = code.trim().toLowerCase();
     if (!term) return;
     const now = Date.now();
+    
+    // Trava de 2.5s para não ler duplicado
     if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
     lastScanRef.current = { code: term, time: now };
 
@@ -329,24 +302,17 @@ function App() {
       playSound('success');
       setScannedItems(prev => {
         const existingIndex = prev.findIndex(item => item.product.id === found.id);
-        if (existingIndex >= 0) { 
-          const newList = [...prev]; 
-          newList[existingIndex].count += 1; 
-          return newList; 
-        }
-        else { 
-          return [{ product: found, count: 1 }, ...prev]; 
-        }
+        if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; }
+        else { return [{ product: found, count: 1 }, ...prev]; }
       });
       setQuickScanInput(''); 
     } else { 
       playSound('error'); 
-      setScanError(`Não encontrado: ${code}`);
+      setScanError(`Produto não cadastrado: ${code}`);
       setTimeout(() => setScanError(''), 3000);
     }
   };
 
-  // NOVAS FUNÇÕES PARA EDITAR O BIP (SCANNED ITEMS)
   const handleUpdateScannedQty = (productId: string, delta: number) => {
     setScannedItems(prev => prev.map(item => {
       if (item.product.id === productId) {
@@ -361,6 +327,7 @@ function App() {
     setScannedItems(prev => prev.filter(item => item.product.id !== productId));
   };
 
+  // ... (Funções de grade e CRUD mantidas) ...
   useEffect(() => {
     const newRows: VariationRow[] = [];
     colors.forEach(color => { sizes.forEach(size => {
@@ -417,7 +384,6 @@ function App() {
     } catch (error) { alert("Erro ao editar."); }
   };
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
-  
   const handleCommitQuickEntry = async () => {
     if (scannedItems.length === 0) return;
     setIsSavingBatch(true);
@@ -435,13 +401,59 @@ function App() {
     } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
   };
 
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return '...';
-    const date = timestamp.toDate();
-    return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
+  const handleAddToCart = (product: Product) => {
+    if (product.quantity <= 0) return alert("Produto sem estoque!");
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; }
+        return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+    playSound('success');
   };
+  const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
+  const handleUpdateCartQty = (productId: string, delta: number) => {
+    setCart(prev => {
+      return prev.map(item => {
+        if (item.product.id === productId) {
+          const newQty = item.quantity + delta;
+          if (newQty <= 0) return item;
+          if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; }
+          return { ...item, quantity: newQty };
+        }
+        return item;
+      });
+    });
+  };
+  const generateWhatsAppMessage = () => {
+    if (!customerName) return alert("Digite o nome do cliente!");
+    if (cart.length === 0) return alert("Carrinho vazio!");
+    const now = new Date();
+    const orderId = Math.floor(Math.random() * 900000) + 100000;
+    let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`;
+    cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; message += `${displaySku} --- ${item.quantity}\n-\n`; });
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+  };
+  const groupProducts = (items: Product[]) => {
+    const groups: Record<string, { info: Product, total: number, items: Product[] }> = {};
+    items.forEach(product => {
+      const key = product.name;
+      if (!groups[key]) groups[key] = { info: product, total: 0, items: [] };
+      groups[key].items.push(product);
+      groups[key].total += product.quantity;
+    });
+    Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1)));
+    return groups;
+  };
+  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
+  const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); };
 
+  // --- LAYOUT AGRUPADO PARA REVENDEDOR ---
   const groupedProducts = groupProducts(filteredProducts);
+
+  // --- RENDER ---
 
   if (!selectedRole) {
     return (
@@ -496,7 +508,7 @@ function App() {
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
-            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
+            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
           </div>
@@ -554,16 +566,17 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA TELA CHEIA (FULLSCREEN) --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black z-50 flex flex-col">
             
-            {/* CÂMERA (Fundo) */}
+            {/* CÂMERA (Fundo Full Screen) */}
             <div className="flex-1 relative bg-black overflow-hidden">
               {showCamera ? (
                 <div className="absolute inset-0">
                   <div id="reader" className="w-full h-full object-cover"></div>
-                  {/* MIRA LASER (Overlay Visual) */}
+                  
+                  {/* MIRA LASER */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="w-64 h-64 border-2 border-white/50 rounded-lg relative">
                       <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
@@ -573,33 +586,34 @@ function App() {
                       <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div>
                     </div>
                   </div>
-                  {/* Botão Fechar Câmera */}
-                  <button onClick={() => { setShowCamera(false); setShowQuickEntry(false); }} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full z-50"><X size={24} /></button>
+
+                  {/* BOTÃO FECHAR */}
+                  <button 
+                    onClick={() => { setShowCamera(false); setShowQuickEntry(false); }} 
+                    className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full z-50"
+                  >
+                    <X size={24} />
+                  </button>
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-full text-slate-500">
-                  <p>Carregando Câmera...</p>
+                <div className="flex items-center justify-center h-full text-slate-500 flex-col gap-2">
+                  {cameraLoading ? <RefreshCw className="animate-spin" /> : <AlertCircle />}
+                  <p>{scanError || 'Carregando Câmera...'}</p>
                 </div>
               )}
               
               {/* FEEDBACK VISUAL (O "Coloridinho") */}
               {scanError && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none">
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50">
                   <AlertCircle size={24} /> {scanError.replace('Não encontrado: ', 'PRODUTO NÃO CADASTRADO: ')}
                 </div>
               )}
-              {/* Feedback de Sucesso (Recuperando o último item da lista se houver) */}
-              {scannedItems.length > 0 && !scanError && (
-                 <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-green-600/90 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none">
-                   <Check size={24} /> LIDO: {scannedItems[0].product.name}
-                 </div>
-              )}
             </div>
 
-            {/* GAVETA INFERIOR (Lista) */}
+            {/* GAVETA INFERIOR (Lista e Controles) */}
             <div className="bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.5)] flex flex-col max-h-[40vh]">
               {/* Cabeçalho da Gaveta */}
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
                 <div className="flex flex-col">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span>
                   <span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span>
@@ -623,7 +637,10 @@ function App() {
                       </div>
                       <div className="min-w-0">
                         <div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div>
-                        <div className="text-xs text-slate-500 font-mono">{item.product.sku || item.product.barcode}</div>
+                        <div className="text-xs text-slate-500 font-mono flex gap-1">
+                          <span className="bg-slate-100 px-1 rounded">{item.product.size}</span>
+                          <span className="uppercase">{item.product.color}</span>
+                        </div>
                       </div>
                     </div>
                     
@@ -637,14 +654,15 @@ function App() {
                   </div>
                 ))}
                 {scannedItems.length === 0 && (
-                  <div className="text-center py-4 text-slate-400 text-sm">
-                    Aponte a câmera para começar...
+                  <div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2">
+                    <ScanBarcode size={32} className="opacity-20" />
+                    <span>Aponte a câmera para começar...</span>
                   </div>
                 )}
               </div>
               
-              {/* Input Manual (Caso a câmera falhe) */}
-              <div className="p-2 bg-white border-t border-slate-100">
+              {/* Input Manual */}
+              <div className="p-2 bg-white border-t border-slate-100 pb-6">
                  <form onSubmit={handleQuickScanSubmit}>
                     <input 
                       value={quickScanInput}
