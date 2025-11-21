@@ -165,6 +165,10 @@ function App() {
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
+  
+  // Estado para feedback visual do scan
+  const [lastScannedFeedback, setLastScannedFeedback] = useState<{type: 'success' | 'error', msg: string} | null>(null);
+
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
@@ -242,66 +246,52 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- FUNÇÃO DE START CÂMERA (VERSÃO COMPATIBILIDADE MÁXIMA) ---
+  // --- FUNÇÃO DE START CÂMERA MANUAL (BLINDADA) ---
   const startCamera = () => {
-    if (scannerRef.current?.isScanning) {
-      // Se já estiver rodando, para tudo antes de tentar de novo
-      scannerRef.current.stop().then(() => {
-         scannerRef.current?.clear();
-         startCameraInternal();
-      }).catch(err => {
-         console.error("Erro ao reiniciar", err);
-         startCameraInternal(); // Tenta mesmo assim
-      });
-    } else {
-      startCameraInternal();
-    }
-  };
+    if (scannerRef.current?.isScanning) return;
 
-  const startCameraInternal = () => {
     setScanError('');
     setCameraLoading(true);
 
+    // Pequeno delay para o DOM renderizar
     setTimeout(() => {
-        if (!document.getElementById("reader")) {
-            setScanError("Erro: Tela não pronta. Tente novamente.");
+        try {
+            if (!document.getElementById("reader")) {
+                throw new Error("Elemento de vídeo não encontrado.");
+            }
+
+            const html5QrCode = new Html5Qrcode("reader");
+            scannerRef.current = html5QrCode;
+
+            const config = { 
+              fps: 10, 
+              qrbox: { width: 250, height: 250 }
+            };
+
+            html5QrCode.start(
+              { facingMode: "environment" }, 
+              config,
+              (decodedText) => {
+                handleProcessCode(decodedText);
+              },
+              (errorMessage) => {
+                // Ignora erros de frame vazio
+              }
+            ).then(() => {
+              setIsScanning(true);
+              setCameraLoading(false);
+            }).catch(err => {
+              console.error("Erro Start:", err);
+              setScanError("Erro ao abrir câmera. Verifique permissões.");
+              setCameraLoading(false);
+              setIsScanning(false);
+            });
+
+        } catch (e) {
+            console.error("Erro Crítico:", e);
+            setScanError("Falha ao inicializar scanner.");
             setCameraLoading(false);
-            return;
         }
-
-        // Limpa instância anterior se existir
-        if (scannerRef.current) {
-            try { scannerRef.current.clear(); } catch(e) {}
-        }
-
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-
-        // Configuração Simplificada (Sem Aspect Ratio para evitar conflito)
-        const config = { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 }
-        };
-
-        html5QrCode.start(
-          { facingMode: "environment" }, 
-          config,
-          (decodedText) => {
-            handleProcessCode(decodedText);
-          },
-          (errorMessage) => {
-            // Ignora erros de frame
-          }
-        ).then(() => {
-          setIsScanning(true);
-          setCameraLoading(false);
-        }).catch(err => {
-          console.error("Erro ao iniciar câmera", err);
-          // Mensagem amigável
-          setScanError("Não foi possível acessar a câmera. Verifique se você deu permissão no navegador.");
-          setCameraLoading(false);
-          setIsScanning(false);
-        });
     }, 500);
   };
 
@@ -310,22 +300,44 @@ function App() {
       scannerRef.current.stop().then(() => {
         scannerRef.current?.clear();
         setIsScanning(false);
-      }).catch(err => console.error("Erro ao parar", err));
+      }).catch(err => {
+          console.error("Erro ao parar", err);
+          setIsScanning(false);
+      });
     }
   };
 
+  // Cleanup ao fechar janela
+  useEffect(() => {
+      if (!showQuickEntry) {
+          if (scannerRef.current) {
+              try {
+                  if (scannerRef.current.isScanning) {
+                      scannerRef.current.stop().then(() => scannerRef.current?.clear());
+                  } else {
+                      scannerRef.current.clear();
+                  }
+              } catch(e) { console.log("Cleanup error", e) }
+          }
+          setIsScanning(false);
+          setCameraLoading(false);
+      }
+  }, [showQuickEntry]);
+
   const handleProcessCode = (code: string) => {
-    setScanError('');
+    // setScanError(''); // Não limpamos erro aqui para não piscar a tela
     const term = code.trim().toLowerCase();
     if (!term) return;
-    const now = Date.now();
     
+    const now = Date.now();
     if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
     lastScanRef.current = { code: term, time: now };
 
     const found = products.find(p => (p.sku && p.sku.toLowerCase() === term) || (p.barcode && p.barcode.toLowerCase() === term));
+    
     if (found) {
       playSound('success');
+      setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` });
       setScannedItems(prev => {
         const existingIndex = prev.findIndex(item => item.product.id === found.id);
         if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; }
@@ -334,9 +346,11 @@ function App() {
       setQuickScanInput(''); 
     } else { 
       playSound('error'); 
-      setScanError(`Não encontrado: ${code}`);
-      setTimeout(() => setScanError(''), 3000);
+      setLastScannedFeedback({ type: 'error', msg: `Não encontrado: ${code}` });
     }
+
+    // Limpa o feedback visual após 3s
+    setTimeout(() => setLastScannedFeedback(null), 3000);
   };
 
   const handleUpdateScannedQty = (productId: string, delta: number) => {
@@ -690,6 +704,7 @@ function App() {
                       </div>
                     </div>
                     
+                    {/* CONTROLES +/- */}
                     <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
                       <button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button>
                       <span className="w-6 text-center font-bold text-slate-800">{item.count}</span>
