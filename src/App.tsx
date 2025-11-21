@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore,
@@ -29,8 +29,8 @@ import {
   Image as ImageIcon,
   Search,
   X,
-  ChevronLeft,
-  Save
+  Save,
+  CheckCircle2
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -71,9 +71,12 @@ function App() {
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // NOVO ESTADO: Controla qual tela do admin estamos vendo ('list' = lista, 'add' = cadastro)
   const [adminView, setAdminView] = useState<'list' | 'add'>('list');
+  
+  // Estado para feedback visual de salvamento rápido
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  // Referências para os campos do formulário para focar neles rapidamente
+  const sizeInputRef = useRef<HTMLInputElement>(null);
 
   // Autenticação
   useEffect(() => {
@@ -123,8 +126,9 @@ function App() {
         quantity: 0,
         updatedAt: serverTimestamp(),
       });
-      // Após cadastrar, volta para a lista
-      setAdminView('list');
+      // Mostra feedback visual rápido
+      setShowSaveSuccess(true);
+      setTimeout(() => setShowSaveSuccess(false), 2000);
     } catch (e) {
       console.error("Erro ao adicionar:", e);
       alert("Erro ao salvar produto.");
@@ -272,11 +276,10 @@ function App() {
           </div>
           
           <div className="flex items-center gap-3">
-            {/* BOTÃO NOVO PRODUTO + (Só aparece na lista) */}
             {adminView === 'list' && (
               <button 
                 onClick={() => setAdminView('add')}
-                className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+                className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-lg shadow-green-900/20"
               >
                 <Plus size={18} /> Novo Produto
               </button>
@@ -291,13 +294,11 @@ function App() {
 
       <main className="max-w-5xl mx-auto p-4 space-y-6">
         
-        {/* --- CONTEÚDO CONDICIONAL (LISTA OU CADASTRO) --- */}
-        
         {adminView === 'list' ? (
           // === VISÃO DA LISTA DE PRODUTOS ===
           <>
             {/* Barra de Busca (Blindada) */}
-            <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden">
+            <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg">
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
               <div className="flex-1 relative z-10">
                 <label className="text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2">
@@ -308,7 +309,7 @@ function App() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Clique aqui e bipe o código de barras..." 
-                  className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none placeholder:text-slate-600" 
+                  className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none placeholder:text-slate-600 transition-all" 
                 />
               </div>
             </div>
@@ -349,51 +350,81 @@ function App() {
 
         ) : (
 
-          // === NOVA TELA DE CADASTRO (SEPARADA) ===
+          // === NOVA TELA DE CADASTRO (RAPIDO) ===
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
             
+            {/* Feedback de Salvamento */}
+            {showSaveSuccess && (
+              <div className="absolute top-0 left-0 w-full bg-green-600 text-white p-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-in slide-in-from-top">
+                <CheckCircle2 size={16} /> Variação salva! Continue cadastrando...
+              </div>
+            )}
+
             {/* Botão Cancelar/Voltar */}
             <button 
               onClick={() => setAdminView('list')}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full hover:bg-slate-700"
+              title="Voltar para lista"
             >
-              <X size={24} />
+              <X size={20} />
             </button>
 
-            <div className="p-6 border-b border-slate-800 bg-slate-800/50">
+            <div className="p-6 border-b border-slate-800 bg-slate-800/50 mt-8">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <Plus size={24} className="text-green-500" /> Novo Produto
+                <Plus size={24} className="text-green-500" /> Cadastro de Produto
               </h2>
-              <p className="text-slate-400 text-sm mt-1">Preencha as informações abaixo para cadastrar.</p>
+              <p className="text-slate-400 text-sm mt-1">Preencha os dados base e adicione as variações rapidamente.</p>
             </div>
             
             <form 
               onSubmit={(e) => {
                 e.preventDefault();
                 const form = e.target as HTMLFormElement;
+                
+                // Gera um SKU combinado automático se o usuário não preencher
+                const baseSku = form.sku.value.toUpperCase().replace(/\s+/g, '');
+                const colorCode = form.color.value.toUpperCase().substring(0, 3);
+                const sizeCode = form.size.value.replace(/\s+/g, '');
+                const generatedSku = `${baseSku}-${colorCode}-${sizeCode}`;
+
                 handleAddProduct({
-                  sku: form.sku.value,
+                  sku: generatedSku, // Usa o SKU gerado automaticamente
                   barcode: form.barcode.value,
                   image: form.image.value,
                   name: form.name.value,
                   color: form.color.value,
                   size: form.size.value,
                 });
-                form.reset();
+
+                // --- A MÁGICA DO CADASTRO RÁPIDO ---
+                // NÃO usamos form.reset() total.
+                // Limpamos apenas os campos variáveis: Tamanho e Barcode
+                form.size.value = '';
+                form.barcode.value = '';
+                
+                // Mantemos o Nome, SKU Base, Foto e Cor para o próximo
+                
+                // Foca automaticamente no campo de Tamanho para a próxima variação
+                if (sizeInputRef.current) {
+                  sizeInputRef.current.focus();
+                }
               }}
               className="p-6 space-y-8"
             >
-              {/* --- SEÇÃO 1: INFORMAÇÃO BÁSICA (Igual ao print) --- */}
-              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50">
-                <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">
-                  Informação Básica
+              {/* --- SEÇÃO 1: INFORMAÇÃO BÁSICA (Mantida entre cadastros) --- */}
+              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 relative group">
+                <div className="absolute right-4 top-4 text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-full border border-slate-800 opacity-50 group-hover:opacity-100 transition-opacity">
+                  Estes dados serão mantidos para a próxima variação
+                </div>
+                <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
+                  <Package size={16} className="text-blue-400" /> Informação Básica (Pai)
                 </h3>
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm text-slate-400 block mb-1">
-                      SKU<span className="text-red-500">*</span> (Referência Pai/Modelo)
+                      SKU Base<span className="text-red-500">*</span> (Ex: 6204)
                     </label>
-                    <input name="sku" placeholder="Ex: 6204" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <input name="sku" placeholder="Ref. do Modelo" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
                   </div>
                   <div>
                     <label className="text-sm text-slate-400 block mb-1">
@@ -401,43 +432,51 @@ function App() {
                     </label>
                     <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
                   </div>
-                  <div>
+                  <div className="md:col-span-2">
                     <label className="text-sm text-slate-400 block mb-1 flex items-center gap-2">
                       <ImageIcon size={14} /> Link da Foto (URL)
                     </label>
-                    <input name="image" placeholder="https://..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <input name="image" placeholder="https://..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none text-xs" />
                   </div>
                 </div>
               </div>
 
-              {/* --- SEÇÃO 2: VARIAÇÃO (Para manter funcionando) --- */}
-              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50">
-                <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">
-                  Detalhes da Variação
+              {/* --- SEÇÃO 2: VARIAÇÃO (Limpa a cada cadastro) --- */}
+              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50">
+                <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
+                  <Tag size={16} className="text-green-400" /> Variação Atual (Filho)
                 </h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm text-slate-400 block mb-1">Cor<span className="text-red-500">*</span></label>
-                    <input name="color" placeholder="Preto" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <input name="color" placeholder="Ex: Preto" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <p className="text-[10px] text-slate-500 mt-1">Mantido se for a mesma cor.</p>
                   </div>
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1">Tamanho<span className="text-red-500">*</span></label>
-                    <input name="size" placeholder="40" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <label className="text-sm text-slate-400 block mb-1 font-bold text-green-400">Tamanho<span className="text-red-500">*</span></label>
+                    <input 
+                      ref={sizeInputRef} // Referência para focar aqui automaticamente
+                      name="size" 
+                      placeholder="Ex: 40" 
+                      required 
+                      className="w-full bg-slate-900 border-2 border-slate-700 rounded px-3 py-2 text-white focus:border-green-500 outline-none font-bold" 
+                    />
+                    <p className="text-[10px] text-green-500/70 mt-1">Foco automático aqui.</p>
                   </div>
                   <div>
                     <label className="text-sm text-slate-400 block mb-1 flex items-center gap-1"><ScanBarcode size={14}/> EAN/Barcode</label>
-                    <input name="barcode" placeholder="Bipe aqui..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <input name="barcode" placeholder="Bipe aqui..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
                   </div>
                 </div>
               </div>
 
               {/* Botão Salvar */}
-              <div className="flex justify-end pt-4 border-t border-slate-800">
+              <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm">
                 <button 
                   type="submit"
-                  className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-8 py-3 flex items-center font-bold gap-2 transition-colors shadow-lg"
+                  className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-8 py-4 flex items-center font-bold gap-2 transition-all shadow-lg hover:shadow-green-500/20 hover:scale-[1.02]"
                 >
-                  <Save size={20} /> SALVAR PRODUTO
+                  <Save size={20} /> SALVAR E PRÓXIMO TAMANHO
                 </button>
               </div>
 
