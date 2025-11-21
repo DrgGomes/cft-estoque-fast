@@ -115,6 +115,10 @@ function App() {
   const [scanError, setScanError] = useState('');
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<any>(null);
+  
+  // --- TRAVA DE SEGURANÇA (Delay) ---
+  // Guarda o último código lido e a hora que foi lido
+  const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
   // Autenticação e Busca
   useEffect(() => {
@@ -154,30 +158,24 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- LÓGICA DA CÂMERA (AJUSTADA PARA TRASEIRA) ---
+  // --- LÓGICA DA CÂMERA ---
   useEffect(() => {
     if (showCamera && showQuickEntry) {
       setTimeout(() => {
-        // Configurações para forçar câmera traseira
         const scanner = new Html5QrcodeScanner(
           "reader",
           { 
             fps: 10, 
             qrbox: { width: 250, height: 150 },
             aspectRatio: 1.0,
-            // AQUI ESTÁ O SEGREDO: facingMode environment = Traseira
-            videoConstraints: {
-              facingMode: "environment"
-            }
+            videoConstraints: { facingMode: "environment" } // Câmera Traseira
           },
           false
         );
 
         scanner.render((decodedText) => {
           handleProcessCode(decodedText);
-        }, (error) => {
-          // Ignora erros de frame vazio
-        });
+        }, (error) => {});
 
         scannerRef.current = scanner;
       }, 100);
@@ -189,10 +187,22 @@ function App() {
     }
   }, [showCamera, showQuickEntry]);
 
+  // --- PROCESSADOR DE CÓDIGOS COM TRAVA ---
   const handleProcessCode = (code: string) => {
     setScanError('');
     const term = code.trim().toLowerCase();
     if (!term) return;
+
+    const now = Date.now();
+    
+    // VERIFICAÇÃO DA TRAVA (2.5 Segundos)
+    // Se for o MESMO código e passou menos de 2500ms, ignora
+    if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) {
+      return; 
+    }
+
+    // Atualiza a referência do último scan
+    lastScanRef.current = { code: term, time: now };
 
     const found = products.find(p => 
       (p.sku && p.sku.toLowerCase() === term) || 
