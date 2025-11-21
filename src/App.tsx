@@ -11,6 +11,7 @@ import {
   query,
   orderBy,
   onSnapshot,
+  writeBatch
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -31,7 +32,8 @@ import {
   X,
   Save,
   Check,
-  AlertCircle // Troquei CheckCircle2 por estes mais seguros
+  Layers,
+  ArrowRight
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -65,6 +67,14 @@ type Product = {
   updatedAt?: any;
 };
 
+// Tipo para a tabela de geração
+type VariationRow = {
+  color: string;
+  size: string;
+  sku: string;
+  barcode: string;
+};
+
 function App() {
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -74,11 +84,18 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [adminView, setAdminView] = useState<'list' | 'add'>('list');
   
-  // Estado para feedback visual de salvamento
-  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  // Estados para o Gerador de Grade
+  const [baseSku, setBaseSku] = useState('');
+  const [baseName, setBaseName] = useState('');
+  const [baseImage, setBaseImage] = useState('');
   
-  // Referências para focar nos campos
-  const sizeInputRef = useRef<HTMLInputElement>(null);
+  const [colors, setColors] = useState<string[]>([]);
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [tempColor, setTempColor] = useState('');
+  const [tempSize, setTempSize] = useState('');
+  
+  const [generatedRows, setGeneratedRows] = useState<VariationRow[]>([]);
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
 
   // Autenticação
   useEffect(() => {
@@ -104,7 +121,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Filtro de Busca (Blindado)
+  // Filtro de Busca
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
@@ -120,30 +137,112 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- Funções de Admin ---
-  const handleAddProduct = async (formData: any) => {
-    try {
-      await addDoc(collection(db, PRODUCTS_COLLECTION), {
-        ...formData,
-        quantity: 0,
-        updatedAt: serverTimestamp(),
+  // --- LÓGICA DE GERAÇÃO DE GRADE ---
+  
+  // Atualiza a tabela sempre que Cores, Tamanhos ou SKU Base mudarem
+  useEffect(() => {
+    const newRows: VariationRow[] = [];
+    
+    colors.forEach(color => {
+      sizes.forEach(size => {
+        // Gera o SKU Automaticamente: PAI - COR - TAMANHO
+        // Ex: 6204-PRETO-37/38
+        const cleanSku = baseSku.toUpperCase().replace(/\s+/g, '');
+        const cleanColor = color.toUpperCase();
+        const cleanSize = size.toUpperCase().replace(/\s+/g, '');
+        
+        const autoSku = cleanSku && cleanColor && cleanSize 
+          ? `${cleanSku}-${cleanColor}-${cleanSize}` 
+          : '';
+
+        // Tenta manter o código de barras se já existia nessa combinação, senão vazio
+        const existingRow = generatedRows.find(r => r.color === color && r.size === size);
+
+        newRows.push({
+          color,
+          size,
+          sku: autoSku,
+          barcode: existingRow ? existingRow.barcode : ''
+        });
       });
-      // Sucesso visual
-      setShowSaveSuccess(true);
-      setTimeout(() => setShowSaveSuccess(false), 2000);
-    } catch (e) {
-      console.error("Erro ao adicionar:", e);
-      alert("Erro ao salvar no banco de dados. Verifique a internet.");
+    });
+
+    setGeneratedRows(newRows);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colors, sizes, baseSku]);
+
+  const addColor = () => {
+    if (tempColor && !colors.includes(tempColor)) {
+      setColors([...colors, tempColor]);
+      setTempColor('');
     }
   };
+
+  const addSize = () => {
+    if (tempSize && !sizes.includes(tempSize)) {
+      setSizes([...sizes, tempSize]);
+      setTempSize('');
+    }
+  };
+
+  const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
+  const removeSize = (s: string) => setSizes(sizes.filter(item => item !== s));
+
+  const updateRowBarcode = (index: number, val: string) => {
+    const updated = [...generatedRows];
+    updated[index].barcode = val;
+    setGeneratedRows(updated);
+  };
+
+  // --- SALVAR TUDO (BATCH WRITE) ---
+  const handleSaveBatch = async () => {
+    if (!baseName || !baseSku || generatedRows.length === 0) {
+      alert("Preencha o nome, SKU base e adicione variações.");
+      return;
+    }
+
+    setIsSavingBatch(true);
+    try {
+      const batch = writeBatch(db);
+      
+      generatedRows.forEach(row => {
+        const docRef = doc(collection(db, PRODUCTS_COLLECTION)); // Cria ID novo
+        batch.set(docRef, {
+          name: baseName,
+          image: baseImage,
+          sku: row.sku,
+          barcode: row.barcode,
+          color: row.color,
+          size: row.size,
+          quantity: 0, // Começa zerado
+          updatedAt: serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+      
+      // Limpa tudo após salvar
+      setBaseSku('');
+      setBaseName('');
+      setBaseImage('');
+      setColors([]);
+      setSizes([]);
+      setAdminView('list');
+      alert(`${generatedRows.length} produtos gerados com sucesso!`);
+
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar em massa.");
+    } finally {
+      setIsSavingBatch(false);
+    }
+  };
+
 
   const handleUpdateQuantity = async (id: string, newQty: number) => {
     if (newQty < 0) return;
     const productRef = doc(db, PRODUCTS_COLLECTION, id);
-    await updateDoc(productRef, {
-      quantity: newQty,
-      updatedAt: serverTimestamp(),
-    });
+    await updateDoc(productRef, { quantity: newQty, updatedAt: serverTimestamp() });
   };
 
   const handleDeleteProduct = async (id: string) => {
@@ -214,7 +313,7 @@ function App() {
             <Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" />
             <input 
               type="text"
-              placeholder="Buscar por modelo, cor ou tamanho..."
+              placeholder="Buscar..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -233,7 +332,6 @@ function App() {
                     <ImageIcon className="text-slate-300 w-8 h-8" />
                   )}
                 </div>
-                
                 <div className="flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm leading-tight">{product.name}</h3>
@@ -244,12 +342,11 @@ function App() {
                     </div>
                   </div>
                 </div>
-
                 <div className="flex flex-col items-end justify-center min-w-[70px]">
                   {product.quantity > 0 ? (
                     <>
                       <span className="text-2xl font-bold text-green-600">{product.quantity}</span>
-                      <span className="text-[9px] font-bold text-green-600 uppercase">Disponível</span>
+                      <span className="text-[9px] font-bold text-green-600 uppercase">Disp.</span>
                     </>
                   ) : (
                     <div className="bg-red-100 text-red-600 px-2 py-1 rounded text-center">
@@ -284,7 +381,6 @@ function App() {
                 <Plus size={18} /> Novo Produto
               </button>
             )}
-
             <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700 transition-colors">
               <LogOut size={16} /> Sair
             </button>
@@ -301,13 +397,13 @@ function App() {
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
               <div className="flex-1 relative z-10">
                 <label className="text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2">
-                  <ScanBarcode size={14}/> BIPAR ENTRADA/SAÍDA (BUSCA RÁPIDA)
+                  <ScanBarcode size={14}/> BIPAR ENTRADA/SAÍDA
                 </label>
                 <input 
                   autoFocus
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Clique aqui e bipe o código de barras..." 
+                  placeholder="Clique aqui e bipe..." 
                   className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none placeholder:text-slate-600 transition-all" 
                 />
               </div>
@@ -348,137 +444,165 @@ function App() {
 
         ) : (
 
-          // === NOVA TELA DE CADASTRO (RAPIDO) ===
+          // === NOVA TELA DE GERAÇÃO DE GRADE (MUITO MAIS RÁPIDA) ===
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
-            
-            {showSaveSuccess && (
-              <div className="absolute top-0 left-0 w-full bg-green-600 text-white p-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-in slide-in-from-top z-50">
-                <Check size={16} /> Variação salva! Continue cadastrando...
-              </div>
-            )}
-
             <button 
               onClick={() => setAdminView('list')}
               className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full hover:bg-slate-700"
-              title="Voltar para lista"
             >
               <X size={20} />
             </button>
 
-            <div className="p-6 border-b border-slate-800 bg-slate-800/50 mt-8">
+            <div className="p-6 border-b border-slate-800 bg-slate-800/50">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <Plus size={24} className="text-green-500" /> Cadastro de Produto
+                <Layers size={24} className="text-green-500" /> Gerador de Variações
               </h2>
-              <p className="text-slate-400 text-sm mt-1">Preencha os dados base e adicione as variações rapidamente.</p>
+              <p className="text-slate-400 text-sm mt-1">Monte a grade completa e gere todos os SKUs de uma vez.</p>
             </div>
             
-            <form 
-              onSubmit={(e) => {
-                e.preventDefault();
-                try {
-                  const form = e.target as HTMLFormElement;
-                  
-                  // Valores seguros (com fallback)
-                  const skuVal = (form.elements.namedItem('sku') as HTMLInputElement)?.value || '';
-                  const colorVal = (form.elements.namedItem('color') as HTMLInputElement)?.value || '';
-                  const sizeVal = (form.elements.namedItem('size') as HTMLInputElement)?.value || '';
-                  const barcodeVal = (form.elements.namedItem('barcode') as HTMLInputElement)?.value || '';
-                  const nameVal = (form.elements.namedItem('name') as HTMLInputElement)?.value || '';
-                  const imageVal = (form.elements.namedItem('image') as HTMLInputElement)?.value || '';
-
-                  // Gera um SKU combinado automático
-                  const baseSku = skuVal.toUpperCase().replace(/\s+/g, '');
-                  const colorCode = colorVal.toUpperCase().substring(0, 3);
-                  const sizeCode = sizeVal.replace(/\s+/g, '');
-                  const generatedSku = `${baseSku}-${colorCode}-${sizeCode}`;
-
-                  handleAddProduct({
-                    sku: generatedSku,
-                    barcode: barcodeVal,
-                    image: imageVal,
-                    name: nameVal,
-                    color: colorVal,
-                    size: sizeVal,
-                  });
-
-                  // Limpa apenas campos variáveis
-                  const sizeInput = form.elements.namedItem('size') as HTMLInputElement;
-                  const barcodeInput = form.elements.namedItem('barcode') as HTMLInputElement;
-                  
-                  if (sizeInput) sizeInput.value = '';
-                  if (barcodeInput) barcodeInput.value = '';
-                  
-                  // Foca no tamanho para o próximo
-                  if (sizeInputRef.current) {
-                    sizeInputRef.current.focus();
-                  }
-                } catch (err) {
-                  alert("Erro ao processar formulário. Tente novamente.");
-                }
-              }}
-              className="p-6 space-y-8"
-            >
-              {/* --- SEÇÃO 1: PAI --- */}
-              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 relative group">
-                <div className="absolute right-4 top-4 text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-full border border-slate-800 opacity-50 group-hover:opacity-100 transition-opacity">
-                  Estes dados serão mantidos
-                </div>
+            <div className="p-6 space-y-8">
+              
+              {/* PASSO 1: INFORMAÇÕES BASE */}
+              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50">
                 <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
-                  <Package size={16} className="text-blue-400" /> Informação Básica (Pai)
+                  <Package size={16} className="text-blue-400" /> 1. Informações do Produto Pai
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1">SKU Base<span className="text-red-500">*</span></label>
-                    <input name="sku" placeholder="Ref. do Modelo (Ex: 6204)" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
+                    <label className="text-sm text-slate-400 block mb-1">Nome do Produto*</label>
+                    <input value={baseName} onChange={e => setBaseName(e.target.value)} placeholder="Ex: Sapato Social Trones" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1">Nome do Produto<span className="text-red-500">*</span></label>
-                    <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <label className="text-sm text-slate-400 block mb-1">SKU Base / Referência*</label>
+                    <input value={baseSku} onChange={e => setBaseSku(e.target.value)} placeholder="Ex: 6204" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><ImageIcon size={14} /> Link da Foto</label>
-                    <input name="image" placeholder="https://..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none text-xs" />
+                    <label className="text-sm text-slate-400 block mb-1">Link da Foto</label>
+                    <input value={baseImage} onChange={e => setBaseImage(e.target.value)} placeholder="https://..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none text-xs" />
                   </div>
                 </div>
               </div>
 
-              {/* --- SEÇÃO 2: FILHO --- */}
-              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50">
+              {/* PASSO 2: DEFINIR CORES E TAMANHOS */}
+              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50">
                 <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
-                  <Plus size={16} className="text-green-400" /> Variação Atual (Filho)
+                  <Layers size={16} className="text-blue-400" /> 2. Definir Grade
                 </h3>
-                <div className="grid grid-cols-3 gap-4">
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* CORES */}
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1">Cor<span className="text-red-500">*</span></label>
-                    <input name="color" placeholder="Ex: Preto" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                    <label className="text-sm text-slate-400 block mb-2">Adicionar Cores (Digite e aperte Enter)</label>
+                    <div className="flex gap-2 mb-2">
+                      <input 
+                        value={tempColor}
+                        onChange={e => setTempColor(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addColor()}
+                        placeholder="Ex: Preto" 
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-green-500 outline-none"
+                      />
+                      <button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300 hover:bg-slate-700"><Plus size={16}/></button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {colors.map(c => (
+                        <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">
+                          {c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button>
+                        </span>
+                      ))}
+                      {colors.length === 0 && <span className="text-xs text-slate-600 italic">Nenhuma cor adicionada</span>}
+                    </div>
                   </div>
+
+                  {/* TAMANHOS */}
                   <div>
-                    <label className="text-sm text-slate-400 block mb-1 font-bold text-green-400">Tamanho<span className="text-red-500">*</span></label>
-                    <input 
-                      ref={sizeInputRef} 
-                      name="size" 
-                      placeholder="Ex: 40" 
-                      required 
-                      className="w-full bg-slate-900 border-2 border-slate-700 rounded px-3 py-2 text-white focus:border-green-500 outline-none font-bold" 
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-1"><ScanBarcode size={14}/> EAN/Barcode</label>
-                    <input name="barcode" placeholder="Bipe aqui..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none font-mono" />
+                    <label className="text-sm text-slate-400 block mb-2">Adicionar Tamanhos (Digite e aperte Enter)</label>
+                    <div className="flex gap-2 mb-2">
+                      <input 
+                        value={tempSize}
+                        onChange={e => setTempSize(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addSize()}
+                        placeholder="Ex: 37/38" 
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-green-500 outline-none"
+                      />
+                      <button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300 hover:bg-slate-700"><Plus size={16}/></button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {sizes.map(s => (
+                        <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">
+                          {s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button>
+                        </span>
+                      ))}
+                       {sizes.length === 0 && <span className="text-xs text-slate-600 italic">Nenhum tamanho adicionado</span>}
+                    </div>
                   </div>
                 </div>
               </div>
 
+              {/* PASSO 3: TABELA AUTOMÁTICA */}
+              {generatedRows.length > 0 && (
+                <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50 animate-in slide-in-from-bottom-4 fade-in duration-500">
+                  <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                       <Check size={16} className="text-green-400" /> 3. Variações Geradas ({generatedRows.length})
+                    </div>
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider">SKU Preenchido em Massa</span>
+                  </h3>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="text-xs text-slate-500 border-b border-slate-800">
+                          <th className="p-2">Tamanho</th>
+                          <th className="p-2">Cor</th>
+                          <th className="p-2 w-1/3">SKU (Automático)</th>
+                          <th className="p-2 w-1/3">Código de Barras (Opcional)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {generatedRows.map((row, idx) => (
+                          <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-900/50 transition-colors">
+                            <td className="p-2 text-sm text-white font-bold">{row.size}</td>
+                            <td className="p-2 text-sm text-slate-300">{row.color}</td>
+                            <td className="p-2">
+                              <input 
+                                disabled
+                                value={row.sku} 
+                                className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono cursor-not-allowed" 
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input 
+                                value={row.barcode}
+                                onChange={(e) => updateRowBarcode(idx, e.target.value)}
+                                placeholder="EAN..."
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none" 
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Botão Salvar Batch */}
               <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm">
                 <button 
-                  type="submit"
-                  className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-8 py-4 flex items-center font-bold gap-2 transition-all shadow-lg hover:shadow-green-500/20 hover:scale-[1.02]"
+                  onClick={handleSaveBatch}
+                  disabled={isSavingBatch || generatedRows.length === 0}
+                  className={`rounded-lg px-8 py-4 flex items-center font-bold gap-2 transition-all shadow-lg ${
+                    isSavingBatch || generatedRows.length === 0 
+                    ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
+                    : 'bg-green-600 hover:bg-green-500 text-white hover:shadow-green-500/20 hover:scale-[1.02]'
+                  }`}
                 >
-                  <Save size={20} /> SALVAR E PRÓXIMO TAMANHO
+                  {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} 
+                  {isSavingBatch ? 'SALVANDO...' : 'GERAR ESTOQUE EM MASSA'}
                 </button>
               </div>
 
-            </form>
+            </div>
           </div>
         )}
       </main>
