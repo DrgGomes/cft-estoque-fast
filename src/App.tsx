@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore,
   collection,
   doc,
-  setDoc,
-  onSnapshot,
   updateDoc,
   addDoc,
   deleteDoc,
   serverTimestamp,
   query,
   orderBy,
+  onSnapshot,
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -21,18 +20,17 @@ import {
 import {
   Bell,
   Package,
-  AlertTriangle,
   RefreshCw,
   Trash2,
   Plus,
   Smartphone,
   LogOut,
-  Zap,
-  Save,
   ScanBarcode,
   Image as ImageIcon,
   Search,
-  Tag
+  X,
+  ChevronLeft,
+  Save
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -73,6 +71,9 @@ function App() {
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // NOVO ESTADO: Controla qual tela do admin estamos vendo ('list' = lista, 'add' = cadastro)
+  const [adminView, setAdminView] = useState<'list' | 'add'>('list');
 
   // Autenticação
   useEffect(() => {
@@ -98,18 +99,16 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- A CORREÇÃO ESTÁ AQUI (FILTRO BLINDADO) ---
+  // Filtro de Busca
   useEffect(() => {
     if (searchTerm.trim() === '') {
       setFilteredProducts(products);
     } else {
       const lowerTerm = searchTerm.toLowerCase();
       const filtered = products.filter(p => {
-        // O código abaixo usa "|| ''" para garantir que não quebre se o campo não existir
         const name = (p.name || '').toLowerCase();
         const sku = (p.sku || '').toLowerCase();
         const barcode = (p.barcode || '').toLowerCase();
-        
         return name.includes(lowerTerm) || sku.includes(lowerTerm) || barcode.includes(lowerTerm);
       });
       setFilteredProducts(filtered);
@@ -124,8 +123,11 @@ function App() {
         quantity: 0,
         updatedAt: serverTimestamp(),
       });
+      // Após cadastrar, volta para a lista
+      setAdminView('list');
     } catch (e) {
       console.error("Erro ao adicionar:", e);
+      alert("Erro ao salvar produto.");
     }
   };
 
@@ -263,130 +265,188 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
+        <div className="max-w-5xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
             <div><h1 className="font-bold text-white">Painel ERP</h1></div>
           </div>
-          <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-1"><LogOut size={14} /> Sair</button>
+          
+          <div className="flex items-center gap-3">
+            {/* BOTÃO NOVO PRODUTO + (Só aparece na lista) */}
+            {adminView === 'list' && (
+              <button 
+                onClick={() => setAdminView('add')}
+                className="text-sm bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+              >
+                <Plus size={18} /> Novo Produto
+              </button>
+            )}
+
+            <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700 transition-colors">
+              <LogOut size={16} /> Sair
+            </button>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-4 space-y-6">
-        {/* Formulário de Cadastro Avançado */}
-        <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
-          <h2 className="text-sm font-bold text-green-400 uppercase tracking-wider mb-5 flex items-center gap-2">
-            <Plus size={16} /> Cadastrar Variação (SKU Único)
-          </h2>
-          <form 
-            onSubmit={(e) => {
-              e.preventDefault();
-              const form = e.target as HTMLFormElement;
-              handleAddProduct({
-                sku: form.sku.value,
-                barcode: form.barcode.value,
-                image: form.image.value,
-                name: form.name.value,
-                color: form.color.value,
-                size: form.size.value,
-              });
-              // Limpa apenas campos variáveis
-              form.sku.value = '';
-              form.barcode.value = '';
-              form.size.value = '';
-              form.sku.focus(); 
-            }}
-            className="grid grid-cols-1 md:grid-cols-6 gap-4"
-          >
-            {/* Linha 1 */}
-            <div className="md:col-span-4">
-              <label className="text-xs text-slate-500 font-bold mb-1 block">NOME DO PRODUTO (PAI)</label>
-              <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs text-slate-500 font-bold mb-1 block flex items-center gap-1"><ImageIcon size={12}/> LINK DA FOTO (URL)</label>
-              <input name="image" placeholder="https://..." className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+      <main className="max-w-5xl mx-auto p-4 space-y-6">
+        
+        {/* --- CONTEÚDO CONDICIONAL (LISTA OU CADASTRO) --- */}
+        
+        {adminView === 'list' ? (
+          // === VISÃO DA LISTA DE PRODUTOS ===
+          <>
+            {/* Barra de Busca (Blindada) */}
+            <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden">
+              <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
+              <div className="flex-1 relative z-10">
+                <label className="text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2">
+                  <ScanBarcode size={14}/> BIPAR ENTRADA/SAÍDA (BUSCA RÁPIDA)
+                </label>
+                <input 
+                  autoFocus
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Clique aqui e bipe o código de barras..." 
+                  className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none placeholder:text-slate-600" 
+                />
+              </div>
             </div>
 
-            {/* Linha 2 */}
-            <div className="md:col-span-2">
-               <label className="text-xs text-slate-500 font-bold mb-1 block text-blue-400">COR</label>
-               <input name="color" placeholder="Ex: Preto" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+            {/* Lista de Estoque */}
+            <div className="space-y-3 pb-20">
+              {filteredProducts.map((product) => (
+                <div key={product.id} className="bg-white p-2 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-slate-100 rounded border overflow-hidden">
+                      {product.image ? <img src={product.image} className="w-full h-full object-cover"/> : <ImageIcon className="p-2 text-slate-300"/>}
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 text-sm">{product.name}</div>
+                      <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
+                        <span className="font-mono bg-slate-100 px-1 rounded">SKU: {product.sku || '-'}</span>
+                        {product.barcode && <span className="font-mono bg-slate-100 px-1 rounded flex items-center gap-1"><ScanBarcode size={10}/> {product.barcode}</span>}
+                      </div>
+                      <div className="flex gap-1 mt-1">
+                        <span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded">{product.color}</span>
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">{product.size}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-10">
+                      <button onClick={() => handleUpdateQuantity(product.id, product.quantity - 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
+                      <div className="w-12 text-center font-bold text-slate-800 text-lg">{product.quantity}</div>
+                      <button onClick={() => handleUpdateQuantity(product.id, product.quantity + 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
+                    </div>
+                    <button onClick={() => handleDeleteProduct(product.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500"><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="md:col-span-1">
-               <label className="text-xs text-slate-500 font-bold mb-1 block text-blue-400">TAM.</label>
-               <input name="size" placeholder="40" required className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
+          </>
+
+        ) : (
+
+          // === NOVA TELA DE CADASTRO (SEPARADA) ===
+          <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative">
+            
+            {/* Botão Cancelar/Voltar */}
+            <button 
+              onClick={() => setAdminView('list')}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"
+            >
+              <X size={24} />
+            </button>
+
+            <div className="p-6 border-b border-slate-800 bg-slate-800/50">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Plus size={24} className="text-green-500" /> Novo Produto
+              </h2>
+              <p className="text-slate-400 text-sm mt-1">Preencha as informações abaixo para cadastrar.</p>
             </div>
             
-            {/* Linha 3 */}
-            <div className="md:col-span-1">
-               <label className="text-xs text-slate-500 font-bold mb-1 block">SKU</label>
-               <input name="sku" placeholder="6204-PR-40" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
-            </div>
-            <div className="md:col-span-2">
-               <label className="text-xs text-slate-500 font-bold mb-1 block flex items-center gap-1"><ScanBarcode size={12}/> CÓDIGO BARRAS</label>
-               <div className="flex gap-2">
-                 <input name="barcode" placeholder="Bipe aqui..." className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 outline-none" />
-                 <button type="submit" className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-4 flex items-center justify-center font-bold uppercase text-xs tracking-wider">
-                   <Plus size={16} className="mr-1"/> Criar
-                 </button>
-               </div>
-            </div>
-          </form>
-        </div>
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.target as HTMLFormElement;
+                handleAddProduct({
+                  sku: form.sku.value,
+                  barcode: form.barcode.value,
+                  image: form.image.value,
+                  name: form.name.value,
+                  color: form.color.value,
+                  size: form.size.value,
+                });
+                form.reset();
+              }}
+              className="p-6 space-y-8"
+            >
+              {/* --- SEÇÃO 1: INFORMAÇÃO BÁSICA (Igual ao print) --- */}
+              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50">
+                <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">
+                  Informação Básica
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm text-slate-400 block mb-1">
+                      SKU<span className="text-red-500">*</span> (Referência Pai/Modelo)
+                    </label>
+                    <input name="sku" placeholder="Ex: 6204" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400 block mb-1">
+                      Nome do Produto<span className="text-red-500">*</span>
+                    </label>
+                    <input name="name" placeholder="Ex: Sapato Social Trones" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-2">
+                      <ImageIcon size={14} /> Link da Foto (URL)
+                    </label>
+                    <input name="image" placeholder="https://..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                </div>
+              </div>
 
-        {/* Barra de Busca (Blindada) */}
-        <div className="bg-slate-800 p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden">
-          <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
-          <div className="flex-1 relative z-10">
-            <label className="text-xs text-blue-300 font-bold mb-1 block flex items-center gap-2">
-              <ScanBarcode size={14}/> BIPAR ENTRADA/SAÍDA (BUSCA RÁPIDA)
-            </label>
-            <input 
-              autoFocus
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Clique aqui e bipe o código de barras..." 
-              className="w-full bg-slate-950 border-2 border-blue-600/50 rounded-lg px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none placeholder:text-slate-600" 
-            />
+              {/* --- SEÇÃO 2: VARIAÇÃO (Para manter funcionando) --- */}
+              <div className="bg-slate-950/50 p-5 rounded-lg border border-slate-800/50">
+                <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">
+                  Detalhes da Variação
+                </h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm text-slate-400 block mb-1">Cor<span className="text-red-500">*</span></label>
+                    <input name="color" placeholder="Preto" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400 block mb-1">Tamanho<span className="text-red-500">*</span></label>
+                    <input name="size" placeholder="40" required className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-1"><ScanBarcode size={14}/> EAN/Barcode</label>
+                    <input name="barcode" placeholder="Bipe aqui..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Botão Salvar */}
+              <div className="flex justify-end pt-4 border-t border-slate-800">
+                <button 
+                  type="submit"
+                  className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-8 py-3 flex items-center font-bold gap-2 transition-colors shadow-lg"
+                >
+                  <Save size={20} /> SALVAR PRODUTO
+                </button>
+              </div>
+
+            </form>
           </div>
-        </div>
-
-        {/* Lista de Estoque */}
-        <div className="space-y-3 pb-20">
-          {filteredProducts.map((product) => (
-            <div key={product.id} className="bg-white p-2 rounded-xl flex items-center justify-between shadow-sm group border-l-4 border-slate-300 hover:border-blue-500 transition-all">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-slate-100 rounded border overflow-hidden">
-                   {product.image ? <img src={product.image} className="w-full h-full object-cover"/> : <ImageIcon className="p-2 text-slate-300"/>}
-                </div>
-                <div>
-                  <div className="font-bold text-slate-900 text-sm">{product.name}</div>
-                  <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
-                    <span className="font-mono bg-slate-100 px-1 rounded">SKU: {product.sku || '-'}</span>
-                    {product.barcode && <span className="font-mono bg-slate-100 px-1 rounded flex items-center gap-1"><ScanBarcode size={10}/> {product.barcode}</span>}
-                  </div>
-                  <div className="flex gap-1 mt-1">
-                    <span className="text-[10px] font-bold text-white bg-slate-600 px-1.5 py-0.5 rounded">{product.color}</span>
-                    <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">{product.size}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-10">
-                  <button onClick={() => handleUpdateQuantity(product.id, product.quantity - 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button>
-                  <div className="w-12 text-center font-bold text-slate-800 text-lg">{product.quantity}</div>
-                  <button onClick={() => handleUpdateQuantity(product.id, product.quantity + 1)} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button>
-                </div>
-                <button onClick={() => handleDeleteProduct(product.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500"><Trash2 size={16} /></button>
-              </div>
-            </div>
-          ))}
-        </div>
+        )}
       </main>
     </div>
   );
 }
- 
+
 export default App;
