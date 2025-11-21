@@ -242,27 +242,45 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- FUNÇÃO DE START CÂMERA MANUAL CORRIGIDA ---
+  // --- FUNÇÃO DE START CÂMERA (VERSÃO COMPATIBILIDADE MÁXIMA) ---
   const startCamera = () => {
+    if (scannerRef.current?.isScanning) {
+      // Se já estiver rodando, para tudo antes de tentar de novo
+      scannerRef.current.stop().then(() => {
+         scannerRef.current?.clear();
+         startCameraInternal();
+      }).catch(err => {
+         console.error("Erro ao reiniciar", err);
+         startCameraInternal(); // Tenta mesmo assim
+      });
+    } else {
+      startCameraInternal();
+    }
+  };
+
+  const startCameraInternal = () => {
     setScanError('');
     setCameraLoading(true);
 
-    // Verificação de segurança: Se o elemento não existe, esperamos um pouco
-    // mas como mudamos o layout, ele DEVE existir agora.
     setTimeout(() => {
         if (!document.getElementById("reader")) {
-            setScanError("Erro crítico: Tela de câmera não carregou.");
+            setScanError("Erro: Tela não pronta. Tente novamente.");
             setCameraLoading(false);
             return;
+        }
+
+        // Limpa instância anterior se existir
+        if (scannerRef.current) {
+            try { scannerRef.current.clear(); } catch(e) {}
         }
 
         const html5QrCode = new Html5Qrcode("reader");
         scannerRef.current = html5QrCode;
 
+        // Configuração Simplificada (Sem Aspect Ratio para evitar conflito)
         const config = { 
           fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          // AspectRatio removido para evitar bugs em telas esticadas
+          qrbox: { width: 250, height: 250 }
         };
 
         html5QrCode.start(
@@ -279,11 +297,12 @@ function App() {
           setCameraLoading(false);
         }).catch(err => {
           console.error("Erro ao iniciar câmera", err);
-          setScanError("Erro de permissão. Verifique se o site tem acesso à câmera.");
+          // Mensagem amigável
+          setScanError("Não foi possível acessar a câmera. Verifique se você deu permissão no navegador.");
           setCameraLoading(false);
           setIsScanning(false);
         });
-    }, 300);
+    }, 500);
   };
 
   const stopCamera = () => {
@@ -334,7 +353,7 @@ function App() {
     setScannedItems(prev => prev.filter(item => item.product.id !== productId));
   };
 
-  // ... (Funções de Grade, CRUD, etc. mantidos) ...
+  // ... (Grade, CRUD, etc.)
   useEffect(() => {
     const newRows: VariationRow[] = [];
     colors.forEach(color => { sizes.forEach(size => {
@@ -514,7 +533,7 @@ function App() {
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
-            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setTimeout(() => scanInputRef.current?.focus(), 100); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
+            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
           </div>
@@ -627,16 +646,75 @@ function App() {
               {!isScanning && !cameraLoading && (
                 <button onClick={() => setShowQuickEntry(false)} className="absolute top-4 right-4 bg-slate-800 text-white p-2 rounded-full z-50"><X size={24} /></button>
               )}
+
+              {/* FEEDBACK VISUAL (O "Coloridinho") */}
+              {lastScannedFeedback && (
+                <div className={`absolute top-20 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50 ${
+                  lastScannedFeedback.type === 'success' ? 'bg-green-600/90 text-white' : 'bg-red-600/90 text-white'
+                }`}>
+                  {lastScannedFeedback.type === 'success' ? <Check size={24} /> : <AlertCircle size={24} />}
+                  {lastScannedFeedback.msg}
+                </div>
+              )}
             </div>
 
             {/* GAVETA INFERIOR */}
             <div className="bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.5)] flex flex-col max-h-[40vh]">
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl"><div className="flex flex-col"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span><span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span></div><button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR</button></div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-                {scannedItems.map((item) => (<div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2"><div className="flex items-center gap-3 overflow-hidden"><div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div><div className="text-xs text-slate-500 font-mono flex gap-1"><span className="bg-slate-100 px-1 rounded">{item.product.size}</span><span className="uppercase">{item.product.color}</span></div></div></div><div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1"><button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button><span className="w-6 text-center font-bold text-slate-800">{item.count}</span><button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button></div><button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button></div>))}
-                {scannedItems.length === 0 && (<div className="text-center py-8 text-slate-400 text-sm flex flex-col items-center gap-2"><ScanBarcode size={32} className="opacity-20" /><span>Bipe os produtos...</span></div>)}
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span>
+                  <span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span>
+                </div>
+                <button 
+                  onClick={handleCommitQuickEntry}
+                  disabled={scannedItems.length === 0 || isSavingBatch}
+                  className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}
+                >
+                  {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR
+                </button>
               </div>
-              <div className="p-2 bg-white border-t border-slate-100 pb-6"><form onSubmit={handleQuickScanSubmit}><input value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digitar código manual..." className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></form></div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+                {scannedItems.map((item) => (
+                  <div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">
+                        {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div>
+                        <div className="text-xs text-slate-500 font-mono flex gap-1">
+                          <span className="bg-slate-100 px-1 rounded">{item.product.size}</span>
+                          <span className="uppercase">{item.product.color}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
+                      <button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button>
+                      <span className="w-6 text-center font-bold text-slate-800">{item.count}</span>
+                      <button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button>
+                    </div>
+                    <button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+                {scannedItems.length === 0 && (
+                  <div className="text-center py-4 text-slate-400 text-sm">
+                    Clique em LIGAR CÂMERA ou digite abaixo.
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-2 bg-white border-t border-slate-100 pb-6">
+                 <form onSubmit={handleQuickScanSubmit}>
+                    <input 
+                      value={quickScanInput}
+                      onChange={e => setQuickScanInput(e.target.value)}
+                      placeholder="Digitar código manual..." 
+                      className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                 </form>
+              </div>
             </div>
           </div>
         )}
