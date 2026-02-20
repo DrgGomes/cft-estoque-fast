@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     const params = new URLSearchParams();
     params.append('grant_type', 'authorization_code');
     params.append('client_id', '1435927708247216');
-    params.append('client_secret', 'TvRRmbzsOqTpiDw2PXscCdiNfJJnbVvf');
+    params.append('client_secret', 'TvRRmbzs0qTpiDw2PXscCdiNfJJnbVvf');
     params.append('code', code);
     params.append('redirect_uri', redirectUri);
 
