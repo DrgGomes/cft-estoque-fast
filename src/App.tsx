@@ -162,7 +162,7 @@ function App() {
   // Integração Mercado Livre
   const [mlConnected, setMlConnected] = useState(false);
   const [connectingML, setConnectingML] = useState(false);
-  const authInProgress = useRef(false); // TRAVA ANTI DUPLO-CLIQUE
+  const authInProgress = useRef(false);
 
   // Estados Admin (Gerador)
   const [baseSku, setBaseSku] = useState('');
@@ -214,7 +214,7 @@ function App() {
     }
   }, [user]);
 
-  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE E GERAR TOKEN (BLINDADO) ---
+  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE E GERAR TOKEN (CORRIGIDO NULL) ---
   useEffect(() => {
     if (!user) return;
     
@@ -222,10 +222,9 @@ function App() {
     const authCode = urlParams.get('code');
 
     if (authCode && !authInProgress.current) {
-      authInProgress.current = true; // Trava para não mandar 2x
+      authInProgress.current = true;
       setConnectingML(true);
       
-      // Limpa a URL visualmente
       window.history.replaceState({}, document.title, window.location.pathname);
 
       fetch('/api/auth', {
@@ -236,17 +235,17 @@ function App() {
       .then(res => res.json())
       .then(async data => {
         if (data.access_token) {
+           // CORREÇÃO AQUI: Forçando 'null' se o campo vier undefined para o Firebase não travar
            await setDoc(doc(db, 'users', user.uid), {
-              ml_token: data.access_token,
-              ml_refresh_token: data.refresh_token,
-              ml_user_id: data.user_id,
+              ml_token: data.access_token || null,
+              ml_refresh_token: data.refresh_token || null,
+              ml_user_id: data.user_id || null,
               updatedAt: serverTimestamp()
            }, { merge: true });
            
            playSound('magic');
            alert("✅ Mercado Livre Conectado com Sucesso!");
         } else {
-           // MOSTRA O ERRO REAL DO ML AGORA
            alert("Erro ao conectar no ML. Detalhes: " + JSON.stringify(data));
            authInProgress.current = false;
         }
