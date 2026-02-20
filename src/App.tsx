@@ -8,6 +8,7 @@ import {
   addDoc,
   deleteDoc,
   setDoc,
+  getDoc, // NOVO IMPORT PARA LER O TOKEN
   serverTimestamp,
   query,
   orderBy,
@@ -56,7 +57,8 @@ import {
   FileText,
   ShoppingBag,
   Link as LinkIcon,
-  CheckCircle
+  CheckCircle,
+  Megaphone // NOVO ÍCONE DE ANÚNCIO
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -163,6 +165,11 @@ function App() {
   const [mlConnected, setMlConnected] = useState(false);
   const [connectingML, setConnectingML] = useState(false);
   const authInProgress = useRef(false);
+  
+  // TELA DE ANÚNCIO INTELIGENTE
+  const [publishingProduct, setPublishingProduct] = useState<any>(null);
+  const [publishForm, setPublishForm] = useState({ title: '', price: '', type: 'gold_special', category: 'MLB108427' });
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Estados Admin (Gerador)
   const [baseSku, setBaseSku] = useState('');
@@ -214,19 +221,15 @@ function App() {
     }
   }, [user]);
 
-  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE E GERAR TOKEN (CORRIGIDO NULL) ---
+  // --- EFEITO: CAPTURAR CÓDIGO DO ML ---
   useEffect(() => {
     if (!user) return;
-    
     const urlParams = new URLSearchParams(window.location.search);
     const authCode = urlParams.get('code');
-
     if (authCode && !authInProgress.current) {
       authInProgress.current = true;
       setConnectingML(true);
-      
       window.history.replaceState({}, document.title, window.location.pathname);
-
       fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -235,14 +238,12 @@ function App() {
       .then(res => res.json())
       .then(async data => {
         if (data.access_token) {
-           // CORREÇÃO AQUI: Forçando 'null' se o campo vier undefined para o Firebase não travar
            await setDoc(doc(db, 'users', user.uid), {
               ml_token: data.access_token || null,
               ml_refresh_token: data.refresh_token || null,
               ml_user_id: data.user_id || null,
               updatedAt: serverTimestamp()
            }, { merge: true });
-           
            playSound('magic');
            alert("✅ Mercado Livre Conectado com Sucesso!");
         } else {
@@ -250,18 +251,99 @@ function App() {
            authInProgress.current = false;
         }
       })
-      .catch(err => {
-         alert("Erro no servidor: " + err.message);
-         authInProgress.current = false;
-      })
+      .catch(err => { alert("Erro no servidor: " + err.message); authInProgress.current = false; })
       .finally(() => setConnectingML(false));
     }
   }, [user]);
 
-  // --- FUNÇÃO PARA CONECTAR AO ML ---
   const handleConnectML = () => {
     const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
     window.location.href = authUrl;
+  };
+
+  // --- 🚀 MÁGICA: PUBLICAR NO MERCADO LIVRE ---
+  const openPublishModal = (groupName: string, groupData: any) => {
+    setPublishingProduct({ name: groupName, ...groupData });
+    // Inteligência: Sugere o dobro do preço de custo
+    const suggestedPrice = groupData.info.price ? (groupData.info.price * 2).toFixed(2).replace('.', ',') : ''; 
+    setPublishForm({
+      title: `Tênis ${groupName} Lançamento Confortável`, // Título otimizado genérico
+      price: suggestedPrice,
+      type: 'gold_special', // Clássico padrão
+      category: 'MLB108427' // Tênis
+    });
+  };
+
+  const handlePublishML = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsPublishing(true);
+    try {
+      // 1. Pega o Crachá do Revendedor no Banco
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const mlToken = userDoc.data()?.ml_token;
+      if (!mlToken) throw new Error("Conexão expirou. Reconecte o Mercado Livre.");
+
+      // 2. Validações de Segurança
+      const availableItems = publishingProduct.items.filter((i: Product) => i.quantity > 0);
+      if (availableItems.length === 0) throw new Error("Não há estoque para criar um anúncio.");
+      if (!publishingProduct.info.image) throw new Error("O fornecedor não cadastrou foto neste produto.");
+      const numericPrice = parseFloat(publishForm.price.replace(',', '.'));
+      if (numericPrice < 10) throw new Error("O preço no ML deve ser maior que R$ 10.");
+
+      // 3. Monta o Pacote (Payload) no Padrão do Mercado Livre
+      const payload = {
+        title: publishForm.title,
+        category_id: publishForm.category,
+        price: numericPrice,
+        currency_id: "BRL",
+        available_quantity: availableItems.reduce((acc: number, curr: Product) => acc + curr.quantity, 0),
+        buying_mode: "buy_it_now",
+        condition: "new",
+        listing_type_id: publishForm.type,
+        pictures: [ { source: publishingProduct.info.image } ],
+        attributes: [
+          { id: "BRAND", value_name: "Genérica" }, // Marca genérica para não dar erro de código de barras
+          { id: "MODEL", value_name: publishingProduct.name }
+        ],
+        // Mapeia a grade de estoque do sistema para a grade do ML
+        variations: availableItems.map((item: Product) => ({
+          price: numericPrice,
+          available_quantity: item.quantity,
+          attribute_combinations: [
+            { name: "Cor", value_name: item.color || "Padrão" },
+            { name: "Tamanho", value_name: item.size || "Único" }
+          ]
+        }))
+      };
+
+      // 4. Dispara o Anúncio para o ML
+      const res = await fetch('https://api.mercadolibre.com/items', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${mlToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      // 5. Sucesso ou Erro
+      if (data.error) {
+        throw new Error(data.message || "Erro desconhecido. O ML rejeitou o formato.");
+      }
+
+      playSound('magic');
+      alert(`🎉 SUCESSO ABSOLUTO!\n\nSeu anúncio já está no ar.\n\nID: ${data.id}`);
+      window.open(data.permalink, '_blank'); // Abre o anúncio na hora!
+      setPublishingProduct(null); // Fecha modal
+
+    } catch (err: any) {
+      playSound('error');
+      alert("❌ ERRO AO PUBLICAR:\n" + err.message);
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
 
@@ -322,7 +404,7 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- CÂMERA ---
+  // --- CÂMERA E FUNÇÕES RESTANTES (MANTIDAS) ---
   const startCamera = () => {
     if (scannerRef.current?.isScanning) return;
     setScanError('');
@@ -335,254 +417,35 @@ function App() {
         html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => { handleProcessCode(decodedText); }, (errorMessage) => {}).then(() => { setIsScanning(true); setCameraLoading(false); }).catch(err => { console.error("Erro ao iniciar câmera", err); setScanError("Erro ao abrir câmera. Verifique permissões."); setCameraLoading(false); setIsScanning(false); });
     }, 500);
   };
-
-  const stopCamera = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      scannerRef.current.stop().then(() => { scannerRef.current?.clear(); setIsScanning(false); }).catch(err => { console.error("Erro ao parar", err); setIsScanning(false); });
-    }
-  };
-
-  useEffect(() => {
-      if (!showQuickEntry) {
-          if (scannerRef.current) { try { if (scannerRef.current.isScanning) { scannerRef.current.stop().then(() => scannerRef.current?.clear()); } else { scannerRef.current.clear(); } } catch(e) {} }
-          setIsScanning(false); setCameraLoading(false);
-      }
-  }, [showQuickEntry]);
-
-  const handleProcessCode = async (code: string) => {
-    const term = code.trim();
-    if (!term) return;
-    const now = Date.now();
-    if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
-    lastScanRef.current = { code: term, time: now };
-
-    if (term.startsWith('PED-')) {
-      const order = purchases.find(p => p.orderCode === term);
-      if (!order) { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido inválido` }); return; }
-      if (order.status === 'received') { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido já recebido` }); return; }
-      await handleReceiveOrder(order);
-      setLastScannedFeedback({ type: 'magic', msg: `PEDIDO RECEBIDO!` });
-      return;
-    }
-
-    const found = products.find(p => (p.sku && p.sku.toLowerCase() === term.toLowerCase()) || (p.barcode && p.barcode.toLowerCase() === term.toLowerCase()));
-    if (found) {
-      playSound('success');
-      setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` });
-      setScannedItems(prev => {
-        const existingIndex = prev.findIndex(item => item.product.id === found.id);
-        if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; }
-        else { return [{ product: found, count: 1 }, ...prev]; }
-      });
-      setQuickScanInput(''); 
-    } else { 
-      playSound('error'); 
-      setLastScannedFeedback({ type: 'error', msg: `Produto não encontrado` });
-    }
-    setTimeout(() => setLastScannedFeedback(null), 3000);
-  };
-
-  const handleReceiveOrder = async (order: PurchaseOrder) => {
-    setIsSavingBatch(true);
-    try {
-      const batch = writeBatch(db);
-      const orderRef = doc(db, PURCHASES_COLLECTION, order.id);
-      batch.update(orderRef, { status: 'received', receivedAt: serverTimestamp() });
-      for (const item of order.items) {
-        const currentProduct = products.find(p => p.id === item.productId);
-        if (currentProduct) {
-          const productRef = doc(db, PRODUCTS_COLLECTION, item.productId);
-          const newQty = currentProduct.quantity + item.quantity;
-          batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() });
-          const historyRef = doc(collection(db, HISTORY_COLLECTION));
-          batch.set(historyRef, { productId: item.productId, productName: item.name, sku: item.sku, image: '', type: 'entry', amount: item.quantity, previousQty: currentProduct.quantity, newQty: newQty, timestamp: serverTimestamp() });
-        }
-      }
-      await batch.commit();
-      playSound('magic');
-      alert(`SUCESSO! Pedido ${order.orderCode} recebido.`);
-      setShowQuickEntry(false);
-    } catch (e) { console.error(e); playSound('error'); alert("Erro ao processar."); } finally { setIsSavingBatch(false); }
-  };
-
-  const handleAddToPurchaseCart = (product: Product) => {
-    setPurchaseCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      return [...prev, { product, quantity: 1 }];
-    });
-  };
-
+  const stopCamera = () => { if (scannerRef.current && scannerRef.current.isScanning) { scannerRef.current.stop().then(() => { scannerRef.current?.clear(); setIsScanning(false); }).catch(err => { console.error("Erro ao parar", err); setIsScanning(false); }); } };
+  useEffect(() => { if (!showQuickEntry) { if (scannerRef.current) { try { if (scannerRef.current.isScanning) { scannerRef.current.stop().then(() => scannerRef.current?.clear()); } else { scannerRef.current.clear(); } } catch(e) {} } setIsScanning(false); setCameraLoading(false); } }, [showQuickEntry]);
+  const handleProcessCode = async (code: string) => { const term = code.trim(); if (!term) return; const now = Date.now(); if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; lastScanRef.current = { code: term, time: now }; if (term.startsWith('PED-')) { const order = purchases.find(p => p.orderCode === term); if (!order) { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido inválido` }); return; } if (order.status === 'received') { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido já recebido` }); return; } await handleReceiveOrder(order); setLastScannedFeedback({ type: 'magic', msg: `PEDIDO RECEBIDO!` }); return; } const found = products.find(p => (p.sku && p.sku.toLowerCase() === term.toLowerCase()) || (p.barcode && p.barcode.toLowerCase() === term.toLowerCase())); if (found) { playSound('success'); setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` }); setScannedItems(prev => { const existingIndex = prev.findIndex(item => item.product.id === found.id); if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; } else { return [{ product: found, count: 1 }, ...prev]; } }); setQuickScanInput(''); } else { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Produto não encontrado` }); } setTimeout(() => setLastScannedFeedback(null), 3000); };
+  const handleReceiveOrder = async (order: PurchaseOrder) => { setIsSavingBatch(true); try { const batch = writeBatch(db); const orderRef = doc(db, PURCHASES_COLLECTION, order.id); batch.update(orderRef, { status: 'received', receivedAt: serverTimestamp() }); for (const item of order.items) { const currentProduct = products.find(p => p.id === item.productId); if (currentProduct) { const productRef = doc(db, PRODUCTS_COLLECTION, item.productId); const newQty = currentProduct.quantity + item.quantity; batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: item.productId, productName: item.name, sku: item.sku, image: '', type: 'entry', amount: item.quantity, previousQty: currentProduct.quantity, newQty: newQty, timestamp: serverTimestamp() }); } } await batch.commit(); playSound('magic'); alert(`SUCESSO! Pedido ${order.orderCode} recebido.`); setShowQuickEntry(false); } catch (e) { console.error(e); playSound('error'); alert("Erro ao processar."); } finally { setIsSavingBatch(false); } };
+  const handleAddToPurchaseCart = (product: Product) => { setPurchaseCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); return [...prev, { product, quantity: 1 }]; }); };
   const handleRemoveFromPurchaseCart = (id: string) => setPurchaseCart(prev => prev.filter(i => i.product.id !== id));
-  const handleUpdatePurchaseCartQty = (id: string, delta: number) => {
-    setPurchaseCart(prev => prev.map(item => {
-        if (item.product.id === id) return { ...item, quantity: Math.max(0, item.quantity + delta) };
-        return item;
-      }).filter(item => item.quantity > 0));
-  };
-
-  const handleCreatePurchaseOrder = async () => {
-    if (!supplierName || purchaseCart.length === 0) return alert("Defina fornecedor e produtos.");
-    setIsSavingBatch(true);
-    try {
-      const orderCode = `PED-${Math.floor(Math.random() * 900000) + 100000}`;
-      const itemsData = purchaseCart.map(i => ({ productId: i.product.id, sku: i.product.sku || '', name: i.product.name, quantity: i.quantity }));
-      await addDoc(collection(db, PURCHASES_COLLECTION), { orderCode, supplier: supplierName, status: 'pending', items: itemsData, totalItems: purchaseCart.reduce((a, b) => a + b.quantity, 0), createdAt: serverTimestamp() });
-      setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); setPurchaseStep('select'); playSound('success'); alert(`Pedido ${orderCode} criado!`);
-    } catch (e) { console.error(e); alert("Erro ao criar pedido."); } finally { setIsSavingBatch(false); }
-  };
-
+  const handleUpdatePurchaseCartQty = (id: string, delta: number) => { setPurchaseCart(prev => prev.map(item => { if (item.product.id === id) return { ...item, quantity: Math.max(0, item.quantity + delta) }; return item; }).filter(item => item.quantity > 0)); };
+  const handleCreatePurchaseOrder = async () => { if (!supplierName || purchaseCart.length === 0) return alert("Defina fornecedor e produtos."); setIsSavingBatch(true); try { const orderCode = `PED-${Math.floor(Math.random() * 900000) + 100000}`; const itemsData = purchaseCart.map(i => ({ productId: i.product.id, sku: i.product.sku || '', name: i.product.name, quantity: i.quantity })); await addDoc(collection(db, PURCHASES_COLLECTION), { orderCode, supplier: supplierName, status: 'pending', items: itemsData, totalItems: purchaseCart.reduce((a, b) => a + b.quantity, 0), createdAt: serverTimestamp() }); setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); setPurchaseStep('select'); playSound('success'); alert(`Pedido ${orderCode} criado!`); } catch (e) { console.error(e); alert("Erro ao criar pedido."); } finally { setIsSavingBatch(false); } };
   const handleUpdateScannedQty = (productId: string, delta: number) => { setScannedItems(prev => prev.map(item => { if (item.product.id === productId) { const newQty = item.count + delta; return newQty > 0 ? { ...item, count: newQty } : item; } return item; })); };
   const handleRemoveScannedItem = (productId: string) => { setScannedItems(prev => prev.filter(item => item.product.id !== productId)); };
-  
-  useEffect(() => {
-    const newRows: VariationRow[] = [];
-    colors.forEach(color => { sizes.forEach(size => {
-        const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, '');
-        const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : '';
-        const existingRow = generatedRows.find(r => r.color === color && r.size === size);
-        newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' });
-    });}); setGeneratedRows(newRows);
-  }, [colors, sizes, baseSku]);
-
+  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
   const removeSize = (s: string) => setSizes(sizes.filter(item => item !== s));
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
-
-  const handleSaveBatch = async () => {
-    if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; }
-    setIsSavingBatch(true);
-    const processedImage = processImageUrl(baseImage);
-    const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0;
-    try {
-      const batch = writeBatch(db);
-      generatedRows.forEach(row => {
-        const docRef = doc(collection(db, PRODUCTS_COLLECTION));
-        batch.set(docRef, { name: baseName, image: processedImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() });
-      });
-      await batch.commit();
-      setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!");
-    } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); }
-  };
-
-  const handleUpdateQuantity = async (product: Product, newQty: number) => {
-    if (newQty < 0) return;
-    const diff = newQty - product.quantity;
-    if (diff === 0) return;
-    const type = diff > 0 ? 'entry' : 'exit';
-    try {
-      const batch = writeBatch(db);
-      const productRef = doc(db, PRODUCTS_COLLECTION, product.id);
-      batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() });
-      const historyRef = doc(collection(db, HISTORY_COLLECTION));
-      batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() });
-      await batch.commit();
-    } catch (e) { console.error(e); alert("Erro."); }
-  };
-
+  const handleSaveBatch = async () => { if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; } setIsSavingBatch(true); const processedImage = processImageUrl(baseImage); const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; try { const batch = writeBatch(db); generatedRows.forEach(row => { const docRef = doc(collection(db, PRODUCTS_COLLECTION)); batch.set(docRef, { name: baseName, image: processedImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() }); }); await batch.commit(); setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!"); } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); } };
+  const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); alert("Erro."); } };
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
-  
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingProduct) return;
-    const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price;
-    const processedImage = processImageUrl(editingProduct.image || ''); 
-    try {
-      const productRef = doc(db, PRODUCTS_COLLECTION, editingProduct.id);
-      await updateDoc(productRef, { ...editingProduct, price: priceNumber, image: processedImage, updatedAt: serverTimestamp() });
-      setEditingProduct(null);
-    } catch (error) { alert("Erro ao editar."); }
-  };
-
-  const openGroupEdit = (groupName: string, groupData: any) => {
-    setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items });
-  };
-
-  const handleSaveGroupEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingGroup) return;
-    setIsSavingBatch(true);
-    const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price;
-    const processedImage = processImageUrl(editingGroup.image || '');
-    try {
-      const batch = writeBatch(db);
-      editingGroup.items.forEach((item) => {
-        const ref = doc(db, PRODUCTS_COLLECTION, item.id);
-        batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() });
-      });
-      await batch.commit();
-      setEditingGroup(null);
-      alert("Modelo inteiro atualizado com sucesso!");
-    } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); }
-  };
-
+  const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; const processedImage = processImageUrl(editingProduct.image || ''); try { const productRef = doc(db, PRODUCTS_COLLECTION, editingProduct.id); await updateDoc(productRef, { ...editingProduct, price: priceNumber, image: processedImage, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro ao editar."); } };
+  const openGroupEdit = (groupName: string, groupData: any) => { setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items }); };
+  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; const processedImage = processImageUrl(editingGroup.image || ''); try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); } };
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
-  const handleCommitQuickEntry = async () => {
-    if (scannedItems.length === 0) return;
-    setIsSavingBatch(true);
-    try {
-      const batch = writeBatch(db);
-      scannedItems.forEach(item => {
-        const docRef = doc(db, PRODUCTS_COLLECTION, item.product.id);
-        const newTotal = item.product.quantity + item.count;
-        batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() });
-        const historyRef = doc(collection(db, HISTORY_COLLECTION));
-        batch.set(historyRef, { productId: item.product.id, productName: item.product.name, sku: item.product.sku || '', image: item.product.image || '', type: 'entry', amount: item.count, previousQty: item.product.quantity, newQty: newTotal, timestamp: serverTimestamp() });
-      });
-      await batch.commit();
-      setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!");
-    } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); }
-  };
-  const handleAddToCart = (product: Product) => {
-    if (product.quantity <= 0) return alert("Produto sem estoque!");
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; }
-        return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      }
-      return [...prev, { product, quantity: 1 }];
-    });
-    playSound('success');
-  };
+  const handleCommitQuickEntry = async () => { if (scannedItems.length === 0) return; setIsSavingBatch(true); try { const batch = writeBatch(db); scannedItems.forEach(item => { const docRef = doc(db, PRODUCTS_COLLECTION, item.product.id); const newTotal = item.product.quantity + item.count; batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: item.product.id, productName: item.product.name, sku: item.product.sku || '', image: item.product.image || '', type: 'entry', amount: item.count, previousQty: item.product.quantity, newQty: newTotal, timestamp: serverTimestamp() }); }); await batch.commit(); setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!"); } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); } };
+  const handleAddToCart = (product: Product) => { if (product.quantity <= 0) return alert("Produto sem estoque!"); setCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) { if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; } return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); } return [...prev, { product, quantity: 1 }]; }); playSound('success'); };
   const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
-  const handleUpdateCartQty = (productId: string, delta: number) => {
-    setCart(prev => {
-      return prev.map(item => {
-        if (item.product.id === productId) {
-          const newQty = item.quantity + delta;
-          if (newQty <= 0) return item;
-          if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; }
-          return { ...item, quantity: newQty };
-        }
-        return item;
-      });
-    });
-  };
-  const generateWhatsAppMessage = () => {
-    if (!customerName) return alert("Digite o nome do cliente!");
-    if (cart.length === 0) return alert("Carrinho vazio!");
-    const now = new Date();
-    const orderId = Math.floor(Math.random() * 900000) + 100000;
-    let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`;
-    let totalPedido = 0;
-    cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; const price = item.product.price || 0; const subtotal = price * item.quantity; totalPedido += subtotal; message += `${displaySku} --- ${item.quantity}x (${formatCurrency(price)})\n`; message += `-\n`; });
-    message += `\n💰 *TOTAL: ${formatCurrency(totalPedido)}*`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-  };
-  const groupProducts = (items: Product[]) => {
-    const groups: Record<string, { info: Product, total: number, items: Product[] }> = {};
-    items.forEach(product => {
-      const key = product.name;
-      if (!groups[key]) groups[key] = { info: product, total: 0, items: [] };
-      groups[key].items.push(product);
-      groups[key].total += product.quantity;
-    });
-    Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1)));
-    return groups;
-  };
+  const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
+  const generateWhatsAppMessage = () => { if (!customerName) return alert("Digite o nome do cliente!"); if (cart.length === 0) return alert("Carrinho vazio!"); const now = new Date(); const orderId = Math.floor(Math.random() * 900000) + 100000; let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`; let totalPedido = 0; cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; const price = item.product.price || 0; const subtotal = price * item.quantity; totalPedido += subtotal; message += `${displaySku} --- ${item.quantity}x (${formatCurrency(price)})\n`; message += `-\n`; }); message += `\n💰 *TOTAL: ${formatCurrency(totalPedido)}*`; window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank'); };
+  const groupProducts = (items: Product[]) => { const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; items.forEach(product => { const key = product.name; if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; groups[key].items.push(product); groups[key].total += product.quantity; }); Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1))); return groups; };
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); };
 
@@ -605,7 +468,7 @@ function App() {
   // --- TELA DO REVENDEDOR ---
   if (selectedRole === 'user') {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 relative">
         <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
           <div className="max-w-md mx-auto flex flex-col gap-3">
             <div className="flex justify-between items-center">
@@ -619,35 +482,114 @@ function App() {
               </div>
             </div>
             
-            {/* BOTÃO CONECTAR MERCADO LIVRE */}
             {userView === 'stock' && (
               <button 
                 onClick={mlConnected ? undefined : handleConnectML} 
                 disabled={connectingML || mlConnected}
-                className={`w-full py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all ${
-                  mlConnected 
-                    ? 'bg-green-500 text-white cursor-default' 
-                    : connectingML
-                      ? 'bg-slate-300 text-slate-500'
-                      : 'bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] hover:scale-[1.01]'
-                }`}
+                className={`w-full py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all ${mlConnected ? 'bg-green-500 text-white cursor-default' : connectingML ? 'bg-slate-300 text-slate-500' : 'bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] hover:scale-[1.01]'}`}
               >
-                {connectingML ? (
-                  <><RefreshCw size={16} className="animate-spin" /> Conectando...</>
-                ) : mlConnected ? (
-                  <><CheckCircle size={16} /> MERCADO LIVRE CONECTADO</>
-                ) : (
-                  <><LinkIcon size={16} /> CONECTAR AO MERCADO LIVRE</>
-                )}
+                {connectingML ? (<><RefreshCw size={16} className="animate-spin" /> Conectando...</>) : mlConnected ? (<><CheckCircle size={16} /> MERCADO LIVRE CONECTADO</>) : (<><LinkIcon size={16} /> CONECTAR AO MERCADO LIVRE</>)}
               </button>
             )}
           </div>
         </header>
 
         <main className="max-w-md mx-auto p-4 space-y-4">
-          {userView === 'stock' && (<><div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div><div className="space-y-3 pb-20">{loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (<div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"><div className="flex items-center gap-3 min-w-0"><div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div><div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div></div>{expandedGroups[name] && (<div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">{group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200"><div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-sm font-bold text-green-600">{formatCurrency(p.price || 0)}</div></div>{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div></div>))}</div>)}</div>))}</div></>)}
+          {userView === 'stock' && (<><div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
+          <div className="space-y-3 pb-20">
+            {loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (
+            <div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
+                  <div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  {/* BOTÃO INTELIGENTE DE ANUNCIAR (Fase 4) */}
+                  {mlConnected && group.total > 0 && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); openPublishModal(name, group); }}
+                      className="bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] p-2 rounded-lg flex items-center justify-center shadow-sm"
+                      title="Anunciar no ML"
+                    >
+                      <Megaphone size={18} />
+                    </button>
+                  )}
+
+                  <div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>
+                  {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+                </div>
+              </div>
+              
+              {expandedGroups[name] && (<div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">{group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200"><div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-sm font-bold text-green-600">{formatCurrency(p.price || 0)}</div></div>{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div></div>))}</div>)}
+            </div>))}
+          </div></>)}
+          
+          {/* TELA DE CARRINHO (MANTIDA) */}
           {userView === 'cart' && (<div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"><div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div><div className="p-4 space-y-4">{cart.length === 0 ? (<div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>) : (<><div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">{cart.map(item => (<div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div><div className="text-xs text-green-600 font-bold mt-1">{formatCurrency(item.product.price || 0)}</div></div></div><div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div></div>))}</div><div className="bg-slate-100 p-3 rounded-lg flex justify-between items-center border border-slate-200"><span className="font-bold text-slate-600">TOTAL ESTIMADO:</span><span className="font-black text-xl text-green-700">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span></div><div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div><button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button></>)}</div></div>)}
         </main>
+
+        {/* MODAL DE ANÚNCIO INTELIGENTE (ML) */}
+        {publishingProduct && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl flex flex-col">
+               <div className="flex justify-between items-center mb-6">
+                  <div>
+                     <h2 className="text-xl font-bold text-[#2D3277] flex items-center gap-2">
+                        <Megaphone className="text-[#FFE600]"/> Criar Anúncio
+                     </h2>
+                     <p className="text-xs text-slate-500 mt-1">A grade disponível será espelhada no ML.</p>
+                  </div>
+                  <button onClick={() => setPublishingProduct(null)} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-500"><X size={20}/></button>
+               </div>
+               
+               <form onSubmit={handlePublishML} className="space-y-4">
+                 <div>
+                    <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Título do Anúncio (ML)*</label>
+                    <input value={publishForm.title} onChange={e => setPublishForm({...publishForm, title: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required maxLength={60} />
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Seu Preço (R$)*</label>
+                      <input value={publishForm.price} onChange={e => setPublishForm({...publishForm, price: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required placeholder="Ex: 120,00" />
+                      {publishingProduct.info.price && <p className="text-[10px] text-green-600 mt-1 font-bold">Custo: {formatCurrency(publishingProduct.info.price)}</p>}
+                   </div>
+                   <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Exposição</label>
+                      <select value={publishForm.type} onChange={e => setPublishForm({...publishForm, type: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none bg-white">
+                         <option value="gold_special">Clássico</option>
+                         <option value="gold_pro">Premium</option>
+                      </select>
+                   </div>
+                 </div>
+
+                 <div>
+                    <label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1">Categoria ML ID <a href="https://api.mercadolibre.com/sites/MLB/categories" target="_blank" className="text-blue-500 underline text-[10px]">(Ver Tabela)</a></label>
+                    <input value={publishForm.category} onChange={e => setPublishForm({...publishForm, category: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none font-mono" required placeholder="Ex: MLB108427" />
+                 </div>
+
+                 <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center gap-3">
+                   <div className="w-12 h-12 rounded bg-white overflow-hidden border border-slate-200 shrink-0">
+                      {publishingProduct.info.image ? <img src={publishingProduct.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300" />}
+                   </div>
+                   <div className="text-xs text-slate-600">
+                      Serão enviadas <strong className="text-blue-600">{publishingProduct.items.filter((i:any)=>i.quantity>0).length} variações</strong> de cor/tamanho baseadas no estoque atual.
+                   </div>
+                 </div>
+
+                 <div className="pt-4 border-t border-slate-100">
+                    <button type="submit" disabled={isPublishing} className="w-full bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] py-4 rounded-xl font-black shadow-lg transition-transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                       {isPublishing ? <RefreshCw className="animate-spin" size={20} /> : <Megaphone size={20} />} 
+                       {isPublishing ? "PUBLICANDO..." : "PUBLICAR ANÚNCIO AGORA"}
+                    </button>
+                 </div>
+               </form>
+            </div>
+          </div>
+        )}
+
       </div>
     );
   }
