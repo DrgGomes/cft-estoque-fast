@@ -53,7 +53,7 @@ import {
   RotateCcw,
   Truck,
   FileText,
-  ShoppingBag // Icone de sacola
+  ShoppingBag
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -90,6 +90,18 @@ const sendSystemNotification = (title: string, body: string) => {
 
 // Formatação
 const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+
+// --- CONVERSOR DE LINK DO GOOGLE DRIVE ---
+const processImageUrl = (url: string) => {
+  if (!url) return '';
+  // Se for um link do Drive, recorta o ID e transforma em link direto
+  const driveRegex = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+  const match = url.match(driveRegex);
+  if (match && match[1]) {
+    return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+  }
+  return url; // Se não for do Drive, salva o link normal
+};
 
 // --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
@@ -161,7 +173,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   
   const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'create_purchase'>('menu');
-  const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select'); // PASSO DO PEDIDO
+  const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   const [userView, setUserView] = useState<'stock' | 'cart'>('stock');
   
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -360,9 +372,6 @@ function App() {
     } catch (e) { console.error(e); playSound('error'); alert("Erro ao processar."); } finally { setIsSavingBatch(false); }
   };
 
-  // --- FUNÇÕES DE COMPRA (PEDIDO) CORRIGIDAS ---
-  
-  // Adicionar ao carrinho (SEM SOM)
   const handleAddToPurchaseCart = (product: Product) => {
     setPurchaseCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
@@ -371,22 +380,19 @@ function App() {
       }
       return [...prev, { product, quantity: 1 }];
     });
-    // REMOVIDO playSound('success'); para ficar silencioso como pedido
   };
 
-  // Remover do carrinho
   const handleRemoveFromPurchaseCart = (id: string) => setPurchaseCart(prev => prev.filter(i => i.product.id !== id));
   
-  // Atualizar quantidade no carrinho (e remover se for 0)
   const handleUpdatePurchaseCartQty = (id: string, delta: number) => {
     setPurchaseCart(prev => {
       return prev.map(item => {
         if (item.product.id === id) {
           const newQty = item.quantity + delta;
-          return { ...item, quantity: Math.max(0, newQty) }; // Permite ir a 0 para remover depois
+          return { ...item, quantity: Math.max(0, newQty) };
         }
         return item;
-      }).filter(item => item.quantity > 0); // Remove itens com 0
+      }).filter(item => item.quantity > 0);
     });
   };
 
@@ -397,11 +403,10 @@ function App() {
       const orderCode = `PED-${Math.floor(Math.random() * 900000) + 100000}`;
       const itemsData = purchaseCart.map(i => ({ productId: i.product.id, sku: i.product.sku || '', name: i.product.name, quantity: i.quantity }));
       await addDoc(collection(db, PURCHASES_COLLECTION), { orderCode, supplier: supplierName, status: 'pending', items: itemsData, totalItems: purchaseCart.reduce((a, b) => a + b.quantity, 0), createdAt: serverTimestamp() });
-      setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); playSound('success'); alert(`Pedido ${orderCode} criado!`);
+      setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); setPurchaseStep('select'); playSound('success'); alert(`Pedido ${orderCode} criado!`);
     } catch (e) { console.error(e); alert("Erro ao criar pedido."); } finally { setIsSavingBatch(false); }
   };
 
-  // ... (Demais funções mantidas) ...
   const handleUpdateScannedQty = (productId: string, delta: number) => { setScannedItems(prev => prev.map(item => { if (item.product.id === productId) { const newQty = item.count + delta; return newQty > 0 ? { ...item, count: newQty } : item; } return item; })); };
   const handleRemoveScannedItem = (productId: string) => { setScannedItems(prev => prev.filter(item => item.product.id !== productId)); };
   
@@ -424,12 +429,26 @@ function App() {
   const handleSaveBatch = async () => {
     if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; }
     setIsSavingBatch(true);
+    
+    // TRATAMENTO DA IMAGEM E PREÇO
+    const processedImage = processImageUrl(baseImage);
     const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0;
+    
     try {
       const batch = writeBatch(db);
       generatedRows.forEach(row => {
         const docRef = doc(collection(db, PRODUCTS_COLLECTION));
-        batch.set(docRef, { name: baseName, image: baseImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() });
+        batch.set(docRef, { 
+            name: baseName, 
+            image: processedImage, 
+            sku: row.sku, 
+            barcode: row.barcode, 
+            color: row.color, 
+            size: row.size, 
+            price: priceNumber, 
+            quantity: 0, 
+            updatedAt: serverTimestamp() 
+        });
       });
       await batch.commit();
       setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!");
@@ -452,16 +471,20 @@ function App() {
   };
 
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
+  
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
     const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price;
+    const processedImage = processImageUrl(editingProduct.image || ''); // Processa a imagem na edição
+    
     try {
       const productRef = doc(db, PRODUCTS_COLLECTION, editingProduct.id);
-      await updateDoc(productRef, { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() });
+      await updateDoc(productRef, { ...editingProduct, price: priceNumber, image: processedImage, updatedAt: serverTimestamp() });
       setEditingProduct(null);
     } catch (error) { alert("Erro ao editar."); }
   };
+
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
   const handleCommitQuickEntry = async () => {
     if (scannedItems.length === 0) return;
@@ -588,7 +611,7 @@ function App() {
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
-            <button onClick={() => setAdminView('purchases')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Truck size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Compras</h3></div></button>
+            <button onClick={() => { setAdminView('purchases'); setPurchaseStep('select'); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Truck size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Compras</h3></div></button>
             <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
@@ -599,7 +622,7 @@ function App() {
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
             <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
                <div className="flex items-center gap-2"><Truck className="text-orange-400" /><h2 className="text-lg font-bold text-white">Pedidos de Compra</h2></div>
-               <button onClick={() => setAdminView('create_purchase')} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Plus size={16}/> Criar Pedido</button>
+               <button onClick={() => { setAdminView('create_purchase'); setPurchaseStep('select'); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Plus size={16}/> Criar Pedido</button>
             </div>
             <div className="p-4 space-y-3">
                {purchases.length === 0 ? <p className="text-slate-500 text-center py-8">Nenhum pedido encontrado.</p> : purchases.map(order => (
@@ -616,92 +639,66 @@ function App() {
           </div>
         )}
 
-        {/* --- NOVO CRIADOR DE PEDIDO DE COMPRA (VISUALIZAÇÃO CORRIGIDA) --- */}
+        {/* --- NOVO CRIADOR DE PEDIDO DE COMPRA CORRIGIDO --- */}
         {adminView === 'create_purchase' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[85vh]">
-            
-            {/* HEADER */}
             <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center shrink-0">
                <h2 className="text-lg font-bold text-white flex items-center gap-2"><Plus className="text-green-400" /> Novo Pedido</h2>
-               <button onClick={() => setAdminView('purchases')} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={20}/></button>
+               <button onClick={() => { setAdminView('purchases'); setPurchaseStep('select'); }} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={20}/></button>
             </div>
 
-            {/* PASSO 1: SELEÇÃO DE PRODUTOS */}
             {purchaseStep === 'select' && (
-              <>
+              <div className="flex flex-col h-full overflow-hidden">
                 <div className="p-3 border-b border-slate-800 shrink-0">
                   <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar produto..." className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-blue-500 outline-none" />
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                    {filteredProducts.map(p => {
-                     // Verifica se já está no carrinho para mostrar a quantidade
                      const inCart = purchaseCart.find(item => item.product.id === p.id);
-                     
                      return (
                       <div key={p.id} className="flex items-center justify-between bg-slate-950 p-3 rounded border border-slate-800">
                          <div className="min-w-0 flex-1 mr-2">
                             <div className="text-slate-200 font-bold text-sm truncate">{p.name}</div>
-                            <div className="text-xs text-slate-500 flex gap-2">
-                               <span>{p.color}</span>
-                               <span className="bg-slate-800 px-1 rounded">{p.size}</span>
-                            </div>
+                            <div className="text-xs text-slate-500 flex gap-2"><span>{p.color}</span><span className="bg-slate-800 px-1 rounded">{p.size}</span></div>
                          </div>
-                         
                          {inCart ? (
-                           <div className="flex items-center bg-slate-800 rounded-lg border border-slate-700">
+                           <div className="flex items-center bg-slate-800 rounded-lg border border-slate-700 shrink-0">
                               <button onClick={() => handleUpdatePurchaseCartQty(p.id, -1)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white"><Minus size={14}/></button>
                               <span className="w-8 text-center font-bold text-white text-sm">{inCart.quantity}</span>
                               <button onClick={() => handleUpdatePurchaseCartQty(p.id, 1)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white"><Plus size={14}/></button>
                            </div>
                          ) : (
-                           <button onClick={() => handleAddToPurchaseCart(p)} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg flex items-center gap-1">
-                             <Plus size={16}/> <span className="text-xs font-bold uppercase">Add</span>
-                           </button>
+                           <button onClick={() => handleAddToPurchaseCart(p)} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg flex items-center gap-1 shrink-0"><Plus size={16}/> <span className="text-xs font-bold uppercase">Add</span></button>
                          )}
                       </div>
                      );
                    })}
                 </div>
 
-                {/* BARRA INFERIOR FLUTUANTE */}
                 {purchaseCart.length > 0 && (
                   <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0">
-                    <button 
-                      onClick={() => setPurchaseStep('review')}
-                      className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg animate-in slide-in-from-bottom-2"
-                    >
-                      <ShoppingBag size={20} />
-                      {purchaseCart.reduce((a,b)=>a+b.quantity,0)} Itens Selecionados - Avançar
-                    </button>
+                    <button onClick={() => setPurchaseStep('review')} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg animate-in slide-in-from-bottom-2"><ShoppingBag size={20} />{purchaseCart.reduce((a,b)=>a+b.quantity,0)} Itens Selecionados - Avançar</button>
                   </div>
                 )}
-              </>
+              </div>
             )}
 
-            {/* PASSO 2: REVISÃO E CONFIRMAÇÃO */}
             {purchaseStep === 'review' && (
-              <div className="flex flex-col h-full">
-                <div className="p-4 border-b border-slate-800 bg-slate-900">
+              <div className="flex flex-col h-full overflow-hidden">
+                <div className="p-4 border-b border-slate-800 bg-slate-900 shrink-0">
                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Fornecedor</label>
                    <input value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Nome do Fornecedor..." className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-3 text-white focus:border-orange-500 outline-none" autoFocus />
                 </div>
-
                 <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-900">
-                   <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-bold text-slate-400">ITENS DO PEDIDO</span>
-                      <button onClick={() => setPurchaseStep('select')} className="text-xs text-blue-400 hover:underline">Editar lista</button>
-                   </div>
+                   <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold text-slate-400">ITENS DO PEDIDO</span><button onClick={() => setPurchaseStep('select')} className="text-xs text-blue-400 hover:underline">Editar lista</button></div>
                    {purchaseCart.map(item => (
                       <div key={item.product.id} className="flex justify-between items-center bg-slate-950 p-3 rounded border border-slate-800">
-                         <div className="text-sm text-slate-300">
-                            <span className="font-bold text-white">{item.quantity}x</span> {item.product.name} <span className="text-slate-500 text-xs">({item.product.size})</span>
-                         </div>
+                         <div className="text-sm text-slate-300"><span className="font-bold text-white">{item.quantity}x</span> {item.product.name} <span className="text-slate-500 text-xs">({item.product.size})</span></div>
                          <button onClick={() => handleRemoveFromPurchaseCart(item.product.id)} className="text-red-500 p-2"><Trash2 size={14}/></button>
                       </div>
                    ))}
                 </div>
-
                 <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0 flex gap-3">
                    <button onClick={() => setPurchaseStep('select')} className="flex-1 bg-slate-800 text-slate-300 py-3 rounded-lg font-bold">Voltar</button>
                    <button onClick={handleCreatePurchaseOrder} className="flex-[2] bg-orange-600 hover:bg-orange-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2"><FileText size={18}/> GERAR PEDIDO</button>
@@ -760,7 +757,7 @@ function App() {
                 <div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                 <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                 <div><label className="text-sm text-slate-400 block mb-1">Preço (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
-                <div><label className="text-sm text-slate-400 block mb-1">Foto (URL)</label><input value={baseImage} onChange={e => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-xs" /></div>
+                <div><label className="text-sm text-slate-400 block mb-1">Foto (URL Google Drive)</label><input value={baseImage} onChange={e => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-xs" /></div>
               </div></div>
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
@@ -773,126 +770,38 @@ function App() {
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black z-50 flex flex-col">
             <div className="flex-1 relative bg-black overflow-hidden">
-              
-              {/* ÁREA DA CÂMERA (SÓ APARECE QUANDO LIGA) */}
-              <div 
-                id="reader" 
-                className="w-full h-full object-cover"
-                style={{ display: isScanning ? 'block' : 'none' }}
-              ></div>
-
-              {/* BOTÃO DE LIGAR CÂMERA (QUANDO ESTÁ DESLIGADA) */}
+              <div id="reader" className="w-full h-full object-cover" style={{ display: isScanning ? 'block' : 'none' }}></div>
               {!isScanning && !cameraLoading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-4 z-10 bg-slate-900">
-                  <button 
-                    onClick={startCamera}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 rounded-full font-bold text-xl shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center gap-3 animate-pulse"
-                  >
-                    <Camera size={32} /> TOCAR PARA LIGAR CÂMERA
-                  </button>
+                  <button onClick={startCamera} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 rounded-full font-bold text-xl shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center gap-3 animate-pulse"><Camera size={32} /> TOCAR PARA LIGAR CÂMERA</button>
                   {scanError && <p className="text-red-400 text-sm font-bold mt-4 bg-red-900/20 p-2 rounded">{scanError}</p>}
                   <p className="text-slate-500 text-sm">Necessário permissão do navegador</p>
                 </div>
               )}
-
-              {/* LOADING (QUANDO ESTÁ LIGANDO) */}
               {cameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black z-20">
-                  <RefreshCw className="animate-spin text-blue-500 mb-2" size={48} />
-                  <p>Iniciando câmera...</p>
-                </div>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black z-20"><RefreshCw className="animate-spin text-blue-500 mb-2" size={48} /><p>Iniciando câmera...</p></div>
               )}
-
-              {/* OVERLAYS (SÓ QUANDO ESCANEANDO) */}
               {isScanning && (
                 <>
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                    <div className="w-64 h-64 border-2 border-white/50 rounded-lg relative">
-                      <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
-                      <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div>
-                      <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div>
-                      <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div>
-                      <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div>
-                    </div>
-                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"><div className="w-64 h-64 border-2 border-white/50 rounded-lg relative"><div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div><div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div><div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div><div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div><div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div></div></div>
                   <button onClick={stopCamera} className="absolute top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-full z-50 font-bold shadow-lg flex items-center gap-2"><StopCircle size={20} /> PARAR</button>
                 </>
               )}
-
-              {/* BOTÃO FECHAR (X) GERAL */}
-              {!isScanning && !cameraLoading && (
-                <button onClick={() => setShowQuickEntry(false)} className="absolute top-4 right-4 bg-slate-800 text-white p-2 rounded-full z-50"><X size={24} /></button>
-              )}
-
-              {/* FEEDBACK VISUAL (O "Coloridinho") */}
+              {!isScanning && !cameraLoading && (<button onClick={() => setShowQuickEntry(false)} className="absolute top-4 right-4 bg-slate-800 text-white p-2 rounded-full z-50"><X size={24} /></button>)}
               {lastScannedFeedback && (
-                <div className={`absolute top-20 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50 ${
-                  lastScannedFeedback.type === 'success' ? 'bg-green-600/90 text-white' : lastScannedFeedback.type === 'magic' ? 'bg-purple-600/90 text-white' : 'bg-red-600/90 text-white'
-                }`}>
+                <div className={`absolute top-20 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50 ${lastScannedFeedback.type === 'success' ? 'bg-green-600/90 text-white' : lastScannedFeedback.type === 'magic' ? 'bg-purple-600/90 text-white' : 'bg-red-600/90 text-white'}`}>
                   {lastScannedFeedback.type === 'success' ? <Check size={24} /> : lastScannedFeedback.type === 'magic' ? <Zap size={24}/> : <AlertCircle size={24} />}
                   {lastScannedFeedback.msg}
                 </div>
               )}
             </div>
-
-            {/* GAVETA INFERIOR */}
             <div className="bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.5)] flex flex-col max-h-[40vh]">
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span>
-                  <span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span>
-                </div>
-                <button 
-                  onClick={handleCommitQuickEntry}
-                  disabled={scannedItems.length === 0 || isSavingBatch}
-                  className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}
-                >
-                  {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR
-                </button>
-              </div>
-
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl"><div className="flex flex-col"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span><span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span></div><button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR</button></div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-                {scannedItems.map((item) => (
-                  <div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">
-                        {item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div>
-                        <div className="text-xs text-slate-500 font-mono flex gap-1">
-                          <span className="bg-slate-100 px-1 rounded">{item.product.size}</span>
-                          <span className="uppercase">{item.product.color}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* CONTROLES +/- */}
-                    <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
-                      <button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button>
-                      <span className="w-6 text-center font-bold text-slate-800">{item.count}</span>
-                      <button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button>
-                    </div>
-                    <button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button>
-                  </div>
-                ))}
-                {scannedItems.length === 0 && (
-                  <div className="text-center py-4 text-slate-400 text-sm">
-                    Clique em LIGAR CÂMERA ou digite abaixo.
-                  </div>
-                )}
+                {scannedItems.map((item) => (<div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2"><div className="flex items-center gap-3 overflow-hidden"><div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div><div className="text-xs text-slate-500 font-mono flex gap-1"><span className="bg-slate-100 px-1 rounded">{item.product.size}</span><span className="uppercase">{item.product.color}</span></div></div></div><div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1"><button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button><span className="w-6 text-center font-bold text-slate-800">{item.count}</span><button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button></div><button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button></div>))}
+                {scannedItems.length === 0 && (<div className="text-center py-4 text-slate-400 text-sm">Clique em LIGAR CÂMERA ou digite abaixo.</div>)}
               </div>
-              
-              <div className="p-2 bg-white border-t border-slate-100 pb-6">
-                 <form onSubmit={handleQuickScanSubmit}>
-                    <input 
-                      value={quickScanInput}
-                      onChange={e => setQuickScanInput(e.target.value)}
-                      placeholder="Digitar código manual..." 
-                      className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                 </form>
-              </div>
+              <div className="p-2 bg-white border-t border-slate-100 pb-6"><form onSubmit={handleQuickScanSubmit}><input value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digite o código do Produto ou Pedido (PED-...)" className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></form></div>
             </div>
           </div>
         )}
