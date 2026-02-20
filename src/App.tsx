@@ -7,7 +7,7 @@ import {
   updateDoc,
   addDoc,
   deleteDoc,
-  setDoc, // NOVO IMPORT
+  setDoc,
   serverTimestamp,
   query,
   orderBy,
@@ -56,7 +56,7 @@ import {
   FileText,
   ShoppingBag,
   Link as LinkIcon,
-  CheckCircle // Ícone de sucesso
+  CheckCircle
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -124,9 +124,8 @@ const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
 
 // --- CONFIGURAÇÕES MERCADO LIVRE ---
-const ML_CLIENT_ID = "7037252739126028"; 
-// 🔴 ATENÇÃO: COLOQUE A MESMA URL QUE ESTÁ LÁ NO PAINEL DO MERCADO LIVRE AQUI:
-const ML_REDIRECT_URI = "https://cft-estoque-fast.vercel.app/api/ml/callback"; 
+const ML_CLIENT_ID = "1435927708247216"; 
+const ML_REDIRECT_URI = "https://cft-estoque-fast.vercel.app"; 
 
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
@@ -250,7 +249,7 @@ function App() {
         }
       })
       .catch(err => {
-         alert("Erro de comunicação com o servidor. Você subiu a pasta /api para a Vercel?");
+         alert("Erro de comunicação com o servidor. A configuração da API falhou.");
          console.error(err);
       })
       .finally(() => setConnectingML(false));
@@ -259,10 +258,6 @@ function App() {
 
   // --- FUNÇÃO PARA CONECTAR AO ML ---
   const handleConnectML = () => {
-    if (ML_REDIRECT_URI === "COLOQUE_SUA_URI_AQUI") {
-      alert("Por favor, configure a sua ML_REDIRECT_URI no código App.tsx (linha 113)!");
-      return;
-    }
     const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
     window.location.href = authUrl; // Vai pro Mercado Livre
   };
@@ -694,7 +689,7 @@ function App() {
                        <div><div className="text-white font-bold text-lg">{order.supplier}</div><div className="text-xs text-slate-500 font-mono">ID: {order.orderCode} • {formatDate(order.createdAt)}</div></div>
                        {order.status === 'pending' ? (<span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-1 rounded border border-yellow-500/30 uppercase font-bold">Pendente</span>) : (<span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded border border-green-500/30 uppercase font-bold">Recebido</span>)}
                     </div>
-                    <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm text-slate-400">{order.totalItems} itens: {order.items.map(i => `${i.name} (${i.quantity})`).join(', ').substring(0, 50)}...</div>
+                    <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm text-slate-400">{order.totalItems} items: {order.items.map(i => `${i.name} (${i.quantity})`).join(', ').substring(0, 50)}...</div>
                     {order.status === 'pending' && (<div className="flex gap-3"><div className="flex-1 bg-slate-800 rounded flex items-center justify-center gap-2 text-slate-400 text-xs py-2 border border-slate-700"><ScanBarcode size={14}/> Bipe: <span className="font-mono font-bold text-white">{order.orderCode}</span></div><button onClick={() => handleReceiveOrder(order)} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Receber Manualmente</button></div>)}
                  </div>
                ))}
