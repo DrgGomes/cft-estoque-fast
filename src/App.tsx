@@ -162,6 +162,7 @@ function App() {
   // Integração Mercado Livre
   const [mlConnected, setMlConnected] = useState(false);
   const [connectingML, setConnectingML] = useState(false);
+  const authInProgress = useRef(false); // TRAVA ANTI DUPLO-CLIQUE
 
   // Estados Admin (Gerador)
   const [baseSku, setBaseSku] = useState('');
@@ -213,19 +214,20 @@ function App() {
     }
   }, [user]);
 
-  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE E GERAR TOKEN ---
+  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE E GERAR TOKEN (BLINDADO) ---
   useEffect(() => {
     if (!user) return;
     
     const urlParams = new URLSearchParams(window.location.search);
     const authCode = urlParams.get('code');
 
-    if (authCode) {
+    if (authCode && !authInProgress.current) {
+      authInProgress.current = true; // Trava para não mandar 2x
       setConnectingML(true);
-      // Limpa a URL
+      
+      // Limpa a URL visualmente
       window.history.replaceState({}, document.title, window.location.pathname);
 
-      // Chama a nossa API mágica na Vercel
       fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -234,7 +236,6 @@ function App() {
       .then(res => res.json())
       .then(async data => {
         if (data.access_token) {
-           // Sucesso! Salva no banco de dados atrelado ao celular do revendedor
            await setDoc(doc(db, 'users', user.uid), {
               ml_token: data.access_token,
               ml_refresh_token: data.refresh_token,
@@ -245,12 +246,14 @@ function App() {
            playSound('magic');
            alert("✅ Mercado Livre Conectado com Sucesso!");
         } else {
-           alert("Erro ao conectar no ML. Detalhes: " + (data.message || 'Desconhecido'));
+           // MOSTRA O ERRO REAL DO ML AGORA
+           alert("Erro ao conectar no ML. Detalhes: " + JSON.stringify(data));
+           authInProgress.current = false;
         }
       })
       .catch(err => {
-         alert("Erro de comunicação com o servidor. A configuração da API falhou.");
-         console.error(err);
+         alert("Erro no servidor: " + err.message);
+         authInProgress.current = false;
       })
       .finally(() => setConnectingML(false));
     }
@@ -259,7 +262,7 @@ function App() {
   // --- FUNÇÃO PARA CONECTAR AO ML ---
   const handleConnectML = () => {
     const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
-    window.location.href = authUrl; // Vai pro Mercado Livre
+    window.location.href = authUrl;
   };
 
 
@@ -689,7 +692,7 @@ function App() {
                        <div><div className="text-white font-bold text-lg">{order.supplier}</div><div className="text-xs text-slate-500 font-mono">ID: {order.orderCode} • {formatDate(order.createdAt)}</div></div>
                        {order.status === 'pending' ? (<span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-1 rounded border border-yellow-500/30 uppercase font-bold">Pendente</span>) : (<span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded border border-green-500/30 uppercase font-bold">Recebido</span>)}
                     </div>
-                    <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm text-slate-400">{order.totalItems} items: {order.items.map(i => `${i.name} (${i.quantity})`).join(', ').substring(0, 50)}...</div>
+                    <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm text-slate-400">{order.totalItems} itens: {order.items.map(i => `${i.name} (${i.quantity})`).join(', ').substring(0, 50)}...</div>
                     {order.status === 'pending' && (<div className="flex gap-3"><div className="flex-1 bg-slate-800 rounded flex items-center justify-center gap-2 text-slate-400 text-xs py-2 border border-slate-700"><ScanBarcode size={14}/> Bipe: <span className="font-mono font-bold text-white">{order.orderCode}</span></div><button onClick={() => handleReceiveOrder(order)} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Receber Manualmente</button></div>)}
                  </div>
                ))}

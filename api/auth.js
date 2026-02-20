@@ -7,19 +7,20 @@ export default async function handler(req, res) {
   const { code, redirectUri } = req.body;
 
   try {
+    const params = new URLSearchParams();
+    params.append('grant_type', 'authorization_code');
+    params.append('client_id', '1435927708247216');
+    params.append('client_secret', 'TvRRmbzsOqTpiDw2PXscCdiNfJJnbVvf');
+    params.append('code', code);
+    params.append('redirect_uri', redirectUri);
+
     const response = await fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: '1435927708247216', // <-- Seu NOVO Client ID
-        client_secret: 'TvRRmbzsOqTpiDw2PXscCdiNfJJnbVvf', // <-- Sua NOVA Chave Secreta
-        code: code,
-        redirect_uri: redirectUri
-      })
+      body: params.toString() // Formatação forçada
     });
 
     const data = await response.json();
