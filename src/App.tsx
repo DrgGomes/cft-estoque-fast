@@ -8,7 +8,7 @@ import {
   addDoc,
   deleteDoc,
   setDoc,
-  getDoc, // NOVO IMPORT PARA LER O TOKEN
+  getDoc,
   serverTimestamp,
   query,
   orderBy,
@@ -58,7 +58,7 @@ import {
   ShoppingBag,
   Link as LinkIcon,
   CheckCircle,
-  Megaphone // NOVO ÍCONE DE ANÚNCIO
+  Megaphone 
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -171,7 +171,7 @@ function App() {
   const [publishForm, setPublishForm] = useState({ title: '', price: '', type: 'gold_special', category: 'MLB108427' });
   const [isPublishing, setIsPublishing] = useState(false);
 
-  // Estados Admin (Gerador)
+  // Estados Admin
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
   const [baseImage, setBaseImage] = useState('');
@@ -185,7 +185,7 @@ function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, image: string, price: number, items: Product[] } | null>(null);
 
-  // Estados Entrada Rápida
+  // Estados Scanner
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -207,7 +207,6 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- EFEITO: VERIFICAR CONEXÃO ML DO USUÁRIO ---
   useEffect(() => {
     if (user) {
       const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
@@ -221,7 +220,6 @@ function App() {
     }
   }, [user]);
 
-  // --- EFEITO: CAPTURAR CÓDIGO DO ML ---
   useEffect(() => {
     if (!user) return;
     const urlParams = new URLSearchParams(window.location.search);
@@ -261,16 +259,15 @@ function App() {
     window.location.href = authUrl;
   };
 
-  // --- 🚀 MÁGICA: PUBLICAR NO MERCADO LIVRE ---
+  // --- 🚀 MÁGICA: PUBLICAR NO MERCADO LIVRE (ATUALIZADA) ---
   const openPublishModal = (groupName: string, groupData: any) => {
     setPublishingProduct({ name: groupName, ...groupData });
-    // Inteligência: Sugere o dobro do preço de custo
     const suggestedPrice = groupData.info.price ? (groupData.info.price * 2).toFixed(2).replace('.', ',') : ''; 
     setPublishForm({
-      title: `Tênis ${groupName} Lançamento Confortável`, // Título otimizado genérico
+      title: `Tênis ${groupName} Lançamento Confortável`, 
       price: suggestedPrice,
-      type: 'gold_special', // Clássico padrão
-      category: 'MLB108427' // Tênis
+      type: 'gold_special', 
+      category: 'MLB108427' 
     });
   };
 
@@ -278,19 +275,16 @@ function App() {
     e.preventDefault();
     setIsPublishing(true);
     try {
-      // 1. Pega o Crachá do Revendedor no Banco
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       const mlToken = userDoc.data()?.ml_token;
       if (!mlToken) throw new Error("Conexão expirou. Reconecte o Mercado Livre.");
 
-      // 2. Validações de Segurança
       const availableItems = publishingProduct.items.filter((i: Product) => i.quantity > 0);
       if (availableItems.length === 0) throw new Error("Não há estoque para criar um anúncio.");
       if (!publishingProduct.info.image) throw new Error("O fornecedor não cadastrou foto neste produto.");
       const numericPrice = parseFloat(publishForm.price.replace(',', '.'));
       if (numericPrice < 10) throw new Error("O preço no ML deve ser maior que R$ 10.");
 
-      // 3. Monta o Pacote (Payload) no Padrão do Mercado Livre
       const payload = {
         title: publishForm.title,
         category_id: publishForm.category,
@@ -302,10 +296,9 @@ function App() {
         listing_type_id: publishForm.type,
         pictures: [ { source: publishingProduct.info.image } ],
         attributes: [
-          { id: "BRAND", value_name: "Genérica" }, // Marca genérica para não dar erro de código de barras
+          { id: "BRAND", value_name: "Genérica" }, 
           { id: "MODEL", value_name: publishingProduct.name }
         ],
-        // Mapeia a grade de estoque do sistema para a grade do ML
         variations: availableItems.map((item: Product) => ({
           price: numericPrice,
           available_quantity: item.quantity,
@@ -316,27 +309,25 @@ function App() {
         }))
       };
 
-      // 4. Dispara o Anúncio para o ML
-      const res = await fetch('https://api.mercadolibre.com/items', {
+      // ✨ AQUI ESTÁ A CORREÇÃO MESTRE! Manda pro nosso servidor Vercel.
+      const res = await fetch('/api/publish', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${mlToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ token: mlToken, payload })
       });
 
       const data = await res.json();
 
-      // 5. Sucesso ou Erro
-      if (data.error) {
-        throw new Error(data.message || "Erro desconhecido. O ML rejeitou o formato.");
+      if (data.error || res.status !== 200) {
+        throw new Error(data.message || data.error || "O ML rejeitou o formato.");
       }
 
       playSound('magic');
       alert(`🎉 SUCESSO ABSOLUTO!\n\nSeu anúncio já está no ar.\n\nID: ${data.id}`);
-      window.open(data.permalink, '_blank'); // Abre o anúncio na hora!
-      setPublishingProduct(null); // Fecha modal
+      window.open(data.permalink, '_blank'); 
+      setPublishingProduct(null); 
 
     } catch (err: any) {
       playSound('error');
@@ -404,7 +395,7 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- CÂMERA E FUNÇÕES RESTANTES (MANTIDAS) ---
+  // --- CÂMERA E FUNÇÕES RESTANTES ---
   const startCamera = () => {
     if (scannerRef.current?.isScanning) return;
     setScanError('');
@@ -526,7 +517,6 @@ function App() {
             </div>))}
           </div></>)}
           
-          {/* TELA DE CARRINHO (MANTIDA) */}
           {userView === 'cart' && (<div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"><div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div><div className="p-4 space-y-4">{cart.length === 0 ? (<div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>) : (<><div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">{cart.map(item => (<div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div><div className="text-xs text-green-600 font-bold mt-1">{formatCurrency(item.product.price || 0)}</div></div></div><div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div></div>))}</div><div className="bg-slate-100 p-3 rounded-lg flex justify-between items-center border border-slate-200"><span className="font-bold text-slate-600">TOTAL ESTIMADO:</span><span className="font-black text-xl text-green-700">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span></div><div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div><button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button></>)}</div></div>)}
         </main>
 
