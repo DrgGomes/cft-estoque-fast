@@ -93,10 +93,8 @@ const sendSystemNotification = (title: string, body: string) => {
   }
 };
 
-// Formatação
 const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
-// --- CONVERSOR DE LINK DO GOOGLE DRIVE ---
 const processImageUrl = (url: string) => {
   if (!url) return '';
   const driveRegex = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
@@ -168,7 +166,9 @@ function App() {
   
   // TELA DE ANÚNCIO INTELIGENTE
   const [publishingProduct, setPublishingProduct] = useState<any>(null);
-  const [publishForm, setPublishForm] = useState({ title: '', price: '', type: 'gold_special', category: 'MLB108427' });
+  
+  // AQUI FOI CORRIGIDA A CATEGORIA PARA TÊNIS (MLB109027) E ADICIONADO O CAMPO GÊNERO
+  const [publishForm, setPublishForm] = useState({ title: '', price: '', type: 'gold_special', category: 'MLB109027', gender: 'Masculino' });
   const [isPublishing, setIsPublishing] = useState(false);
 
   // Estados Admin
@@ -185,7 +185,6 @@ function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, image: string, price: number, items: Product[] } | null>(null);
 
-  // Estados Scanner
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -259,7 +258,7 @@ function App() {
     window.location.href = authUrl;
   };
 
-  // --- 🚀 MÁGICA: PUBLICAR NO MERCADO LIVRE (ATUALIZADA) ---
+  // --- 🚀 MÁGICA: PUBLICAR NO MERCADO LIVRE (BLINDADA COM ATRIBUTOS) ---
   const openPublishModal = (groupName: string, groupData: any) => {
     setPublishingProduct({ name: groupName, ...groupData });
     const suggestedPrice = groupData.info.price ? (groupData.info.price * 2).toFixed(2).replace('.', ',') : ''; 
@@ -267,7 +266,8 @@ function App() {
       title: `Tênis ${groupName} Lançamento Confortável`, 
       price: suggestedPrice,
       type: 'gold_special', 
-      category: 'MLB108427' 
+      category: 'MLB109027', // Categoria Correta de Tênis
+      gender: 'Masculino' // Gênero Padrão
     });
   };
 
@@ -285,6 +285,7 @@ function App() {
       const numericPrice = parseFloat(publishForm.price.replace(',', '.'));
       if (numericPrice < 10) throw new Error("O preço no ML deve ser maior que R$ 10.");
 
+      // PACOTE BLINDADO PARA O ML (Com atributos obrigatórios)
       const payload = {
         title: publishForm.title,
         category_id: publishForm.category,
@@ -295,21 +296,25 @@ function App() {
         condition: "new",
         listing_type_id: publishForm.type,
         pictures: [ { source: publishingProduct.info.image } ],
+        
+        // Atributos base (Exigidos pelo ML para calçados)
         attributes: [
           { id: "BRAND", value_name: "Genérica" }, 
-          { id: "MODEL", value_name: publishingProduct.name }
+          { id: "MODEL", value_name: publishingProduct.name },
+          { id: "GENDER", value_name: publishForm.gender }
         ],
+        
+        // Variações formatadas com os IDs corretos de atributo
         variations: availableItems.map((item: Product) => ({
           price: numericPrice,
           available_quantity: item.quantity,
           attribute_combinations: [
-            { name: "Cor", value_name: item.color || "Padrão" },
-            { name: "Tamanho", value_name: item.size || "Único" }
+            { id: "COLOR", value_name: item.color || "Padrão" },
+            { id: "SIZE", value_name: item.size || "Único" }
           ]
         }))
       };
 
-      // ✨ AQUI ESTÁ A CORREÇÃO MESTRE! Manda pro nosso servidor Vercel.
       const res = await fetch('/api/publish', {
         method: 'POST',
         headers: {
@@ -497,7 +502,7 @@ function App() {
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  {/* BOTÃO INTELIGENTE DE ANUNCIAR (Fase 4) */}
+                  {/* BOTÃO INTELIGENTE DE ANUNCIAR */}
                   {mlConnected && group.total > 0 && (
                     <button 
                       onClick={(e) => { e.stopPropagation(); openPublishModal(name, group); }}
@@ -555,9 +560,19 @@ function App() {
                    </div>
                  </div>
 
-                 <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1">Categoria ML ID <a href="https://api.mercadolibre.com/sites/MLB/categories" target="_blank" className="text-blue-500 underline text-[10px]">(Ver Tabela)</a></label>
-                    <input value={publishForm.category} onChange={e => setPublishForm({...publishForm, category: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none font-mono" required placeholder="Ex: MLB108427" />
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1">Categoria ML ID</label>
+                      <input value={publishForm.category} onChange={e => setPublishForm({...publishForm, category: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none font-mono" required placeholder="Ex: MLB109027" />
+                   </div>
+                   <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Gênero</label>
+                      <select value={publishForm.gender} onChange={e => setPublishForm({...publishForm, gender: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none bg-white">
+                         <option value="Masculino">Masculino</option>
+                         <option value="Feminino">Feminino</option>
+                         <option value="Sem gênero">Sem gênero</option>
+                      </select>
+                   </div>
                  </div>
 
                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center gap-3">
