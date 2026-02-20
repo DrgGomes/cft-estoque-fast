@@ -41,7 +41,6 @@ import {
   AlertCircle,
   Camera,
   StopCircle,
-  BellRing,
   ChevronLeft,
   ClipboardList,
   ArrowRight,
@@ -52,13 +51,13 @@ import {
   ShoppingCart,
   MessageCircle,
   Minus,
-  RotateCcw,
   Truck,
   FileText,
   ShoppingBag,
   Link as LinkIcon,
   CheckCircle,
-  Megaphone 
+  Megaphone,
+  Wand2 // Ícone da Varinha Mágica
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -153,8 +152,8 @@ function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
   const [supplierName, setSupplierName] = useState('');
-  
   const [customerName, setCustomerName] = useState('');
+  
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -166,10 +165,18 @@ function App() {
   
   // TELA DE ANÚNCIO INTELIGENTE
   const [publishingProduct, setPublishingProduct] = useState<any>(null);
-  
-  // AQUI FOI CORRIGIDA A CATEGORIA PARA TÊNIS (MLB109027) E ADICIONADO O CAMPO GÊNERO
-  const [publishForm, setPublishForm] = useState({ title: '', price: '', type: 'gold_special', category: 'MLB109027', gender: 'Masculino' });
+  const [publishForm, setPublishForm] = useState({ 
+    title: '', 
+    price: '', 
+    type: 'gold_special', 
+    category: '', 
+    categoryName: 'Aguardando título...',
+    gender: 'Masculino',
+    brand: 'Genérica',
+    model: ''
+  });
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isPredicting, setIsPredicting] = useState(false);
 
   // Estados Admin
   const [baseSku, setBaseSku] = useState('');
@@ -185,6 +192,7 @@ function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, image: string, price: number, items: Product[] } | null>(null);
 
+  // Estados Scanner
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -258,17 +266,51 @@ function App() {
     window.location.href = authUrl;
   };
 
-  // --- 🚀 MÁGICA: PUBLICAR NO MERCADO LIVRE (BLINDADA COM ATRIBUTOS) ---
+  // --- 🧠 INTELIGÊNCIA: DESCOBRIR CATEGORIA PELO TÍTULO ---
+  const predictCategory = async (titleToSearch: string) => {
+    if (!titleToSearch) return;
+    setIsPredicting(true);
+    try {
+      // API pública do ML que descobre a categoria baseada na escrita
+      const res = await fetch(`https://api.mercadolibre.com/sites/MLB/domain_discovery/search?limit=1&q=${encodeURIComponent(titleToSearch)}`);
+      const data = await res.json();
+      
+      if (data && data.length > 0) {
+        setPublishForm(prev => ({
+          ...prev,
+          category: data[0].category_id,
+          categoryName: data[0].category_name
+        }));
+      } else {
+        setPublishForm(prev => ({ ...prev, categoryName: "Não encontrada. Tente um título mais claro." }));
+      }
+    } catch (e) {
+      console.error(e);
+      setPublishForm(prev => ({ ...prev, categoryName: "Erro ao buscar. Digite manualmente." }));
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
+  // --- 🚀 ABRIR MODAL DE PUBLICAÇÃO ---
   const openPublishModal = (groupName: string, groupData: any) => {
     setPublishingProduct({ name: groupName, ...groupData });
     const suggestedPrice = groupData.info.price ? (groupData.info.price * 2).toFixed(2).replace('.', ',') : ''; 
+    const defaultTitle = `Tênis ${groupName} Lançamento Confortável`;
+    
     setPublishForm({
-      title: `Tênis ${groupName} Lançamento Confortável`, 
+      title: defaultTitle, 
       price: suggestedPrice,
       type: 'gold_special', 
-      category: 'MLB109027', // Categoria Correta de Tênis
-      gender: 'Masculino' // Gênero Padrão
+      category: '', 
+      categoryName: 'Buscando melhor categoria...',
+      gender: 'Masculino',
+      brand: 'Genérica',
+      model: groupName
     });
+
+    // Puxa a categoria na hora que abre a tela!
+    predictCategory(defaultTitle);
   };
 
   const handlePublishML = async (e: React.FormEvent) => {
@@ -284,8 +326,9 @@ function App() {
       if (!publishingProduct.info.image) throw new Error("O fornecedor não cadastrou foto neste produto.");
       const numericPrice = parseFloat(publishForm.price.replace(',', '.'));
       if (numericPrice < 10) throw new Error("O preço no ML deve ser maior que R$ 10.");
+      if (!publishForm.category) throw new Error("Aguarde a categoria ser carregada ou digite um código válido.");
 
-      // PACOTE BLINDADO PARA O ML (Com atributos obrigatórios)
+      // PACOTE BLINDADO
       const payload = {
         title: publishForm.title,
         category_id: publishForm.category,
@@ -297,36 +340,36 @@ function App() {
         listing_type_id: publishForm.type,
         pictures: [ { source: publishingProduct.info.image } ],
         
-        // Atributos base (Exigidos pelo ML para calçados)
         attributes: [
-          { id: "BRAND", value_name: "Genérica" }, 
-          { id: "MODEL", value_name: publishingProduct.name },
-          { id: "GENDER", value_name: publishForm.gender }
+          { name: "Marca", value_name: publishForm.brand }, 
+          { name: "Modelo", value_name: publishForm.model },
+          { name: "Gênero", value_name: publishForm.gender }
         ],
         
-        // Variações formatadas com os IDs corretos de atributo
         variations: availableItems.map((item: Product) => ({
           price: numericPrice,
           available_quantity: item.quantity,
           attribute_combinations: [
-            { id: "COLOR", value_name: item.color || "Padrão" },
-            { id: "SIZE", value_name: item.size || "Único" }
+            { name: "Cor", value_name: item.color || "Padrão" },
+            { name: "Tamanho", value_name: item.size || "Único" }
           ]
         }))
       };
 
       const res = await fetch('/api/publish', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: mlToken, payload })
       });
 
       const data = await res.json();
 
       if (data.error || res.status !== 200) {
-        throw new Error(data.message || data.error || "O ML rejeitou o formato.");
+        // Formata a mensagem de erro do ML para ficar fácil de ler
+        const errorMsg = data.cause && data.cause.length > 0 
+          ? data.cause.map((c:any) => c.message).join(' | ') 
+          : (data.message || data.error);
+        throw new Error(errorMsg);
       }
 
       playSound('magic');
@@ -336,7 +379,7 @@ function App() {
 
     } catch (err: any) {
       playSound('error');
-      alert("❌ ERRO AO PUBLICAR:\n" + err.message);
+      alert("❌ O MERCADO LIVRE REJEITOU O ANÚNCIO:\n\nMotivo: " + err.message);
     } finally {
       setIsPublishing(false);
     }
@@ -528,8 +571,8 @@ function App() {
         {/* MODAL DE ANÚNCIO INTELIGENTE (ML) */}
         {publishingProduct && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl flex flex-col">
-               <div className="flex justify-between items-center mb-6">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+               <div className="flex justify-between items-start mb-4">
                   <div>
                      <h2 className="text-xl font-bold text-[#2D3277] flex items-center gap-2">
                         <Megaphone className="text-[#FFE600]"/> Criar Anúncio
@@ -540,15 +583,50 @@ function App() {
                </div>
                
                <form onSubmit={handlePublishML} className="space-y-4">
-                 <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Título do Anúncio (ML)*</label>
-                    <input value={publishForm.title} onChange={e => setPublishForm({...publishForm, title: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required maxLength={60} />
+                 
+                 {/* INTELIGÊNCIA: TÍTULO E CATEGORIA */}
+                 <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 space-y-3">
+                    <div>
+                        <label className="text-xs font-bold text-blue-800 mb-1 block uppercase">Título do Anúncio (ML)*</label>
+                        <div className="flex gap-2">
+                           <input 
+                              value={publishForm.title} 
+                              onChange={e => setPublishForm({...publishForm, title: e.target.value})} 
+                              className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 outline-none" 
+                              required 
+                              maxLength={60} 
+                           />
+                           <button 
+                              type="button" 
+                              onClick={() => predictCategory(publishForm.title)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg flex items-center justify-center"
+                              title="Redescobrir Categoria"
+                           >
+                              <Wand2 size={18} />
+                           </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-blue-800 mb-1 block uppercase">Categoria Reconhecida Pelo ML</label>
+                        <div className="flex items-center gap-2">
+                           <input 
+                              value={publishForm.category} 
+                              onChange={e => setPublishForm({...publishForm, category: e.target.value})} 
+                              className="w-28 border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 outline-none font-mono font-bold text-blue-700 bg-white" 
+                              required 
+                           />
+                           <div className="flex-1 text-[10px] text-blue-600 leading-tight">
+                              {isPredicting ? "Analisando título..." : publishForm.categoryName}
+                           </div>
+                        </div>
+                    </div>
                  </div>
                  
                  <div className="grid grid-cols-2 gap-4">
                    <div>
                       <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Seu Preço (R$)*</label>
-                      <input value={publishForm.price} onChange={e => setPublishForm({...publishForm, price: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required placeholder="Ex: 120,00" />
+                      <input value={publishForm.price} onChange={e => setPublishForm({...publishForm, price: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none font-bold" required placeholder="Ex: 120,00" />
                       {publishingProduct.info.price && <p className="text-[10px] text-green-600 mt-1 font-bold">Custo: {formatCurrency(publishingProduct.info.price)}</p>}
                    </div>
                    <div>
@@ -562,20 +640,25 @@ function App() {
 
                  <div className="grid grid-cols-2 gap-4">
                    <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1">Categoria ML ID</label>
-                      <input value={publishForm.category} onChange={e => setPublishForm({...publishForm, category: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none font-mono" required placeholder="Ex: MLB109027" />
+                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Marca*</label>
+                      <input value={publishForm.brand} onChange={e => setPublishForm({...publishForm, brand: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required placeholder="Sua Marca" />
                    </div>
                    <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Gênero</label>
-                      <select value={publishForm.gender} onChange={e => setPublishForm({...publishForm, gender: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none bg-white">
-                         <option value="Masculino">Masculino</option>
-                         <option value="Feminino">Feminino</option>
-                         <option value="Sem gênero">Sem gênero</option>
-                      </select>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Modelo*</label>
+                      <input value={publishForm.model} onChange={e => setPublishForm({...publishForm, model: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required />
                    </div>
                  </div>
 
-                 <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center gap-3">
+                 <div>
+                    <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Gênero do Calçado</label>
+                    <select value={publishForm.gender} onChange={e => setPublishForm({...publishForm, gender: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none bg-white">
+                       <option value="Masculino">Masculino</option>
+                       <option value="Feminino">Feminino</option>
+                       <option value="Sem gênero">Sem gênero</option>
+                    </select>
+                 </div>
+
+                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex items-center gap-3">
                    <div className="w-12 h-12 rounded bg-white overflow-hidden border border-slate-200 shrink-0">
                       {publishingProduct.info.image ? <img src={publishingProduct.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300" />}
                    </div>
@@ -584,8 +667,8 @@ function App() {
                    </div>
                  </div>
 
-                 <div className="pt-4 border-t border-slate-100">
-                    <button type="submit" disabled={isPublishing} className="w-full bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] py-4 rounded-xl font-black shadow-lg transition-transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                 <div className="pt-2">
+                    <button type="submit" disabled={isPublishing || isPredicting} className={`w-full py-4 rounded-xl font-black shadow-lg flex items-center justify-center gap-2 transition-transform ${isPublishing || isPredicting ? 'bg-slate-300 text-slate-500' : 'bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] hover:scale-[1.02]'}`}>
                        {isPublishing ? <RefreshCw className="animate-spin" size={20} /> : <Megaphone size={20} />} 
                        {isPublishing ? "PUBLICANDO..." : "PUBLICAR ANÚNCIO AGORA"}
                     </button>
