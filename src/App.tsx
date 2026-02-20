@@ -7,6 +7,7 @@ import {
   updateDoc,
   addDoc,
   deleteDoc,
+  setDoc, // NOVO IMPORT
   serverTimestamp,
   query,
   orderBy,
@@ -54,7 +55,8 @@ import {
   Truck,
   FileText,
   ShoppingBag,
-  Link as LinkIcon
+  Link as LinkIcon,
+  CheckCircle // Ícone de sucesso
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -122,48 +124,17 @@ const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
 
 // --- CONFIGURAÇÕES MERCADO LIVRE ---
-const ML_CLIENT_ID = "7037252739126028"; // Seu App ID real
-const ML_REDIRECT_URI = "COLOQUE_SUA_URI_AQUI"; // Ex: https://seu-site.vercel.app
+const ML_CLIENT_ID = "7037252739126028"; 
+// 🔴 ATENÇÃO: COLOQUE A MESMA URL QUE ESTÁ LÁ NO PAINEL DO MERCADO LIVRE AQUI:
+const ML_REDIRECT_URI = "https://cft-estoque-fast.vercel.app/api/ml/callback"; 
 
 // Tipos
-type Product = {
-  id: string;
-  sku?: string;          
-  barcode?: string;      
-  image?: string;        
-  name: string;         
-  color: string;        
-  size: string;         
-  quantity: number;
-  price: number;
-  updatedAt?: any;
-};
-
+type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
 type ScannedItem = { product: Product; count: number; };
-type HistoryItem = {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  image: string;
-  type: 'entry' | 'exit' | 'correction';
-  amount: number;
-  previousQty: number;
-  newQty: number;
-  timestamp: any;
-};
+type HistoryItem = { id: string; productId: string; productName: string; sku: string; image: string; type: 'entry' | 'exit' | 'correction'; amount: number; previousQty: number; newQty: number; timestamp: any; };
 type CartItem = { product: Product; quantity: number; };
-type PurchaseOrder = {
-  id: string;
-  orderCode: string;
-  supplier: string;
-  status: 'pending' | 'received';
-  items: { productId: string; sku: string; name: string; quantity: number }[];
-  totalItems: number;
-  createdAt: any;
-  receivedAt?: any;
-};
+type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 'pending' | 'received'; items: { productId: string; sku: string; name: string; quantity: number }[]; totalItems: number; createdAt: any; receivedAt?: any; };
 
 function App() {
   const [user, setUser] = useState<any>(null);
@@ -188,6 +159,10 @@ function App() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  // Integração Mercado Livre
+  const [mlConnected, setMlConnected] = useState(false);
+  const [connectingML, setConnectingML] = useState(false);
 
   // Estados Admin (Gerador)
   const [baseSku, setBaseSku] = useState('');
@@ -216,31 +191,6 @@ function App() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
-  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE ---
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const authCode = urlParams.get('code');
-
-    if (authCode) {
-      // O revendedor acabou de voltar da tela de login do ML!
-      alert(`🎉 SUCESSO! O código de autorização foi capturado:\n\n${authCode}\n\nPróxima etapa: O sistema vai transformar isso num Token de Acesso!`);
-      
-      // Limpa a URL para não ficar feia
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
-
-  // --- FUNÇÃO PARA CONECTAR AO ML ---
-  const handleConnectML = () => {
-    if (ML_REDIRECT_URI === "COLOQUE_SUA_URI_AQUI") {
-      alert("Por favor, configure a sua ML_REDIRECT_URI no código primeiro!");
-      return;
-    }
-    const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
-    window.location.href = authUrl; // Redireciona o revendedor para logar
-  };
-
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) setUser(u);
@@ -250,17 +200,73 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) { alert("Navegador sem suporte."); return; }
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      setPermissionGranted(true);
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.ready;
-        try { reg.showNotification("✅ Notificações Ativadas!", { body: "Agora você receberá alertas de estoque.", icon: '/vite.svg', vibrate: [200] }); } catch(e){}
-      } else { new Notification("✅ Notificações Ativadas!"); }
+  // --- EFEITO: VERIFICAR CONEXÃO ML DO USUÁRIO ---
+  useEffect(() => {
+    if (user) {
+      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+        if (docSnap.exists() && docSnap.data().ml_token) {
+          setMlConnected(true);
+        } else {
+          setMlConnected(false);
+        }
+      });
+      return () => unsubscribe();
     }
+  }, [user]);
+
+  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE E GERAR TOKEN ---
+  useEffect(() => {
+    if (!user) return;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const authCode = urlParams.get('code');
+
+    if (authCode) {
+      setConnectingML(true);
+      // Limpa a URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      // Chama a nossa API mágica na Vercel
+      fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: authCode, redirectUri: ML_REDIRECT_URI })
+      })
+      .then(res => res.json())
+      .then(async data => {
+        if (data.access_token) {
+           // Sucesso! Salva no banco de dados atrelado ao celular do revendedor
+           await setDoc(doc(db, 'users', user.uid), {
+              ml_token: data.access_token,
+              ml_refresh_token: data.refresh_token,
+              ml_user_id: data.user_id,
+              updatedAt: serverTimestamp()
+           }, { merge: true });
+           
+           playSound('magic');
+           alert("✅ Mercado Livre Conectado com Sucesso!");
+        } else {
+           alert("Erro ao conectar no ML. Detalhes: " + (data.message || 'Desconhecido'));
+        }
+      })
+      .catch(err => {
+         alert("Erro de comunicação com o servidor. Você subiu a pasta /api para a Vercel?");
+         console.error(err);
+      })
+      .finally(() => setConnectingML(false));
+    }
+  }, [user]);
+
+  // --- FUNÇÃO PARA CONECTAR AO ML ---
+  const handleConnectML = () => {
+    if (ML_REDIRECT_URI === "COLOQUE_SUA_URI_AQUI") {
+      alert("Por favor, configure a sua ML_REDIRECT_URI no código App.tsx (linha 113)!");
+      return;
+    }
+    const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
+    window.location.href = authUrl; // Vai pro Mercado Livre
   };
+
 
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
@@ -599,7 +605,7 @@ function App() {
     );
   }
 
-  // --- TELA DO REVENDEDOR (COM BOTÃO MERCADO LIVRE) ---
+  // --- TELA DO REVENDEDOR ---
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -616,13 +622,26 @@ function App() {
               </div>
             </div>
             
-            {/* NOVO: BOTÃO CONECTAR MERCADO LIVRE */}
+            {/* BOTÃO CONECTAR MERCADO LIVRE */}
             {userView === 'stock' && (
               <button 
-                onClick={handleConnectML} 
-                className="w-full bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+                onClick={mlConnected ? undefined : handleConnectML} 
+                disabled={connectingML || mlConnected}
+                className={`w-full py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all ${
+                  mlConnected 
+                    ? 'bg-green-500 text-white cursor-default' 
+                    : connectingML
+                      ? 'bg-slate-300 text-slate-500'
+                      : 'bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] hover:scale-[1.01]'
+                }`}
               >
-                <LinkIcon size={16} /> CONECTAR AO MERCADO LIVRE
+                {connectingML ? (
+                  <><RefreshCw size={16} className="animate-spin" /> Conectando...</>
+                ) : mlConnected ? (
+                  <><CheckCircle size={16} /> MERCADO LIVRE CONECTADO</>
+                ) : (
+                  <><LinkIcon size={16} /> CONECTAR AO MERCADO LIVRE</>
+                )}
               </button>
             )}
           </div>
@@ -829,7 +848,7 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA (NOVO FLUXO) --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black z-50 flex flex-col">
             <div className="flex-1 relative bg-black overflow-hidden">
