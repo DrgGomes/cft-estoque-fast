@@ -53,7 +53,8 @@ import {
   RotateCcw,
   Truck,
   FileText,
-  ShoppingBag
+  ShoppingBag,
+  Link as LinkIcon
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -119,6 +120,10 @@ const appId = "estoque-loja";
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
+
+// --- CONFIGURAÇÕES MERCADO LIVRE ---
+const ML_CLIENT_ID = "7037252739126028"; // Seu App ID real
+const ML_REDIRECT_URI = "COLOQUE_SUA_URI_AQUI"; // Ex: https://seu-site.vercel.app
 
 // Tipos
 type Product = {
@@ -195,10 +200,7 @@ function App() {
   const [tempSize, setTempSize] = useState('');
   const [generatedRows, setGeneratedRows] = useState<VariationRow[]>([]);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
-  
-  // Edição Individual
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  // Edição do Modelo Inteiro (Pai)
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, image: string, price: number, items: Product[] } | null>(null);
 
   // Estados Entrada Rápida
@@ -213,6 +215,31 @@ function App() {
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+
+  // --- EFEITO: CAPTURAR CÓDIGO DO MERCADO LIVRE ---
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const authCode = urlParams.get('code');
+
+    if (authCode) {
+      // O revendedor acabou de voltar da tela de login do ML!
+      alert(`🎉 SUCESSO! O código de autorização foi capturado:\n\n${authCode}\n\nPróxima etapa: O sistema vai transformar isso num Token de Acesso!`);
+      
+      // Limpa a URL para não ficar feia
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // --- FUNÇÃO PARA CONECTAR AO ML ---
+  const handleConnectML = () => {
+    if (ML_REDIRECT_URI === "COLOQUE_SUA_URI_AQUI") {
+      alert("Por favor, configure a sua ML_REDIRECT_URI no código primeiro!");
+      return;
+    }
+    const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
+    window.location.href = authUrl; // Redireciona o revendedor para logar
+  };
+
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -454,7 +481,6 @@ function App() {
 
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
   
-  // Edição Individual
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
@@ -467,46 +493,26 @@ function App() {
     } catch (error) { alert("Erro ao editar."); }
   };
 
-  // EDIÇÃO EM LOTE DO GRUPO (MODELO) PAI
   const openGroupEdit = (groupName: string, groupData: any) => {
-    setEditingGroup({
-      oldName: groupName,
-      name: groupData.info.name,
-      image: groupData.info.image || '',
-      price: groupData.info.price || 0,
-      items: groupData.items
-    });
+    setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items });
   };
 
   const handleSaveGroupEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingGroup) return;
     setIsSavingBatch(true);
-    
     const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price;
     const processedImage = processImageUrl(editingGroup.image || '');
-
     try {
       const batch = writeBatch(db);
-      // Atualiza o documento de cada filho (cada variação de cor/tamanho) do modelo
       editingGroup.items.forEach((item) => {
         const ref = doc(db, PRODUCTS_COLLECTION, item.id);
-        batch.update(ref, {
-           name: editingGroup.name,
-           image: processedImage,
-           price: priceNumber,
-           updatedAt: serverTimestamp()
-        });
+        batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() });
       });
       await batch.commit();
       setEditingGroup(null);
       alert("Modelo inteiro atualizado com sucesso!");
-    } catch (error) {
-      console.error(error);
-      alert("Erro ao atualizar o modelo.");
-    } finally {
-      setIsSavingBatch(false);
-    }
+    } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); }
   };
 
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
@@ -593,21 +599,35 @@ function App() {
     );
   }
 
+  // --- TELA DO REVENDEDOR (COM BOTÃO MERCADO LIVRE) ---
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50">
         <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
-          <div className="max-w-md mx-auto flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              {userView === 'cart' ? (<button onClick={() => setUserView('stock')} className="bg-blue-700 p-2 rounded-lg hover:bg-blue-800 transition-colors"><ChevronLeft size={24}/></button>) : (<div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>)}
-              <div><h1 className="font-bold text-lg">{userView === 'stock' ? 'Estoque' : 'Seu Pedido'}</h1><div className="flex items-center gap-1.5">{userView === 'stock' ? (<><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></>) : (<span className="text-xs text-blue-100 font-medium">Finalizar Compra</span>)}</div></div>
+          <div className="max-w-md mx-auto flex flex-col gap-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                {userView === 'cart' ? (<button onClick={() => setUserView('stock')} className="bg-blue-700 p-2 rounded-lg hover:bg-blue-800 transition-colors"><ChevronLeft size={24}/></button>) : (<div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>)}
+                <div><h1 className="font-bold text-lg">{userView === 'stock' ? 'Estoque' : 'Seu Pedido'}</h1><div className="flex items-center gap-1.5">{userView === 'stock' ? (<><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></>) : (<span className="text-xs text-blue-100 font-medium">Finalizar Compra</span>)}</div></div>
+              </div>
+              <div className="flex items-center gap-2">
+                {userView === 'stock' && (<button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>)}
+                <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {userView === 'stock' && (<button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>)}
-              <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
-            </div>
+            
+            {/* NOVO: BOTÃO CONECTAR MERCADO LIVRE */}
+            {userView === 'stock' && (
+              <button 
+                onClick={handleConnectML} 
+                className="w-full bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+              >
+                <LinkIcon size={16} /> CONECTAR AO MERCADO LIVRE
+              </button>
+            )}
           </div>
         </header>
+
         <main className="max-w-md mx-auto p-4 space-y-4">
           {userView === 'stock' && (<><div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div><div className="space-y-3 pb-20">{loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (<div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"><div className="flex items-center gap-3 min-w-0"><div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div><div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>{expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}</div></div>{expandedGroups[name] && (<div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">{group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200"><div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-sm font-bold text-green-600">{formatCurrency(p.price || 0)}</div></div>{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div></div>))}</div>)}</div>))}</div></>)}
           {userView === 'cart' && (<div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"><div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div><div className="p-4 space-y-4">{cart.length === 0 ? (<div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>) : (<><div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">{cart.map(item => (<div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div><div className="text-xs text-green-600 font-bold mt-1">{formatCurrency(item.product.price || 0)}</div></div></div><div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div></div>))}</div><div className="bg-slate-100 p-3 rounded-lg flex justify-between items-center border border-slate-200"><span className="font-bold text-slate-600">TOTAL ESTIMADO:</span><span className="font-black text-xl text-green-700">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span></div><div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div><button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button></>)}</div></div>)}
@@ -742,7 +762,6 @@ function App() {
               {Object.entries(groupedAdminProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedAdminProducts).map(([name, group]) => (
                 <div key={name} className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
                   
-                  {/* HEADER DO PRODUTO PAI (COM NOVO BOTÃO DE EDIÇÃO EM LOTE) */}
                   <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">
@@ -756,7 +775,6 @@ function App() {
                     </div>
                     
                     <div className="flex items-center gap-3 shrink-0">
-                      {/* NOVO: LÁPIS DE EDIÇÃO GERAL DO MODELO */}
                       <button 
                         onClick={(e) => { e.stopPropagation(); openGroupEdit(name, group); }} 
                         className="bg-blue-100 text-blue-600 hover:bg-blue-200 p-2 rounded-lg transition-colors shadow-sm"
@@ -773,7 +791,6 @@ function App() {
                     </div>
                   </div>
 
-                  {/* LISTA DE FILHOS */}
                   {expandedGroups[name] && (
                     <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
                       {group.items.map(p => (
@@ -812,7 +829,7 @@ function App() {
           </div>
         )}
 
-        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
+        {/* --- POPUP DE ENTRADA RÁPIDA (NOVO FLUXO) --- */}
         {showQuickEntry && (
           <div className="fixed inset-0 bg-black z-50 flex flex-col">
             <div className="flex-1 relative bg-black overflow-hidden">
@@ -852,7 +869,7 @@ function App() {
           </div>
         )}
 
-        {/* --- NOVO: MODAL DE EDIÇÃO EM LOTE (MODELO INTEIRO) --- */}
+        {/* --- MODAL DE EDIÇÃO EM LOTE --- */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-xl w-full max-w-md border border-slate-700 shadow-2xl">
