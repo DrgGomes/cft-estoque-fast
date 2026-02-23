@@ -28,7 +28,8 @@ import {
   Layers, Pencil, Zap, AlertCircle, Camera, StopCircle,
   ChevronLeft, ClipboardList, ChevronDown, ChevronUp,
   ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag,
-  LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick
+  LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
+  Store, Copy, Percent
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -108,6 +109,7 @@ const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
 const NOTICES_COLLECTION = `artifacts/${appId}/public/data/notices`; 
 const QUICKLINKS_COLLECTION = `artifacts/${appId}/public/data/quickLinks`;
+const SHOWCASES_COLLECTION = `artifacts/${appId}/public/data/showcases`; // Nova coleção para Vitrines
 
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
@@ -118,8 +120,15 @@ type CartItem = { product: Product; quantity: number; };
 type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 'pending' | 'received'; items: { productId: string; sku: string; name: string; quantity: number }[]; totalItems: number; createdAt: any; receivedAt?: any; };
 type Notice = { id: string; type: 'text' | 'banner'; title: string; content?: string; imageUrl?: string; createdAt: any; };
 type QuickLink = { id: string; title: string; subtitle: string; icon: string; url: string; order: number; createdAt?: any; };
+type Showcase = { id: string; name: string; linkId: string; config: { showPrice: boolean; priceMarkup: number; }; models: string[]; createdAt?: any; };
 
 function App() {
+  // Verificação de URL para Modo Vitrine Pública
+  const urlParams = new URLSearchParams(window.location.search);
+  const vitrineLinkId = urlParams.get('vitrine');
+  const [isVitrineMode] = useState(!!vitrineLinkId);
+  const [publicVitrine, setPublicVitrine] = useState<Showcase | null>(null);
+
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
@@ -127,12 +136,13 @@ function App() {
   const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
+  const [showcases, setShowcases] = useState<Showcase[]>([]);
   
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'create_purchase' | 'notices' | 'links'>('menu');
+  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'create_purchase' | 'notices' | 'links' | 'showcases'>('menu');
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   
   const [userView, setUserView] = useState<'dashboard' | 'catalog' | 'cart' | 'orders'>('dashboard');
@@ -166,18 +176,19 @@ function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, image: string, price: number, items: Product[] } | null>(null);
 
-  // Estados Admin - Avisos
+  // Estados Admin - Avisos e Links
   const [noticeType, setNoticeType] = useState<'text' | 'banner'>('text');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeContent, setNoticeContent] = useState('');
   const [noticeImage, setNoticeImage] = useState('');
-
-  // Estados Admin - Links Rápidos
   const [linkTitle, setLinkTitle] = useState('');
   const [linkSubtitle, setLinkSubtitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [linkIcon, setLinkIcon] = useState('Link2');
   const [linkOrder, setLinkOrder] = useState('1');
+
+  // Estados Admin - Editor de Vitrine
+  const [editingShowcase, setEditingShowcase] = useState<Partial<Showcase> | null>(null);
 
   // Estados User - Modal de Aviso
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
@@ -194,53 +205,31 @@ function App() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
-  // --- FUNÇÕES DE LOGIN ---
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    try {
-      if (isRegistering) {
-        const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          email: authEmail,
-          role: 'revendedor',
-          createdAt: serverTimestamp()
-        });
-        setSelectedRole('user');
-        playSound('success');
-      } else {
-        await signInWithEmailAndPassword(auth, authEmail, authPassword);
-        setSelectedRole('user');
-        playSound('success');
-      }
-    } catch (err: any) {
-      setAuthError('Erro: ' + (err.message.includes('invalid-credential') ? 'E-mail ou senha incorretos.' : err.message));
-      playSound('error');
-    }
+  // --- FUNÇÕES GERAIS ---
+  const groupProducts = (items: Product[]) => { 
+      const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
+      items.forEach(product => { 
+          const key = product.name; 
+          if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; 
+          groups[key].items.push(product); 
+          groups[key].total += product.quantity; 
+      }); 
+      Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1))); 
+      return groups; 
   };
+  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
+  const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    setSelectedRole(null);
-    setUserView('dashboard');
-    setAdminView('menu');
-  };
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-    if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
-    return () => unsubscribe();
-  }, []);
-
+  // --- FETCH DADOS INICIAIS (Produtos carregam sempre, mesmo no modo público) ---
   useEffect(() => {
     // Buscar Produtos
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const items: Product[] = [];
       snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as Product); });
-      if (!loading && selectedRole === 'user') {
+      
+      // Notificação de estoque zerado apenas se for usuário logado normal
+      if (!loading && selectedRole === 'user' && !isVitrineMode) {
         const previousProducts = prevProductsRef.current;
         const soldOutItems = items.filter(newItem => {
           const oldItem = previousProducts.find(p => p.id === newItem.id);
@@ -257,24 +246,29 @@ function App() {
       setLoading(false);
     });
 
-    // Buscar Avisos
-    const qNotices = query(collection(db, NOTICES_COLLECTION), orderBy('createdAt', 'desc'));
-    const unsubscribeNotices = onSnapshot(qNotices, (snapshot) => {
-      const items: Notice[] = [];
-      snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as Notice); });
-      setNotices(items);
-    });
+    // Se NÃO for modo vitrine, carrega o resto (Avisos, Links, etc)
+    if (!isVitrineMode) {
+        const qNotices = query(collection(db, NOTICES_COLLECTION), orderBy('createdAt', 'desc'));
+        const unsubNotices = onSnapshot(qNotices, (snap) => setNotices(snap.docs.map(d => ({id: d.id, ...d.data()} as Notice))));
 
-    // Buscar Botões Rápidos
-    const qLinks = query(collection(db, QUICKLINKS_COLLECTION), orderBy('order', 'asc'));
-    const unsubscribeLinks = onSnapshot(qLinks, (snapshot) => {
-      const items: QuickLink[] = [];
-      snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as QuickLink); });
-      setQuickLinks(items);
-    });
+        const qLinks = query(collection(db, QUICKLINKS_COLLECTION), orderBy('order', 'asc'));
+        const unsubLinks = onSnapshot(qLinks, (snap) => setQuickLinks(snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink))));
 
-    return () => { unsubscribe(); unsubscribeNotices(); unsubscribeLinks(); };
-  }, [loading, selectedRole]);
+        const qShowcases = query(collection(db, SHOWCASES_COLLECTION));
+        const unsubShowcases = onSnapshot(qShowcases, (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase))));
+
+        return () => { unsubscribe(); unsubNotices(); unsubLinks(); unsubShowcases(); };
+    } else {
+        // Se for Modo Vitrine, busca as configs da Vitrine Específica
+        const qShowcases = query(collection(db, SHOWCASES_COLLECTION));
+        const unsubShowcases = onSnapshot(qShowcases, (snap) => {
+            const allVitrines = snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase));
+            const found = allVitrines.find(v => v.linkId === vitrineLinkId);
+            setPublicVitrine(found || null);
+        });
+        return () => { unsubscribe(); unsubShowcases(); };
+    }
+  }, [loading, selectedRole, isVitrineMode, vitrineLinkId]);
 
   useEffect(() => {
     if (selectedRole === 'admin') {
@@ -309,72 +303,39 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- CÂMERA E FUNÇÕES DE SCANNER ---
-  const handleProcessCode = async (code: string) => { 
-    const term = code.trim(); 
-    if (!term) return; 
-    const now = Date.now(); 
-    if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
-    lastScanRef.current = { code: term, time: now }; 
-    if (term.startsWith('PED-')) { 
-      const order = purchases.find(p => p.orderCode === term); 
-      if (!order) { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido inválido` }); return; } 
-      if (order.status === 'received') { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido já recebido` }); return; } 
-      await handleReceiveOrder(order); 
-      setLastScannedFeedback({ type: 'magic', msg: `PEDIDO RECEBIDO!` }); return; 
-    } 
-    const found = products.find(p => (p.sku && p.sku.toLowerCase() === term.toLowerCase()) || (p.barcode && p.barcode.toLowerCase() === term.toLowerCase())); 
-    if (found) { 
-      playSound('success'); 
-      setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` }); 
-      setScannedItems(prev => { 
-        const existingIndex = prev.findIndex(item => item.product.id === found.id); 
-        if (existingIndex >= 0) { 
-          const newList = [...prev]; 
-          newList[existingIndex].count += 1; 
-          return newList; 
-        } else { 
-          return [{ product: found, count: 1 }, ...prev]; 
-        } 
-      }); 
-      setQuickScanInput(''); 
-    } else { 
-      playSound('error'); 
-      setLastScannedFeedback({ type: 'error', msg: `Produto não encontrado` }); 
-    } 
-    setTimeout(() => setLastScannedFeedback(null), 3000); 
+  // --- FUNÇÕES DE LOGIN ---
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      if (isRegistering) {
+        const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          email: authEmail,
+          role: 'revendedor',
+          createdAt: serverTimestamp()
+        });
+        setSelectedRole('user');
+        playSound('success');
+      } else {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+        setSelectedRole('user');
+        playSound('success');
+      }
+    } catch (err: any) {
+      setAuthError('Erro: ' + (err.message.includes('invalid-credential') ? 'E-mail ou senha incorretos.' : err.message));
+      playSound('error');
+    }
   };
-  
-  const handleReceiveOrder = async (order: PurchaseOrder) => { 
-    setIsSavingBatch(true); 
-    try { 
-      const batch = writeBatch(db); 
-      const orderRef = doc(db, PURCHASES_COLLECTION, order.id); 
-      batch.update(orderRef, { status: 'received', receivedAt: serverTimestamp() }); 
-      for (const item of order.items) { 
-        const currentProduct = products.find(p => p.id === item.productId); 
-        if (currentProduct) { 
-          const productRef = doc(db, PRODUCTS_COLLECTION, item.productId); 
-          const newQty = currentProduct.quantity + item.quantity; 
-          batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); 
-          const historyRef = doc(collection(db, HISTORY_COLLECTION)); 
-          batch.set(historyRef, { productId: item.productId, productName: item.name, sku: item.sku, image: '', type: 'entry', amount: item.quantity, previousQty: currentProduct.quantity, newQty: newQty, timestamp: serverTimestamp() }); 
-        } 
-      } 
-      await batch.commit(); 
-      playSound('magic'); 
-      alert(`SUCESSO! Pedido ${order.orderCode} recebido.`); 
-      setShowQuickEntry(false); 
-    } catch (e) { 
-      console.error(e); 
-      playSound('error'); 
-      alert("Erro ao processar."); 
-    } finally { 
-      setIsSavingBatch(false); 
-    } 
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setSelectedRole(null);
+    setUserView('dashboard');
+    setAdminView('menu');
   };
-  
-  // --- FUNÇÕES DE AVISOS (ADMIN) ---
+
+  // --- FUNÇÕES DE AVISOS, LINKS E IMAGENS (ADMIN) ---
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string>>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -394,7 +355,6 @@ function App() {
     e.preventDefault();
     if (!noticeTitle) return alert('Preencha o título do aviso.');
     if (noticeType === 'banner' && !noticeImage) return alert('Faça o upload da imagem do banner.');
-    
     setIsSavingBatch(true);
     try {
       await addDoc(collection(db, NOTICES_COLLECTION), {
@@ -404,53 +364,80 @@ function App() {
         imageUrl: noticeType === 'banner' ? noticeImage : '',
         createdAt: serverTimestamp()
       });
-      setNoticeTitle('');
-      setNoticeContent('');
-      setNoticeImage('');
+      setNoticeTitle(''); setNoticeContent(''); setNoticeImage('');
       alert("Aviso publicado com sucesso!");
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao publicar aviso.");
-    } finally {
-      setIsSavingBatch(false);
-    }
+    } catch (e) { console.error(e); alert("Erro ao publicar aviso."); } finally { setIsSavingBatch(false); }
   };
 
-  const handleDeleteNotice = async (id: string) => {
-    if(confirm('Apagar este aviso?')) {
-      await deleteDoc(doc(db, NOTICES_COLLECTION, id));
-    }
-  };
+  const handleDeleteNotice = async (id: string) => { if(confirm('Apagar este aviso?')) await deleteDoc(doc(db, NOTICES_COLLECTION, id)); };
 
-  // --- FUNÇÕES DE LINKS RÁPIDOS (ADMIN) ---
   const handleSaveLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if(!linkTitle || !linkUrl) return alert("Preencha título e link.");
     setIsSavingBatch(true);
     try {
-      await addDoc(collection(db, QUICKLINKS_COLLECTION), {
-        title: linkTitle,
-        subtitle: linkSubtitle,
-        icon: linkIcon,
-        url: linkUrl,
-        order: parseInt(linkOrder) || 1,
-        createdAt: serverTimestamp()
-      });
-      setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1');
-      alert("Botão salvo com sucesso!");
-    } catch (e) {
-      console.error(e); alert("Erro ao salvar botão.");
-    } finally {
-      setIsSavingBatch(false);
-    }
+      await addDoc(collection(db, QUICKLINKS_COLLECTION), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() });
+      setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Botão salvo com sucesso!");
+    } catch (e) { console.error(e); alert("Erro ao salvar botão."); } finally { setIsSavingBatch(false); }
   };
 
-  const handleDeleteLink = async (id: string) => {
-    if(confirm('Apagar este botão?')) {
-      await deleteDoc(doc(db, QUICKLINKS_COLLECTION, id));
-    }
+  const handleDeleteLink = async (id: string) => { if(confirm('Apagar este botão?')) await deleteDoc(doc(db, QUICKLINKS_COLLECTION, id)); };
+
+  // --- FUNÇÕES DE VITRINES (ADMIN) ---
+  const handleSaveShowcase = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editingShowcase?.name) return alert("Dê um nome para a Vitrine.");
+      setIsSavingBatch(true);
+      try {
+          const payload = {
+              name: editingShowcase.name,
+              linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`,
+              config: {
+                  showPrice: editingShowcase.config?.showPrice ?? true,
+                  priceMarkup: editingShowcase.config?.priceMarkup || 0
+              },
+              models: editingShowcase.models || [],
+              createdAt: serverTimestamp()
+          };
+
+          if (editingShowcase.id) {
+              await updateDoc(doc(db, SHOWCASES_COLLECTION, editingShowcase.id), payload);
+          } else {
+              await addDoc(collection(db, SHOWCASES_COLLECTION), payload);
+          }
+          setEditingShowcase(null);
+          setAdminView('showcases');
+          playSound('success');
+      } catch (error) {
+          console.error(error); alert("Erro ao salvar vitrine.");
+      } finally {
+          setIsSavingBatch(false);
+      }
   };
-  
+
+  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir esta Vitrine e invalidar o link?')) await deleteDoc(doc(db, SHOWCASES_COLLECTION, id)); };
+
+  const toggleModelInShowcase = (modelName: string) => {
+      setEditingShowcase(prev => {
+          if (!prev) return prev;
+          const models = prev.models || [];
+          if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) };
+          return { ...prev, models: [...models, modelName] };
+      });
+  };
+
+  const selectAllModelsForShowcase = () => {
+      const allNames = Object.keys(groupedAdminProducts);
+      setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev);
+  };
+  const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
+
+  const copyShowcaseLink = (linkId: string) => {
+      const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`;
+      navigator.clipboard.writeText(url);
+      alert("Link copiado para a área de transferência!");
+  };
+
   // --- GERADOR DE PRODUTOS E CRUD ---
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
@@ -459,27 +446,114 @@ function App() {
   const removeSize = (s: string) => setSizes(sizes.filter(item => item !== s));
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
   
-  const handleSaveBatch = async () => { if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; } setIsSavingBatch(true); const processedImage = processImageUrl(baseImage); const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; try { const batch = writeBatch(db); generatedRows.forEach(row => { const docRef = doc(collection(db, PRODUCTS_COLLECTION)); batch.set(docRef, { name: baseName, image: processedImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() }); }); await batch.commit(); setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!"); } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); } };
+  const handleSaveBatch = async () => { if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; } setIsSavingBatch(true); const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; try { const batch = writeBatch(db); generatedRows.forEach(row => { const docRef = doc(collection(db, PRODUCTS_COLLECTION)); batch.set(docRef, { name: baseName, image: baseImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() }); }); await batch.commit(); setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!"); } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); } };
   const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); alert("Erro."); } };
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
-  const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; const processedImage = processImageUrl(editingProduct.image || ''); try { const productRef = doc(db, PRODUCTS_COLLECTION, editingProduct.id); await updateDoc(productRef, { ...editingProduct, price: priceNumber, image: processedImage, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro ao editar."); } };
+  const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; try { const productRef = doc(db, PRODUCTS_COLLECTION, editingProduct.id); await updateDoc(productRef, { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro ao editar."); } };
   const openGroupEdit = (groupName: string, groupData: any) => { setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items }); };
-  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; const processedImage = processImageUrl(editingGroup.image || ''); try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); } };
+  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: editingGroup.image, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar."); } finally { setIsSavingBatch(false); } };
   
+  // --- CARRINHO DE COMPRAS E PEDIDOS (Revendedor Logado) ---
   const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
   const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > (item.product.quantity - 4)) { alert("Quantidade máxima disponível atingida!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
-  
   const generateWhatsAppMessage = () => { if (!customerName) return alert("Digite o nome do cliente!"); if (cart.length === 0) return alert("Carrinho vazio!"); const now = new Date(); const orderId = Math.floor(Math.random() * 900000) + 100000; let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`; let totalPedido = 0; cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; const price = item.product.price || 0; const subtotal = price * item.quantity; totalPedido += subtotal; message += `${displaySku} --- ${item.quantity}x (${formatCurrency(price)})\n`; message += `-\n`; }); message += `\n💰 *TOTAL: ${formatCurrency(totalPedido)}*`; window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank'); };
   
-  const groupProducts = (items: Product[]) => { const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; items.forEach(product => { const key = product.name; if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; groups[key].items.push(product); groups[key].total += product.quantity; }); Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1))); return groups; };
-  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
-  const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); };
-
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
 
-  // --- RENDER ---
 
+  // ==========================================
+  // RENDERIZAÇÃO MODO VITRINE (CATÁLOGO PÚBLICO)
+  // ==========================================
+  if (isVitrineMode) {
+      if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando catálogo...</div>;
+      if (!publicVitrine) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400 flex-col"><Store size={48} className="mb-4 opacity-20"/> Vitrine não encontrada ou indisponível.</div>;
+
+      // Filtrar produtos baseados nos modelos selecionados na vitrine
+      const vitrineGroups: Record<string, any> = {};
+      Object.entries(groupedProducts).forEach(([name, group]) => {
+          if (publicVitrine.models.includes(name)) {
+              vitrineGroups[name] = group;
+          }
+      });
+
+      const applyMarkup = (basePrice: number) => {
+          const markup = publicVitrine.config.priceMarkup || 0;
+          return basePrice * (1 + (markup / 100));
+      };
+
+      return (
+          <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
+              <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center">
+                  <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                      <Store className="text-blue-500" /> {publicVitrine.name}
+                  </h1>
+              </header>
+              <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-20">
+                 <div className="relative">
+                    <Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" />
+                    <input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" />
+                 </div>
+                 
+                 {Object.keys(vitrineGroups).length === 0 ? (
+                     <div className="text-center py-20 text-slate-400">Nenhum produto disponível neste catálogo.</div>
+                 ) : (
+                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+                         {Object.entries(vitrineGroups).map(([name, group]: [string, any]) => (
+                             <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
+                                 <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
+                                     {group.info.image ? (
+                                         <img src={group.info.image} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                                     ) : (
+                                         <div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>
+                                     )}
+                                 </div>
+                                 <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
+                                     <div>
+                                         <h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3>
+                                         <span className="text-xs font-bold text-slate-400">{group.info.sku ? group.info.sku.split('-')[0] : ''}</span>
+                                     </div>
+                                     <div className="mt-3 flex items-center justify-between">
+                                         {publicVitrine.config.showPrice ? (
+                                            <span className="text-lg font-black text-green-600">{formatCurrency(applyMarkup(group.info.price || 0))}</span>
+                                         ) : (
+                                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Sob Consulta</span>
+                                         )}
+                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
+                                            {expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                         </div>
+                                     </div>
+                                 </div>
+                                 {expandedGroups[name] && (
+                                     <div className="bg-slate-50 border-t border-slate-100 p-3 max-h-64 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2">
+                                         <p className="text-xs font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Cores e Numerações</p>
+                                         <div className="flex flex-wrap gap-2">
+                                             {/* No catálogo público, simplificamos as variações para mostrar apenas o que tem cor/tamanho */}
+                                             {group.items.map((p: Product) => (
+                                                 p.quantity > 4 && (
+                                                    <div key={p.id} className="bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm flex items-center gap-1">
+                                                        <span className="font-bold text-slate-800">{p.size}</span>
+                                                        <span className="text-slate-400">|</span>
+                                                        <span className="text-slate-600 uppercase font-medium">{p.color}</span>
+                                                    </div>
+                                                 )
+                                             ))}
+                                         </div>
+                                     </div>
+                                 )}
+                             </div>
+                         ))}
+                     </div>
+                 )}
+              </main>
+          </div>
+      );
+  }
+
+
+  // ==========================================
+  // RENDERIZAÇÃO DE LOGIN
+  // ==========================================
   if (!selectedRole) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -526,7 +600,9 @@ function App() {
     );
   }
 
-  // --- TELA DO REVENDEDOR ---
+  // ==========================================
+  // RENDERIZAÇÃO: REVENDEDOR LOGADO
+  // ==========================================
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
@@ -594,7 +670,6 @@ function App() {
                 </h2>
               </div>
             </div>
-            
             <div className="flex items-center gap-4">
               <button onClick={handleLogout} className="md:hidden text-xs bg-slate-100 p-3 rounded-xl text-red-500"><LogOut size={20} /></button>
             </div>
@@ -608,7 +683,7 @@ function App() {
                 
                 {/* Botões Rápidos (Dinâmicos via Firebase) */}
                 {quickLinks.length > 0 && (
-                  <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {quickLinks.map(link => (
                       <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-500 hover:shadow-md transition flex items-center gap-4">
                         <div className="w-14 h-14 bg-slate-100 text-slate-700 group-hover:bg-blue-50 group-hover:text-blue-600 rounded-xl flex items-center justify-center transition">
@@ -711,7 +786,6 @@ function App() {
                                                        </div>
                                                    </div>
                                                    <div>
-                                                       {/* APENAS O STATUS DE ESTOQUE - BOTÃO DE '+' REMOVIDO */}
                                                        {p.quantity > 4 ? (
                                                           <span className="text-xs font-bold text-green-700 bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg shadow-sm">Em Estoque</span>
                                                        ) : (
@@ -763,7 +837,9 @@ function App() {
     );
   }
 
-  // --- ADMIN ---
+  // ==========================================
+  // RENDERIZAÇÃO: ADMIN (FORNECEDOR)
+  // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-10">
@@ -778,7 +854,7 @@ function App() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
+      <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative pb-20">
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
@@ -787,8 +863,102 @@ function App() {
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
             <button onClick={() => setAdminView('notices')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Megaphone size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Avisos</h3></div></button>
-            <button onClick={() => setAdminView('links')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg col-span-2 md:col-span-1 border-t-4 border-t-blue-500"><div className="w-12 h-12 md:w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Link2 size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Botões Rápidos</h3></div></button>
+            <button onClick={() => setAdminView('links')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg border-b-4 border-b-blue-500"><div className="w-12 h-12 md:w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Link2 size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Botões Rápidos</h3></div></button>
+            <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg border-b-4 border-b-emerald-500"><div className="w-12 h-12 md:w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center"><Store size={24} className="text-emerald-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Vitrines Públicas</h3></div></button>
           </div>
+        )}
+
+        {/* --- TELA DE VITRINES PÚBLICAS (ADMIN) --- */}
+        {adminView === 'showcases' && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                {!editingShowcase ? (
+                    <>
+                        <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl">
+                            <div className="flex items-center gap-2"><Store className="text-emerald-400" /><h2 className="text-lg font-bold text-white">Vitrines Digitais</h2></div>
+                            <button onClick={() => setEditingShowcase({ config: { showPrice: true, priceMarkup: 0 }, models: [] })} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Plus size={16}/> Nova Vitrine</button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {showcases.length === 0 ? (
+                                <p className="text-slate-500 p-4 col-span-2 text-center">Nenhuma vitrine criada. Crie uma para divulgar seu catálogo.</p>
+                            ) : showcases.map(showcase => (
+                                <div key={showcase.id} className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col gap-4">
+                                    <div>
+                                        <h3 className="font-bold text-xl text-white flex items-center gap-2">{showcase.name}</h3>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            {showcase.config.showPrice 
+                                                ? `Mostra Preço ${showcase.config.priceMarkup > 0 ? `(+${showcase.config.priceMarkup}%)` : '(Original)'}` 
+                                                : 'Preço Oculto'} 
+                                            • {showcase.models.length} Modelos
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => copyShowcaseLink(showcase.linkId)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-blue-400 py-2 rounded-lg font-bold flex items-center justify-center gap-2 text-sm"><Copy size={16}/> Copiar Link</button>
+                                        <button onClick={() => setEditingShowcase(showcase)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-emerald-400 py-2 rounded-lg font-bold flex items-center justify-center gap-2 text-sm"><Pencil size={16}/> Editar</button>
+                                        <button onClick={() => handleDeleteShowcase(showcase.id)} className="bg-slate-800 hover:bg-slate-700 text-red-400 p-2 rounded-lg"><Trash2 size={16}/></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                ) : (
+                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                         <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-white">{editingShowcase.id ? 'Editar Vitrine' : 'Nova Vitrine'}</h2>
+                            <button onClick={() => setEditingShowcase(null)} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={20}/></button>
+                         </div>
+                         <div className="p-4 md:p-6 space-y-6">
+                            
+                            {/* CONFIGURAÇÕES BÁSICAS */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                <div className="md:col-span-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Catálogo/Vitrine</label>
+                                    <input value={editingShowcase.name || ''} onChange={e => setEditingShowcase({...editingShowcase, name: e.target.value})} placeholder="Ex: Catálogo Inverno Varejo" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none" />
+                                </div>
+                                <div className="flex items-center">
+                                    <label className="flex items-center gap-3 cursor-pointer text-sm font-bold text-white">
+                                        <input type="checkbox" checked={editingShowcase.config?.showPrice} onChange={e => setEditingShowcase({...editingShowcase, config: {...editingShowcase.config!, showPrice: e.target.checked}})} className="w-5 h-5 accent-emerald-500 rounded" />
+                                        Exibir Preços
+                                    </label>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><Percent size={14}/> Acréscimo no Preço (%)</label>
+                                    <input type="number" disabled={!editingShowcase.config?.showPrice} value={editingShowcase.config?.priceMarkup || 0} onChange={e => setEditingShowcase({...editingShowcase, config: {...editingShowcase.config!, priceMarkup: parseFloat(e.target.value) || 0}})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none disabled:opacity-50" />
+                                    <p className="text-[10px] text-slate-500 mt-1">Coloque 0 para mostrar o preço original, ou ex: 50 para aumentar 50%.</p>
+                                </div>
+                            </div>
+
+                            {/* SELEÇÃO DE PRODUTOS */}
+                            <div>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-white text-lg">Selecionar Produtos</h3>
+                                    <div className="flex gap-2">
+                                        <button onClick={selectAllModelsForShowcase} className="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded hover:text-white">Marcar Todos</button>
+                                        <button onClick={clearAllModelsForShowcase} className="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded hover:text-white">Desmarcar Todos</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[40vh] overflow-y-auto pr-2">
+                                    {Object.entries(groupedAdminProducts).map(([name, group]) => {
+                                        const isSelected = (editingShowcase.models || []).includes(name);
+                                        return (
+                                            <div key={name} onClick={() => toggleModelInShowcase(name)} className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex flex-col gap-2 ${isSelected ? 'border-emerald-500 bg-emerald-500/10' : 'border-slate-800 bg-slate-950 hover:border-slate-700'}`}>
+                                                <div className="w-full aspect-square bg-slate-900 rounded overflow-hidden">
+                                                    {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="m-auto mt-4 text-slate-600"/>}
+                                                </div>
+                                                <span className="text-sm font-bold text-white line-clamp-1">{name}</span>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            <button onClick={handleSaveShowcase} disabled={isSavingBatch} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                                {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Vitrine Pública
+                            </button>
+                         </div>
+                    </div>
+                )}
+            </div>
         )}
 
         {/* --- TELA DE AVISOS (ADMIN) --- */}
@@ -817,7 +987,6 @@ function App() {
                         <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-orange-500 outline-none" />
                     </div>
                     
-                    {/* TEXTO AGORA APARECE PARA AMBOS */}
                     <div>
                         <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
                         <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-orange-500 outline-none"></textarea>
