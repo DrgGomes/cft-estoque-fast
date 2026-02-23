@@ -31,7 +31,8 @@ import {
   ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag,
   LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
   Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
-  TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle
+  TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
+  Play, Film, GraduationCap
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -82,6 +83,12 @@ const processImageUrl = (url: string) => {
   return url;
 };
 
+const getYoutubeId = (url: string) => {
+    if (!url) return null;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&]{11})/);
+    return match ? match[1] : null;
+};
+
 // --- RENDERIZADOR DE ÍCONES DINÂMICO ---
 const renderDynamicIcon = (iconName: string, size = 24, className = "") => {
   switch (iconName) {
@@ -117,6 +124,7 @@ const NOTICES_COLLECTION = `artifacts/${appId}/public/data/notices`;
 const QUICKLINKS_COLLECTION = `artifacts/${appId}/public/data/quickLinks`;
 const SHOWCASES_COLLECTION = `artifacts/${appId}/public/data/showcases`; 
 const TICKETS_COLLECTION = `artifacts/${appId}/public/data/tickets`;
+const ACADEMY_COLLECTION = `artifacts/${appId}/public/data/academy`; // NOVA COLEÇÃO PARA AULAS
 
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
@@ -129,7 +137,8 @@ type Notice = { id: string; type: 'text' | 'banner'; title: string; content?: st
 type QuickLink = { id: string; title: string; subtitle: string; icon: string; url: string; order: number; createdAt?: any; };
 type Showcase = { id: string; name: string; linkId: string; config: { showPrice: boolean; priceMarkup: number; }; models: string[]; createdAt?: any; };
 type UserProfile = { id: string; name: string; email: string; role: string; creditBalance: number; createdAt?: any; };
-type SupportTicket = { id: string; userId: string; userName: string; type: 'troca' | 'devolucao'; status: 'pendente' | 'aceito' | 'recusado' | 'aguardando_devolucao' | 'concluido'; productInfo: string; productValue: number; reason: string; adminNote?: string; createdAt: any; updatedAt?: any; };
+type SupportTicket = { id: string; userId: string; userName: string; type: 'troca' | 'devolucao'; status: 'pendente' | 'aceito' | 'recusado' | 'aguardando_devolucao' | 'concluido'; productId: string; productInfo: string; productValue: number; reason: string; adminNote?: string; createdAt: any; updatedAt?: any; };
+type AcademyLesson = { id: string; season: string; episode: number; title: string; description: string; youtubeUrl: string; bannerUrl: string; materialLinks: string; createdAt: any; };
 
 function App() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -142,6 +151,7 @@ function App() {
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [allTickets, setAllTickets] = useState<SupportTicket[]>([]);
   const [myTickets, setMyTickets] = useState<SupportTicket[]>([]);
+  const [lessons, setLessons] = useState<AcademyLesson[]>([]);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
@@ -155,10 +165,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'notices' | 'links' | 'showcases' | 'customers' | 'tickets' | 'predictive'>('menu');
+  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'notices' | 'links' | 'showcases' | 'customers' | 'tickets' | 'predictive' | 'academy'>('menu');
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   
-  const [userView, setUserView] = useState<'dashboard' | 'catalog' | 'cart' | 'orders' | 'support'>('dashboard');
+  const [userView, setUserView] = useState<'dashboard' | 'catalog' | 'cart' | 'orders' | 'support' | 'academy'>('dashboard');
   
   const [cart, setCart] = useState<CartItem[]>([]);
   const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
@@ -175,6 +185,7 @@ function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
 
+  // Estados Admin - Produtos
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
   const [baseImage, setBaseImage] = useState('');
@@ -188,6 +199,7 @@ function App() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, image: string, price: number, items: Product[] } | null>(null);
 
+  // Estados Admin - Avisos e Links
   const [noticeType, setNoticeType] = useState<'text' | 'banner'>('text');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeContent, setNoticeContent] = useState('');
@@ -198,12 +210,24 @@ function App() {
   const [linkIcon, setLinkIcon] = useState('Link2');
   const [linkOrder, setLinkOrder] = useState('1');
 
+  // Estados Admin - Academy
+  const [academySeason, setAcademySeason] = useState('');
+  const [academyEpisode, setAcademyEpisode] = useState('1');
+  const [academyTitle, setAcademyTitle] = useState('');
+  const [academyDesc, setAcademyDesc] = useState('');
+  const [academyYoutube, setAcademyYoutube] = useState('');
+  const [academyBanner, setAcademyBanner] = useState('');
+  const [academyLinks, setAcademyLinks] = useState('');
+  
+  // Estados User - Academy Viewer
+  const [activeLesson, setActiveLesson] = useState<AcademyLesson | null>(null);
+
   const [editingShowcase, setEditingShowcase] = useState<Partial<Showcase> | null>(null);
 
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
   const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca');
-  const [ticketProduct, setTicketProduct] = useState('');
-  const [ticketValue, setTicketValue] = useState('');
+  const [ticketProductId, setTicketProductId] = useState('');
+  const [ticketValue, setTicketValue] = useState(0);
   const [ticketReason, setTicketReason] = useState('');
 
   const [showQuickEntry, setShowQuickEntry] = useState(false);
@@ -261,8 +285,9 @@ function App() {
         const unsubNotices = onSnapshot(query(collection(db, NOTICES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setNotices(snap.docs.map(d => ({id: d.id, ...d.data()} as Notice))));
         const unsubLinks = onSnapshot(query(collection(db, QUICKLINKS_COLLECTION), orderBy('order', 'asc')), (snap) => setQuickLinks(snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink))));
         const unsubShowcases = onSnapshot(query(collection(db, SHOWCASES_COLLECTION)), (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase))));
+        const unsubAcademy = onSnapshot(query(collection(db, ACADEMY_COLLECTION), orderBy('season'), orderBy('episode')), (snap) => setLessons(snap.docs.map(d => ({id: d.id, ...d.data()} as AcademyLesson))));
 
-        return () => { unsubscribe(); unsubNotices(); unsubLinks(); unsubShowcases(); };
+        return () => { unsubscribe(); unsubNotices(); unsubLinks(); unsubShowcases(); unsubAcademy(); };
     } else {
         const unsubShowcases = onSnapshot(query(collection(db, SHOWCASES_COLLECTION)), (snap) => {
             const allVitrines = snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase));
@@ -359,6 +384,19 @@ function App() {
 
       return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
   }, [adminView, products, history]);
+
+  // CÁLCULO DAS AULAS POR TEMPORADA
+  const academySeasons = useMemo(() => {
+      const seasonsObj: Record<string, AcademyLesson[]> = {};
+      lessons.forEach(l => {
+          if (!seasonsObj[l.season]) seasonsObj[l.season] = [];
+          seasonsObj[l.season].push(l);
+      });
+      return Object.entries(seasonsObj).map(([name, eps]) => ({
+          name,
+          episodes: eps.sort((a,b) => a.episode - b.episode)
+      }));
+  }, [lessons]);
   
   // --- FUNÇÕES DE LOGIN E UPLOAD ---
   const handleAuth = async (e: React.FormEvent) => {
@@ -380,10 +418,70 @@ function App() {
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { const file = e.target.files?.[0]; if (file) { if(file.size > 800000) { alert("A imagem é muito grande. Escolha uma foto menor que 800KB."); return; } const reader = new FileReader(); reader.onloadend = () => { setter(reader.result as string); }; reader.readAsDataURL(file); } };
 
-  // --- FUNÇÕES DE TICKETS, AVISOS, LINKS E VITRINES ---
-  const handleOpenTicket = async (e: React.FormEvent) => { e.preventDefault(); if(!ticketProduct || !ticketReason || !ticketValue) return alert("Preencha os campos."); if(!user || !userProfile) return; setIsSavingBatch(true); try { await addDoc(collection(db, TICKETS_COLLECTION), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productInfo: ticketProduct, productValue: parseFloat(ticketValue), reason: ticketReason, createdAt: serverTimestamp() }); setTicketProduct(''); setTicketValue(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); } catch (error) { console.error(error); alert("Erro ao abrir chamado."); } finally { setIsSavingBatch(false); } };
+  // --- FUNÇÕES DE TICKETS (REVENDEDOR & ADMIN) ---
+  const handleProductSelectForTicket = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const pId = e.target.value;
+      setTicketProductId(pId);
+      const selected = products.find(p => p.id === pId);
+      if (selected) {
+          setTicketValue(selected.price || 0);
+      } else {
+          setTicketValue(0);
+      }
+  };
+
+  const handleOpenTicket = async (e: React.FormEvent) => { 
+      e.preventDefault(); 
+      if(!ticketProductId || !ticketReason || ticketValue <= 0) return alert("Selecione um produto e preencha o motivo."); 
+      if(!user || !userProfile) return; 
+      
+      const selected = products.find(p => p.id === ticketProductId);
+      if (!selected) return alert("Produto não encontrado.");
+
+      setIsSavingBatch(true); 
+      try { 
+          await addDoc(collection(db, TICKETS_COLLECTION), { 
+              userId: user.uid, 
+              userName: userProfile.name, 
+              type: ticketType, 
+              status: 'pendente', 
+              productId: selected.id,
+              productInfo: `${selected.name} - ${selected.color} - Tam: ${selected.size}`, 
+              productValue: ticketValue, 
+              reason: ticketReason, 
+              createdAt: serverTimestamp() 
+          }); 
+          setTicketProductId(''); setTicketValue(0); setTicketReason(''); 
+          alert("Solicitação enviada!"); playSound('success'); 
+      } catch (error) { console.error(error); alert("Erro ao abrir chamado."); } finally { setIsSavingBatch(false); } 
+  };
+
   const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, TICKETS_COLLECTION, ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>PRODUTO:</strong> ${ticket.productInfo}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
+  
+  // --- FUNÇÕES DE ACADEMY (ADMIN) ---
+  const handleSaveAcademy = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!academySeason || !academyTitle || !academyYoutube) return alert('Preencha Temporada, Título e Link do Vídeo.');
+      setIsSavingBatch(true);
+      try {
+          await addDoc(collection(db, ACADEMY_COLLECTION), {
+              season: academySeason,
+              episode: parseInt(academyEpisode) || 1,
+              title: academyTitle,
+              description: academyDesc,
+              youtubeUrl: academyYoutube,
+              bannerUrl: academyBanner,
+              materialLinks: academyLinks,
+              createdAt: serverTimestamp()
+          });
+          setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1));
+          alert("Aula publicada com sucesso!"); playSound('success');
+      } catch(e) { console.error(e); alert("Erro ao salvar aula."); } finally { setIsSavingBatch(false); }
+  };
+  const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir esta aula?')) await deleteDoc(doc(db, ACADEMY_COLLECTION, id)); };
+
+  // --- FUNÇÕES AVISOS, LINKS, VITRINES (ADMIN) ---
   const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, NOTICES_COLLECTION), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, NOTICES_COLLECTION, id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, QUICKLINKS_COLLECTION), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
@@ -404,7 +502,7 @@ function App() {
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
   
   const handleSaveBatch = async () => { if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; } setIsSavingBatch(true); const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; try { const batch = writeBatch(db); generatedRows.forEach(row => { const docRef = doc(collection(db, PRODUCTS_COLLECTION)); batch.set(docRef, { name: baseName, image: baseImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() }); }); await batch.commit(); setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!"); } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); } };
-  const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); } };
+  const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); alert("Erro."); } };
   const handleDeleteProductFromModal = async () => { if (editingProduct && confirm('Excluir?')) { await deleteDoc(doc(db, PRODUCTS_COLLECTION, editingProduct.id)); setEditingProduct(null); } };
   const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; try { await updateDoc(doc(db, PRODUCTS_COLLECTION, editingProduct.id), { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro ao editar."); } };
   const openGroupEdit = (groupName: string, groupData: any) => { setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items }); };
@@ -499,7 +597,7 @@ function App() {
   }
 
   // ==========================================
-  // RENDERIZAÇÃO: LOGIN
+  // RENDERIZAÇÃO: LOGIN (COM NOME NO CADASTRO)
   // ==========================================
   if (!selectedRole) {
     return (
@@ -597,9 +695,10 @@ function App() {
             </h1>
             <p className="text-xs text-slate-400 mt-1">Olá, {userProfile?.name?.split(' ')[0] || 'Revendedor'}</p>
           </div>
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 p-4 space-y-2 overflow-y-auto hidden-scroll">
             <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Layers size={20} /> Visão Geral</button>
             <button onClick={() => setUserView('catalog')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'catalog' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><LayoutGrid size={20} /> Catálogo</button>
+            <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'academy' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Play size={20} /> Como Funciona</button>
             <button onClick={() => setUserView('support')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'support' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Ticket size={20} /> Suporte / Trocas</button>
             <button onClick={() => setUserView('orders')} className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-all ${userView === 'orders' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                 <div className="flex items-center gap-3"><ClipboardList size={20} /> Pedidos</div>
@@ -617,30 +716,30 @@ function App() {
           </div>
         </aside>
 
-        <main className="flex-1 flex flex-col h-screen overflow-y-auto">
-          <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100">
+        <main className={`flex-1 flex flex-col h-screen overflow-y-auto ${userView === 'academy' ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-800'}`}>
+          <header className={`${userView === 'academy' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b`}>
             <div className="flex items-center gap-3">
-              <div className="md:hidden bg-blue-600 text-white p-2 rounded-lg"><RefreshCw size={20} /></div>
+              <div className={`md:hidden p-2 rounded-lg ${userView === 'academy' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><RefreshCw size={20} /></div>
               <div>
-                <h2 className="text-xl font-bold text-slate-800 hidden md:block">
-                  {userView === 'dashboard' ? 'Dashboard de Avisos' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'support' ? 'Central de Resoluções' : 'Histórico de Pedidos'}
+                <h2 className={`text-xl font-bold hidden md:block ${userView === 'academy' ? 'text-white' : 'text-slate-800'}`}>
+                  {userView === 'dashboard' ? 'Dashboard de Avisos' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'academy' ? 'MaxDrop Academy' : userView === 'support' ? 'Central de Resoluções' : 'Histórico de Pedidos'}
                 </h2>
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className="md:hidden bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-2 border border-slate-200">
-                 <Wallet size={14} className="text-slate-500"/>
-                 <span className="text-sm font-black text-green-600">{formatCurrency(userProfile?.creditBalance || 0)}</span>
+              <div className={`md:hidden px-3 py-1.5 rounded-lg flex items-center gap-2 border ${userView === 'academy' ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`}>
+                 <Wallet size={14} className={userView === 'academy' ? 'text-slate-400' : 'text-slate-500'}/>
+                 <span className="text-sm font-black text-green-500">{formatCurrency(userProfile?.creditBalance || 0)}</span>
               </div>
-              <button onClick={handleLogout} className="md:hidden text-xs bg-slate-100 p-3 rounded-xl text-red-500"><LogOut size={20} /></button>
+              <button onClick={handleLogout} className={`md:hidden text-xs p-3 rounded-xl text-red-500 ${userView === 'academy' ? 'bg-slate-800' : 'bg-slate-100'}`}><LogOut size={20} /></button>
             </div>
           </header>
 
-          <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full">
+          <div className={`p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full pb-24 md:pb-6`}>
 
+            {/* --- VIEW: DASHBOARD (AVISOS E BANNERS) --- */}
             {userView === 'dashboard' && (
-              <div className="space-y-6 animate-in fade-in zoom-in duration-300 pb-24 md:pb-6">
-                
+              <div className="space-y-6 animate-in fade-in zoom-in duration-300">
                 {quickLinks.length > 0 && (
                   <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {quickLinks.map(link => (
@@ -659,7 +758,6 @@ function App() {
 
                 <section className="space-y-4">
                   <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Megaphone className="text-orange-500"/> Mural de Avisos Importantes</h3>
-                  
                   {notices.length === 0 ? (
                       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center">
                           <Bell size={48} className="mx-auto text-slate-300 mb-4" />
@@ -695,12 +793,109 @@ function App() {
               </div>
             )}
 
+            {/* --- VIEW: COMO FUNCIONA A MAXDROP (ACADEMY - ESTILO NETFLIX) --- */}
+            {userView === 'academy' && (
+                <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+                    
+                    {activeLesson ? (
+                        // MODO PLAYER
+                        <div className="space-y-4">
+                            <button onClick={() => setActiveLesson(null)} className="text-slate-400 hover:text-white flex items-center gap-2 font-bold text-sm bg-slate-800 px-4 py-2 rounded-lg w-fit transition-colors"><ChevronLeft size={16}/> Voltar para as Temporadas</button>
+                            
+                            <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 w-full aspect-video">
+                                {getYoutubeId(activeLesson.youtubeUrl) ? (
+                                    <iframe 
+                                        src={`https://www.youtube.com/embed/${getYoutubeId(activeLesson.youtubeUrl)}?autoplay=1&rel=0`}
+                                        className="w-full h-full"
+                                        title={activeLesson.title}
+                                        frameBorder="0"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                        allowFullScreen>
+                                    </iframe>
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-500 bg-slate-900 font-bold">Vídeo Indisponível</div>
+                                )}
+                            </div>
+
+                            <div className="bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-800 shadow-xl">
+                                <span className="text-red-500 font-black text-sm uppercase tracking-widest">{activeLesson.season} - Ep {activeLesson.episode}</span>
+                                <h1 className="text-2xl md:text-4xl font-black text-white mt-1 mb-4">{activeLesson.title}</h1>
+                                <p className="text-slate-400 text-sm md:text-base leading-relaxed whitespace-pre-wrap max-w-4xl">{activeLesson.description}</p>
+                                
+                                {activeLesson.materialLinks && (
+                                    <div className="mt-6 pt-6 border-t border-slate-800">
+                                        <h3 className="font-bold text-white mb-3 flex items-center gap-2"><Link2 size={18} className="text-blue-400"/> Materiais Complementares</h3>
+                                        <a href={activeLesson.materialLinks} target="_blank" rel="noreferrer" className="inline-block bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-3 rounded-xl text-sm font-bold transition-colors">
+                                            Acessar Links / Materiais
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        // MODO CATÁLOGO NETFLIX
+                        <>
+                            {/* Hero Banner (Primeiro vídeo em destaque) */}
+                            {lessons.length > 0 && (
+                                <div className="relative w-full h-[400px] md:h-[500px] rounded-3xl overflow-hidden shadow-2xl border border-slate-800 group">
+                                    <img src={lessons[0].bannerUrl || 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?q=80&w=2070&auto=format&fit=crop'} className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700" alt="Hero" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent"></div>
+                                    <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:w-2/3">
+                                        <div className="flex items-center gap-2 mb-2"><Film size={16} className="text-red-500"/><span className="text-red-500 font-black text-xs uppercase tracking-widest">Em Destaque</span></div>
+                                        <h2 className="text-3xl md:text-5xl font-black text-white mb-2 leading-tight">{lessons[0].title}</h2>
+                                        <p className="text-slate-300 text-sm md:text-base line-clamp-2 mb-6 max-w-xl">{lessons[0].description}</p>
+                                        <button onClick={() => setActiveLesson(lessons[0])} className="bg-white text-black hover:bg-slate-200 px-6 py-3 rounded-lg font-black flex items-center gap-2 transition-transform hover:scale-105 shadow-xl"><Play fill="black" size={20} /> Assistir Agora</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Trilhos de Temporadas */}
+                            {lessons.length === 0 ? (
+                                <div className="text-center py-20 text-slate-500 font-bold">Nenhuma aula disponível no momento.</div>
+                            ) : (
+                                <div className="space-y-8">
+                                    {academySeasons.map((season, idx) => (
+                                        <div key={idx}>
+                                            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2 border-l-4 border-red-500 pl-3">{season.name}</h3>
+                                            <div className="flex overflow-x-auto gap-4 pb-4 hidden-scroll snap-x">
+                                                {season.episodes.map(ep => (
+                                                    <div key={ep.id} onClick={() => setActiveLesson(ep)} className="snap-start shrink-0 w-[280px] md:w-[320px] cursor-pointer group">
+                                                        <div className="w-full aspect-video bg-slate-800 rounded-xl overflow-hidden relative shadow-lg border border-slate-800 group-hover:border-slate-600 transition-colors">
+                                                            {ep.bannerUrl ? (
+                                                                <img src={ep.bannerUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100" />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center text-slate-600"><Film size={40}/></div>
+                                                            )}
+                                                            <div className="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                                <div className="w-12 h-12 bg-red-600/90 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity scale-75 group-hover:scale-100 duration-300 shadow-xl backdrop-blur-sm">
+                                                                    <Play fill="white" size={24} className="ml-1"/>
+                                                                </div>
+                                                            </div>
+                                                            <span className="absolute top-2 right-2 bg-black/80 text-white text-[10px] font-black px-2 py-1 rounded shadow-lg backdrop-blur">Ep {ep.episode}</span>
+                                                        </div>
+                                                        <div className="mt-3 pr-2">
+                                                            <h4 className="font-bold text-slate-200 text-sm group-hover:text-white transition-colors line-clamp-1">{ep.title}</h4>
+                                                            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{ep.description}</p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* --- VIEW: SUPORTE E TROCAS (TICKETS - COM SELECT DE PRODUTO) --- */}
             {userView === 'support' && (
-                <div className="space-y-6 animate-in slide-in-from-bottom-4 pb-24 md:pb-6">
+                <div className="space-y-6 animate-in slide-in-from-bottom-4">
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50">
                             <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket className="text-blue-600"/> Abrir Chamado (Troca / Devolução)</h3>
-                            <p className="text-sm text-slate-500 mt-1">Preencha os dados abaixo para solicitar uma resolução.</p>
+                            <p className="text-sm text-slate-500 mt-1">Selecione o produto do catálogo que você comprou e relate o problema.</p>
                         </div>
                         <form onSubmit={handleOpenTicket} className="p-6 space-y-4">
                             <div>
@@ -712,7 +907,7 @@ function App() {
                                     </label>
                                     <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-xl flex-1 transition-colors">
                                         <input type="radio" name="ticketType" checked={ticketType === 'devolucao'} onChange={() => setTicketType('devolucao')} className="accent-red-600 w-4 h-4" />
-                                        <span className="font-bold text-slate-800 text-red-600">Devolução</span>
+                                        <span className="font-bold text-slate-800 text-red-600">Devolução (Defeito)</span>
                                     </label>
                                 </div>
                             </div>
@@ -725,12 +920,19 @@ function App() {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Referência / Nome do Produto*</label>
-                                    <input value={ticketProduct} onChange={e => setTicketProduct(e.target.value)} required placeholder="Ex: Tênis X Branco Tam 39" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-blue-500 outline-none" />
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Selecione o Produto Exato*</label>
+                                    <select value={ticketProductId} onChange={handleProductSelectForTicket} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-blue-500 outline-none font-medium">
+                                        <option value="">-- Clique para selecionar --</option>
+                                        {products.map(p => (
+                                            <option key={p.id} value={p.id}>{String(p.name)} - {String(p.color)} - Tam: {String(p.size)}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Valor Pago (R$)*</label>
-                                    <input type="number" value={ticketValue} onChange={e => setTicketValue(e.target.value)} required placeholder="Ex: 89.90" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-blue-500 outline-none" />
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Valor de Referência (Automático)</label>
+                                    <div className="w-full bg-slate-100 border border-slate-200 rounded-xl p-3 text-slate-500 font-black">
+                                        {ticketValue > 0 ? formatCurrency(ticketValue) : 'R$ 0,00'}
+                                    </div>
                                 </div>
                             </div>
                             
@@ -739,12 +941,13 @@ function App() {
                                 <textarea value={ticketReason} onChange={e => setTicketReason(e.target.value)} required rows={3} placeholder="Explique o motivo da troca ou especifique o defeito..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-blue-500 outline-none"></textarea>
                             </div>
 
-                            <button type="submit" disabled={isSavingBatch} className="w-full md:w-auto px-8 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]">
+                            <button type="submit" disabled={isSavingBatch || !ticketProductId} className={`w-full md:w-auto px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-transform ${isSavingBatch || !ticketProductId ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'}`}>
                                 {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Enviar Solicitação
                             </button>
                         </form>
                     </div>
 
+                    {/* Meus Chamados */}
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50">
                             <h3 className="font-bold text-slate-800 text-lg">Meu Histórico de Chamados</h3>
@@ -870,10 +1073,8 @@ function App() {
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
           <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
           <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? 'text-blue-600' : 'text-slate-400'}`}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
+          <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`flex flex-col items-center gap-1 ${userView === 'academy' ? 'text-blue-600' : 'text-slate-400'}`}><Play size={20} /><span className="text-[10px] font-bold">Aulas</span></button>
           <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? 'text-blue-600' : 'text-slate-400'}`}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
-          <button onClick={() => setUserView('orders')} className={`flex flex-col items-center gap-1 ${userView === 'orders' ? 'text-blue-600' : 'text-slate-400'}`}>
-             <ClipboardList size={20} /><span className="text-[10px] font-bold">Pedidos</span>
-          </button>
         </nav>
       </div>
     );
@@ -913,7 +1114,8 @@ function App() {
                 {allTickets.filter(t => t.status === 'pendente').length > 0 && <span className="absolute top-2 right-2 bg-red-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-pulse">{allTickets.filter(t => t.status === 'pendente').length}</span>}
             </button>
 
-            <button onClick={() => setAdminView('history')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-purple-500/10 rounded-full flex items-center justify-center"><ClipboardList size={28} className="text-purple-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Relatórios</h3></div></button>
+            <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Jornada Alunos</h3></div></button>
+
             <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
             <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
             <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
@@ -929,7 +1131,6 @@ function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* COLUNA 1: URGÊNCIAS (Produção) */}
                     <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden">
                         <div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2">
                             <AlertTriangle className="text-red-500" size={20} />
@@ -952,7 +1153,6 @@ function App() {
                         </div>
                     </div>
 
-                    {/* COLUNA 2: CAMPEÕES (Em Alta) */}
                     <div className="bg-slate-900 rounded-2xl border border-emerald-900/50 shadow-lg overflow-hidden">
                         <div className="p-4 bg-emerald-500/10 border-b border-emerald-900/50 flex items-center gap-2">
                             <TrendingUp className="text-emerald-500" size={20} />
@@ -978,7 +1178,6 @@ function App() {
                         </div>
                     </div>
 
-                    {/* COLUNA 3: ENCALHADOS (Estoque Parado) */}
                     <div className="bg-slate-900 rounded-2xl border border-blue-900/50 shadow-lg overflow-hidden">
                         <div className="p-4 bg-blue-500/10 border-b border-blue-900/50 flex items-center gap-2">
                             <TrendingDown className="text-blue-500" size={20} />
@@ -1002,6 +1201,91 @@ function App() {
                     </div>
                 </div>
             </div>
+        )}
+
+        {/* --- TELA: JORNADA DE ALUNOS (ADMIN ACADEMY) --- */}
+        {adminView === 'academy' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-5 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><GraduationCap className="text-red-500" size={24}/><h2 className="text-xl font-black text-white">Criar Nova Aula</h2></div>
+                 </div>
+                 <form onSubmit={handleSaveAcademy} className="p-5 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Temporada / Módulo*</label>
+                            <input value={academySeason} onChange={e => setAcademySeason(e.target.value)} required placeholder="Ex: Módulo 1: Primeiros Passos" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Número do Episódio (Ordem)*</label>
+                            <input type="number" value={academyEpisode} onChange={e => setAcademyEpisode(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título do Vídeo*</label>
+                            <input value={academyTitle} onChange={e => setAcademyTitle(e.target.value)} required placeholder="Ex: Como anunciar no Mercado Livre" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do YouTube*</label>
+                            <input value={academyYoutube} onChange={e => setAcademyYoutube(e.target.value)} required placeholder="https://youtube.com/watch?v=..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Descrição da Aula</label>
+                        <textarea value={academyDesc} onChange={e => setAcademyDesc(e.target.value)} rows={3} placeholder="Explique sobre o que é o vídeo..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none"></textarea>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Capa do Vídeo / Banner (Opcional)</label>
+                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setAcademyBanner)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-red-500/20 file:text-red-400 hover:file:bg-red-500/30 cursor-pointer" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Materiais Complementares (Opcional)</label>
+                            <input value={academyLinks} onChange={e => setAcademyLinks(e.target.value)} placeholder="Link do Google Drive, PDF, etc..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                    </div>
+                    
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02] mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar Aula
+                    </button>
+                 </form>
+              </div>
+
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-5 border-b border-slate-800 bg-slate-800/50">
+                    <h2 className="text-lg font-bold text-white">Catálogo de Aulas Publicadas</h2>
+                 </div>
+                 <div className="p-5 space-y-6">
+                     {academySeasons.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhuma aula cadastrada.</p> : academySeasons.map((season, idx) => (
+                         <div key={idx}>
+                             <h3 className="font-black text-white text-lg mb-3 pb-2 border-b border-slate-800">{season.name}</h3>
+                             <div className="space-y-3">
+                                 {season.episodes.map(ep => (
+                                     <div key={ep.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
+                                         <div className="flex items-center gap-4">
+                                            {ep.bannerUrl ? (
+                                                <div className="w-20 h-14 bg-slate-800 rounded-lg overflow-hidden shrink-0"><img src={ep.bannerUrl} className="w-full h-full object-cover"/></div>
+                                            ) : (
+                                                <div className="w-20 h-14 bg-slate-800 rounded-lg shrink-0 flex items-center justify-center"><Film className="text-slate-500"/></div>
+                                            )}
+                                            <div>
+                                                <span className="text-[10px] text-red-500 font-black uppercase tracking-wider block mb-1">Episódio {ep.episode}</span>
+                                                <h4 className="font-bold text-white text-sm">{ep.title}</h4>
+                                            </div>
+                                         </div>
+                                         <button onClick={() => handleDeleteAcademy(ep.id)} className="bg-red-500/10 text-red-400 p-3 rounded-lg hover:bg-red-500/20 transition-colors shrink-0"><Trash2 size={18}/></button>
+                                     </div>
+                                 ))}
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
         )}
 
         {/* --- TELA DE CLIENTES (ADMIN) --- */}
