@@ -7,8 +7,6 @@ import {
   updateDoc,
   addDoc,
   deleteDoc,
-  setDoc,
-  getDoc,
   serverTimestamp,
   query,
   orderBy,
@@ -53,11 +51,7 @@ import {
   Minus,
   Truck,
   FileText,
-  ShoppingBag,
-  Link as LinkIcon,
-  CheckCircle,
-  Megaphone,
-  ListFilter // Ícone para Categorias
+  ShoppingBag
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -122,10 +116,6 @@ const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
 
-// --- CONFIGURAÇÕES MERCADO LIVRE ---
-const ML_CLIENT_ID = "1435927708247216"; 
-const ML_REDIRECT_URI = "https://cft-estoque-fast.vercel.app"; 
-
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
@@ -157,30 +147,6 @@ function App() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-
-  // Integração Mercado Livre
-  const [mlConnected, setMlConnected] = useState(false);
-  const [connectingML, setConnectingML] = useState(false);
-  const authInProgress = useRef(false);
-  
-  // TELA DE ANÚNCIO INTELIGENTE
-  const [publishingProduct, setPublishingProduct] = useState<any>(null);
-  const [publishForm, setPublishForm] = useState({ 
-    title: '', 
-    price: '', 
-    type: 'gold_special', 
-    category: '', 
-    categoryName: '',
-    gender: 'Masculino',
-    brand: 'Genérica',
-    model: ''
-  });
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [isPredicting, setIsPredicting] = useState(false);
-  
-  // NOVOS ESTADOS PARA CATEGORIAS
-  const [suggestedCategories, setSuggestedCategories] = useState<any[]>([]);
-  const [manualCategory, setManualCategory] = useState(false);
 
   // Estados Admin
   const [baseSku, setBaseSku] = useState('');
@@ -217,184 +183,6 @@ function App() {
     if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
     return () => unsubscribe();
   }, []);
-
-  useEffect(() => {
-    if (user) {
-      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-        if (docSnap.exists() && docSnap.data().ml_token) {
-          setMlConnected(true);
-        } else {
-          setMlConnected(false);
-        }
-      });
-      return () => unsubscribe();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    const urlParams = new URLSearchParams(window.location.search);
-    const authCode = urlParams.get('code');
-    if (authCode && !authInProgress.current) {
-      authInProgress.current = true;
-      setConnectingML(true);
-      window.history.replaceState({}, document.title, window.location.pathname);
-      fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: authCode, redirectUri: ML_REDIRECT_URI })
-      })
-      .then(res => res.json())
-      .then(async data => {
-        if (data.access_token) {
-           await setDoc(doc(db, 'users', user.uid), {
-              ml_token: data.access_token || null,
-              ml_refresh_token: data.refresh_token || null,
-              ml_user_id: data.user_id || null,
-              updatedAt: serverTimestamp()
-           }, { merge: true });
-           playSound('magic');
-           alert("✅ Mercado Livre Conectado com Sucesso!");
-        } else {
-           alert("Erro ao conectar no ML. Detalhes: " + JSON.stringify(data));
-           authInProgress.current = false;
-        }
-      })
-      .catch(err => { alert("Erro no servidor: " + err.message); authInProgress.current = false; })
-      .finally(() => setConnectingML(false));
-    }
-  }, [user]);
-
-  const handleConnectML = () => {
-    const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${ML_CLIENT_ID}&redirect_uri=${ML_REDIRECT_URI}`;
-    window.location.href = authUrl;
-  };
-
-  // --- 🧠 INTELIGÊNCIA: DESCOBRIR MÚLTIPLAS CATEGORIAS PELO TÍTULO ---
-  const predictCategory = async (titleToSearch: string) => {
-    if (!titleToSearch) return;
-    setIsPredicting(true);
-    try {
-      // Pede as 8 melhores categorias pro ML
-      const res = await fetch(`https://api.mercadolibre.com/sites/MLB/domain_discovery/search?limit=8&q=${encodeURIComponent(titleToSearch)}`);
-      const data = await res.json();
-      
-      if (data && data.length > 0) {
-        setSuggestedCategories(data);
-        setPublishForm(prev => ({
-          ...prev,
-          category: data[0].category_id,
-          categoryName: data[0].category_name
-        }));
-        setManualCategory(false);
-      } else {
-        setSuggestedCategories([]);
-        setManualCategory(true);
-        setPublishForm(prev => ({ ...prev, category: '', categoryName: '' }));
-      }
-    } catch (e) {
-      console.error(e);
-      setSuggestedCategories([]);
-      setManualCategory(true);
-    } finally {
-      setIsPredicting(false);
-    }
-  };
-
-  // --- 🚀 ABRIR MODAL DE PUBLICAÇÃO ---
-  const openPublishModal = (groupName: string, groupData: any) => {
-    setPublishingProduct({ name: groupName, ...groupData });
-    const suggestedPrice = groupData.info.price ? (groupData.info.price * 2).toFixed(2).replace('.', ',') : ''; 
-    const defaultTitle = `Tênis ${groupName} Lançamento Confortável`;
-    
-    setPublishForm({
-      title: defaultTitle, 
-      price: suggestedPrice,
-      type: 'gold_special', 
-      category: '', 
-      categoryName: 'Buscando...',
-      gender: 'Masculino',
-      brand: 'Genérica',
-      model: groupName
-    });
-    
-    setSuggestedCategories([]);
-    setManualCategory(false);
-
-    // Puxa a categoria na hora que abre a tela
-    predictCategory(defaultTitle);
-  };
-
-  const handlePublishML = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsPublishing(true);
-    try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      const mlToken = userDoc.data()?.ml_token;
-      if (!mlToken) throw new Error("Conexão expirou. Reconecte o Mercado Livre.");
-
-      const availableItems = publishingProduct.items.filter((i: Product) => i.quantity > 0);
-      if (availableItems.length === 0) throw new Error("Não há estoque para criar um anúncio.");
-      if (!publishingProduct.info.image) throw new Error("O fornecedor não cadastrou foto neste produto.");
-      const numericPrice = parseFloat(publishForm.price.replace(',', '.'));
-      if (numericPrice < 10) throw new Error("O preço no ML deve ser maior que R$ 10.");
-      if (!publishForm.category) throw new Error("Selecione ou digite uma categoria válida.");
-
-      const payload = {
-        title: publishForm.title,
-        category_id: publishForm.category,
-        price: numericPrice,
-        currency_id: "BRL",
-        available_quantity: availableItems.reduce((acc: number, curr: Product) => acc + curr.quantity, 0),
-        buying_mode: "buy_it_now",
-        condition: "new",
-        listing_type_id: publishForm.type,
-        pictures: [ { source: publishingProduct.info.image } ],
-        
-        attributes: [
-          { name: "Marca", value_name: publishForm.brand }, 
-          { name: "Modelo", value_name: publishForm.model },
-          { name: "Gênero", value_name: publishForm.gender }
-        ],
-        
-        variations: availableItems.map((item: Product) => ({
-          price: numericPrice,
-          available_quantity: item.quantity,
-          attribute_combinations: [
-            { name: "Cor", value_name: item.color || "Padrão" },
-            { name: "Tamanho", value_name: item.size || "Único" }
-          ]
-        }))
-      };
-
-      const res = await fetch('/api/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: mlToken, payload })
-      });
-
-      const data = await res.json();
-
-      if (data.error || res.status !== 200) {
-        const errorMsg = data.cause && data.cause.length > 0 
-          ? data.cause.map((c:any) => c.message).join(' | ') 
-          : (data.message || data.error);
-        throw new Error(errorMsg);
-      }
-
-      playSound('magic');
-      alert(`🎉 SUCESSO ABSOLUTO!\n\nSeu anúncio já está no ar.\n\nID: ${data.id}`);
-      window.open(data.permalink, '_blank'); 
-      setPublishingProduct(null); 
-
-    } catch (err: any) {
-      playSound('error');
-      alert("❌ O MERCADO LIVRE REJEITOU O ANÚNCIO:\n\nMotivo: " + err.message);
-    } finally {
-      setIsPublishing(false);
-    }
-  };
-
 
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
@@ -453,7 +241,7 @@ function App() {
     }
   }, [searchTerm, products]);
 
-  // --- CÂMERA E FUNÇÕES RESTANTES ---
+  // --- CÂMERA E FUNÇÕES DE SCANNER ---
   const startCamera = () => {
     if (scannerRef.current?.isScanning) return;
     setScanError('');
@@ -470,12 +258,16 @@ function App() {
   useEffect(() => { if (!showQuickEntry) { if (scannerRef.current) { try { if (scannerRef.current.isScanning) { scannerRef.current.stop().then(() => scannerRef.current?.clear()); } else { scannerRef.current.clear(); } } catch(e) {} } setIsScanning(false); setCameraLoading(false); } }, [showQuickEntry]);
   const handleProcessCode = async (code: string) => { const term = code.trim(); if (!term) return; const now = Date.now(); if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; lastScanRef.current = { code: term, time: now }; if (term.startsWith('PED-')) { const order = purchases.find(p => p.orderCode === term); if (!order) { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido inválido` }); return; } if (order.status === 'received') { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido já recebido` }); return; } await handleReceiveOrder(order); setLastScannedFeedback({ type: 'magic', msg: `PEDIDO RECEBIDO!` }); return; } const found = products.find(p => (p.sku && p.sku.toLowerCase() === term.toLowerCase()) || (p.barcode && p.barcode.toLowerCase() === term.toLowerCase())); if (found) { playSound('success'); setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` }); setScannedItems(prev => { const existingIndex = prev.findIndex(item => item.product.id === found.id); if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; } else { return [{ product: found, count: 1 }, ...prev]; } }); setQuickScanInput(''); } else { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Produto não encontrado` }); } setTimeout(() => setLastScannedFeedback(null), 3000); };
   const handleReceiveOrder = async (order: PurchaseOrder) => { setIsSavingBatch(true); try { const batch = writeBatch(db); const orderRef = doc(db, PURCHASES_COLLECTION, order.id); batch.update(orderRef, { status: 'received', receivedAt: serverTimestamp() }); for (const item of order.items) { const currentProduct = products.find(p => p.id === item.productId); if (currentProduct) { const productRef = doc(db, PRODUCTS_COLLECTION, item.productId); const newQty = currentProduct.quantity + item.quantity; batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: item.productId, productName: item.name, sku: item.sku, image: '', type: 'entry', amount: item.quantity, previousQty: currentProduct.quantity, newQty: newQty, timestamp: serverTimestamp() }); } } await batch.commit(); playSound('magic'); alert(`SUCESSO! Pedido ${order.orderCode} recebido.`); setShowQuickEntry(false); } catch (e) { console.error(e); playSound('error'); alert("Erro ao processar."); } finally { setIsSavingBatch(false); } };
+  
+  // --- CARRINHO DE COMPRAS E PEDIDOS ---
   const handleAddToPurchaseCart = (product: Product) => { setPurchaseCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); return [...prev, { product, quantity: 1 }]; }); };
   const handleRemoveFromPurchaseCart = (id: string) => setPurchaseCart(prev => prev.filter(i => i.product.id !== id));
   const handleUpdatePurchaseCartQty = (id: string, delta: number) => { setPurchaseCart(prev => prev.map(item => { if (item.product.id === id) return { ...item, quantity: Math.max(0, item.quantity + delta) }; return item; }).filter(item => item.quantity > 0)); };
   const handleCreatePurchaseOrder = async () => { if (!supplierName || purchaseCart.length === 0) return alert("Defina fornecedor e produtos."); setIsSavingBatch(true); try { const orderCode = `PED-${Math.floor(Math.random() * 900000) + 100000}`; const itemsData = purchaseCart.map(i => ({ productId: i.product.id, sku: i.product.sku || '', name: i.product.name, quantity: i.quantity })); await addDoc(collection(db, PURCHASES_COLLECTION), { orderCode, supplier: supplierName, status: 'pending', items: itemsData, totalItems: purchaseCart.reduce((a, b) => a + b.quantity, 0), createdAt: serverTimestamp() }); setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); setPurchaseStep('select'); playSound('success'); alert(`Pedido ${orderCode} criado!`); } catch (e) { console.error(e); alert("Erro ao criar pedido."); } finally { setIsSavingBatch(false); } };
   const handleUpdateScannedQty = (productId: string, delta: number) => { setScannedItems(prev => prev.map(item => { if (item.product.id === productId) { const newQty = item.count + delta; return newQty > 0 ? { ...item, count: newQty } : item; } return item; })); };
   const handleRemoveScannedItem = (productId: string) => { setScannedItems(prev => prev.filter(item => item.product.id !== productId)); };
+  
+  // --- GERADOR DE PRODUTOS E CRUD ---
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
@@ -514,7 +306,7 @@ function App() {
     );
   }
 
-  // --- TELA DO REVENDEDOR ---
+  // --- TELA DO REVENDEDOR (Limpa sem Mercado Livre) ---
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50 relative">
@@ -530,17 +322,6 @@ function App() {
                 <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
               </div>
             </div>
-            
-            {/* BOTÃO CONECTAR MERCADO LIVRE */}
-            {userView === 'stock' && (
-              <button 
-                onClick={mlConnected ? undefined : handleConnectML} 
-                disabled={connectingML || mlConnected}
-                className={`w-full py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all ${mlConnected ? 'bg-green-500 text-white cursor-default' : connectingML ? 'bg-slate-300 text-slate-500' : 'bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] hover:scale-[1.01]'}`}
-              >
-                {connectingML ? (<><RefreshCw size={16} className="animate-spin" /> Conectando...</>) : mlConnected ? (<><CheckCircle size={16} /> MERCADO LIVRE CONECTADO</>) : (<><LinkIcon size={16} /> CONECTAR AO MERCADO LIVRE</>)}
-              </button>
-            )}
           </div>
         </header>
 
@@ -556,17 +337,6 @@ function App() {
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  {/* BOTÃO INTELIGENTE DE ANUNCIAR */}
-                  {mlConnected && group.total > 0 && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); openPublishModal(name, group); }}
-                      className="bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] p-2 rounded-lg flex items-center justify-center shadow-sm"
-                      title="Anunciar no ML"
-                    >
-                      <Megaphone size={18} />
-                    </button>
-                  )}
-
                   <div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>
                   {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
                 </div>
@@ -578,152 +348,6 @@ function App() {
           
           {userView === 'cart' && (<div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"><div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div><div className="p-4 space-y-4">{cart.length === 0 ? (<div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>) : (<><div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">{cart.map(item => (<div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div><div className="text-xs text-green-600 font-bold mt-1">{formatCurrency(item.product.price || 0)}</div></div></div><div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div></div>))}</div><div className="bg-slate-100 p-3 rounded-lg flex justify-between items-center border border-slate-200"><span className="font-bold text-slate-600">TOTAL ESTIMADO:</span><span className="font-black text-xl text-green-700">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span></div><div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div><button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button></>)}</div></div>)}
         </main>
-
-        {/* MODAL DE ANÚNCIO INTELIGENTE (ML) */}
-        {publishingProduct && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
-               <div className="flex justify-between items-start mb-4">
-                  <div>
-                     <h2 className="text-xl font-bold text-[#2D3277] flex items-center gap-2">
-                        <Megaphone className="text-[#FFE600]"/> Criar Anúncio
-                     </h2>
-                     <p className="text-xs text-slate-500 mt-1">A grade disponível será espelhada no ML.</p>
-                  </div>
-                  <button onClick={() => setPublishingProduct(null)} className="bg-slate-100 p-2 rounded-full hover:bg-slate-200 text-slate-500"><X size={20}/></button>
-               </div>
-               
-               <form onSubmit={handlePublishML} className="space-y-4">
-                 
-                 {/* INTELIGÊNCIA: TÍTULO E ATUALIZAR CATEGORIA */}
-                 <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 space-y-3">
-                    <div>
-                        <label className="text-xs font-bold text-blue-800 mb-1 block uppercase">Título do Anúncio (ML)*</label>
-                        <div className="flex gap-2">
-                           <input 
-                              value={publishForm.title} 
-                              onChange={e => setPublishForm({...publishForm, title: e.target.value})} 
-                              className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 outline-none" 
-                              required 
-                              maxLength={60} 
-                           />
-                           <button 
-                              type="button" 
-                              onClick={() => predictCategory(publishForm.title)}
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg flex items-center justify-center whitespace-nowrap text-xs font-bold gap-1 transition-colors"
-                              title="Buscar melhores categorias pro título"
-                           >
-                              <RefreshCw size={14} className={isPredicting ? "animate-spin" : ""} /> Atualizar
-                           </button>
-                        </div>
-                    </div>
-
-                    {/* SELECT DE CATEGORIAS */}
-                    <div>
-                        <label className="text-xs font-bold text-blue-800 mb-1 flex items-center gap-1 uppercase">
-                          <ListFilter size={14} /> Escolha a Categoria Oficial
-                        </label>
-                        
-                        {manualCategory ? (
-                            <div className="flex gap-2 items-center">
-                                <input 
-                                  value={publishForm.category} 
-                                  onChange={e => setPublishForm({...publishForm, category: e.target.value, categoryName: 'Manual'})} 
-                                  className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 outline-none font-mono uppercase bg-white" 
-                                  placeholder="Ex: MLB109027"
-                                  required 
-                                />
-                                <button type="button" onClick={() => setManualCategory(false)} className="text-xs text-blue-600 underline whitespace-nowrap">Ver Sugestões</button>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-1">
-                                <select 
-                                    value={publishForm.category}
-                                    onChange={e => {
-                                        if (e.target.value === 'MANUAL') {
-                                            setManualCategory(true);
-                                            setPublishForm(prev => ({...prev, category: '', categoryName: ''}));
-                                        } else {
-                                            const cat = suggestedCategories.find(c => c.category_id === e.target.value);
-                                            setPublishForm(prev => ({...prev, category: e.target.value, categoryName: cat?.category_name || ''}));
-                                        }
-                                    }}
-                                    className={`w-full border border-blue-200 rounded-lg p-2 text-sm outline-none bg-white ${isPredicting ? 'text-slate-400' : 'text-slate-800'}`}
-                                    disabled={isPredicting}
-                                >
-                                    {isPredicting ? (
-                                        <option value="">Analisando o título...</option>
-                                    ) : suggestedCategories.length === 0 ? (
-                                        <option value="">Nenhuma categoria encontrada.</option>
-                                    ) : (
-                                        suggestedCategories.map((cat, idx) => (
-                                            <option key={idx} value={cat.category_id}>
-                                                {cat.category_name}
-                                            </option>
-                                        ))
-                                    )}
-                                    <option value="MANUAL" className="font-bold text-blue-600">✍️ Digitar código manualmente...</option>
-                                </select>
-                            </div>
-                        )}
-                    </div>
-                 </div>
-                 
-                 <div className="grid grid-cols-2 gap-4">
-                   <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Seu Preço (R$)*</label>
-                      <input value={publishForm.price} onChange={e => setPublishForm({...publishForm, price: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none font-bold" required placeholder="Ex: 120,00" />
-                      {publishingProduct.info.price && <p className="text-[10px] text-green-600 mt-1 font-bold">Custo: {formatCurrency(publishingProduct.info.price)}</p>}
-                   </div>
-                   <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Exposição</label>
-                      <select value={publishForm.type} onChange={e => setPublishForm({...publishForm, type: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none bg-white">
-                         <option value="gold_special">Clássico</option>
-                         <option value="gold_pro">Premium</option>
-                      </select>
-                   </div>
-                 </div>
-
-                 <div className="grid grid-cols-2 gap-4">
-                   <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Marca*</label>
-                      <input value={publishForm.brand} onChange={e => setPublishForm({...publishForm, brand: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required placeholder="Sua Marca" />
-                   </div>
-                   <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Modelo*</label>
-                      <input value={publishForm.model} onChange={e => setPublishForm({...publishForm, model: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none" required />
-                   </div>
-                 </div>
-
-                 <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Gênero do Calçado</label>
-                    <select value={publishForm.gender} onChange={e => setPublishForm({...publishForm, gender: e.target.value})} className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 outline-none bg-white">
-                       <option value="Masculino">Masculino</option>
-                       <option value="Feminino">Feminino</option>
-                       <option value="Sem gênero">Sem gênero</option>
-                    </select>
-                 </div>
-
-                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex items-center gap-3">
-                   <div className="w-12 h-12 rounded bg-white overflow-hidden border border-slate-200 shrink-0">
-                      {publishingProduct.info.image ? <img src={publishingProduct.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300" />}
-                   </div>
-                   <div className="text-xs text-slate-600">
-                      Serão enviadas <strong className="text-blue-600">{publishingProduct.items.filter((i:any)=>i.quantity>0).length} variações</strong> de cor/tamanho baseadas no estoque atual.
-                   </div>
-                 </div>
-
-                 <div className="pt-2">
-                    <button type="submit" disabled={isPublishing || isPredicting} className={`w-full py-4 rounded-xl font-black shadow-lg flex items-center justify-center gap-2 transition-transform ${isPublishing || isPredicting ? 'bg-slate-300 text-slate-500' : 'bg-[#FFE600] text-[#2D3277] hover:bg-[#F2DA00] hover:scale-[1.02]'}`}>
-                       {isPublishing ? <RefreshCw className="animate-spin" size={20} /> : <Megaphone size={20} />} 
-                       {isPublishing ? "PUBLICANDO..." : "PUBLICAR ANÚNCIO AGORA"}
-                    </button>
-                 </div>
-               </form>
-            </div>
-          </div>
-        )}
-
       </div>
     );
   }
@@ -746,11 +370,11 @@ function App() {
       <main className="max-w-6xl mx-auto p-2 md:p-4 space-y-4 md:space-y-6 relative">
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-            <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
-            <button onClick={() => { setAdminView('purchases'); setPurchaseStep('select'); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Truck size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Compras</h3></div></button>
-            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
-            <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
-            <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 md:h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
+            <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
+            <button onClick={() => { setAdminView('purchases'); setPurchaseStep('select'); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Truck size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Compras</h3></div></button>
+            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
+            <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
+            <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
           </div>
         )}
 
@@ -856,7 +480,7 @@ function App() {
                   
                   <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">
+                      <div className="w-14 h-14 md:w-16 h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">
                         {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
                       </div>
                       <div className="min-w-0">
