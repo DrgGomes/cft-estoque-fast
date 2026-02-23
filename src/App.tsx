@@ -28,7 +28,7 @@ import {
   Layers, Pencil, Zap, AlertCircle, Camera, StopCircle,
   ChevronLeft, ClipboardList, ChevronDown, ChevronUp,
   ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag,
-  LayoutGrid, Megaphone
+  LayoutGrid, Megaphone, Upload
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -92,7 +92,7 @@ const appId = "estoque-loja";
 const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
-const NOTICES_COLLECTION = `artifacts/${appId}/public/data/notices`; // Nova coleção de avisos
+const NOTICES_COLLECTION = `artifacts/${appId}/public/data/notices`; 
 
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
@@ -219,7 +219,8 @@ function App() {
         const previousProducts = prevProductsRef.current;
         const soldOutItems = items.filter(newItem => {
           const oldItem = previousProducts.find(p => p.id === newItem.id);
-          return oldItem && oldItem.quantity > 0 && newItem.quantity === 0;
+          // Atualizado para considerar <= 4 como zerado na notificação também
+          return oldItem && oldItem.quantity > 4 && newItem.quantity <= 4;
         });
         if (soldOutItems.length > 0) {
           playSound('alert');
@@ -232,7 +233,7 @@ function App() {
       setLoading(false);
     });
 
-    // Buscar Avisos (Para Admin e User)
+    // Buscar Avisos
     const qNotices = query(collection(db, NOTICES_COLLECTION), orderBy('createdAt', 'desc'));
     const unsubscribeNotices = onSnapshot(qNotices, (snapshot) => {
       const items: Notice[] = [];
@@ -363,17 +364,33 @@ function App() {
   const handleCreatePurchaseOrder = async () => { if (!supplierName || purchaseCart.length === 0) return alert("Defina fornecedor e produtos."); setIsSavingBatch(true); try { const orderCode = `PED-${Math.floor(Math.random() * 900000) + 100000}`; const itemsData = purchaseCart.map(i => ({ productId: i.product.id, sku: i.product.sku || '', name: i.product.name, quantity: i.quantity })); await addDoc(collection(db, PURCHASES_COLLECTION), { orderCode, supplier: supplierName, status: 'pending', items: itemsData, totalItems: purchaseCart.reduce((a, b) => a + b.quantity, 0), createdAt: serverTimestamp() }); setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); setPurchaseStep('select'); playSound('success'); alert(`Pedido ${orderCode} criado!`); } catch (e) { console.error(e); alert("Erro ao criar pedido."); } finally { setIsSavingBatch(false); } };
   
   // --- FUNÇÕES DE AVISOS (ADMIN) ---
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+       if(file.size > 800000) { // Limita pra não explodir o banco com imagem gigantesca
+           alert("A imagem é muito grande. Escolha uma foto menor que 800KB.");
+           return;
+       }
+       const reader = new FileReader();
+       reader.onloadend = () => {
+          setNoticeImage(reader.result as string);
+       };
+       reader.readAsDataURL(file);
+    }
+  };
+
   const handleSaveNotice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!noticeTitle) return alert('Preencha o título do aviso.');
+    if (noticeType === 'banner' && !noticeImage) return alert('Faça o upload da imagem do banner.');
+    
     setIsSavingBatch(true);
     try {
-      const processedImage = processImageUrl(noticeImage);
       await addDoc(collection(db, NOTICES_COLLECTION), {
         type: noticeType,
         title: noticeTitle,
         content: noticeContent,
-        imageUrl: processedImage,
+        imageUrl: noticeType === 'banner' ? noticeImage : '',
         createdAt: serverTimestamp()
       });
       setNoticeTitle('');
@@ -409,9 +426,9 @@ function App() {
   const openGroupEdit = (groupName: string, groupData: any) => { setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items }); };
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; const processedImage = processImageUrl(editingGroup.image || ''); try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); } };
   
-  const handleAddToCart = (product: Product) => { if (product.quantity <= 0) return alert("Produto sem estoque!"); setCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) { if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; } return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); } return [...prev, { product, quantity: 1 }]; }); playSound('success'); };
+  const handleAddToCart = (product: Product) => { if (product.quantity <= 4) return alert("Produto ZERADO no estoque!"); setCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) { if (existing.quantity >= (product.quantity - 4)) { alert("Você já selecionou todo o estoque disponível deste item!"); return prev; } return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); } return [...prev, { product, quantity: 1 }]; }); playSound('success'); };
   const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
-  const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
+  const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > (item.product.quantity - 4)) { alert("Quantidade máxima disponível atingida!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
   
   const generateWhatsAppMessage = () => { if (!customerName) return alert("Digite o nome do cliente!"); if (cart.length === 0) return alert("Carrinho vazio!"); const now = new Date(); const orderId = Math.floor(Math.random() * 900000) + 100000; let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`; let totalPedido = 0; cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; const price = item.product.price || 0; const subtotal = price * item.quantity; totalPedido += subtotal; message += `${displaySku} --- ${item.quantity}x (${formatCurrency(price)})\n`; message += `-\n`; }); message += `\n💰 *TOTAL: ${formatCurrency(totalPedido)}*`; window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank'); };
   
@@ -511,10 +528,13 @@ function App() {
             </div>
             
             <div className="flex items-center gap-4">
+              {/* O CARRINHO ESTÁ OCULTO NO TOPO, APENAS APARECE NO FIM DO PEDIDO SE VOCÊ REATIVAR
               <button onClick={() => setUserView('cart')} className="relative bg-slate-100 hover:bg-slate-200 p-3 rounded-xl transition-colors text-slate-600">
                 <ShoppingCart size={20} />
                 {cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full animate-bounce">{cart.length}</span>)}
               </button>
+              */}
+              
               {/* Menu Mobile */}
               <button onClick={handleLogout} className="md:hidden text-xs bg-slate-100 p-3 rounded-xl text-red-500"><LogOut size={20} /></button>
             </div>
@@ -550,19 +570,20 @@ function App() {
                   ) : (
                       <div className="grid grid-cols-1 gap-6">
                         {notices.map(notice => (
-                           <div key={notice.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                           // FUNDO CINZA COM BORDAS PARA DESTACAR BEM DO FUNDO BRANCO
+                           <div key={notice.id} className="bg-slate-200 rounded-2xl shadow-md border border-slate-300 overflow-hidden relative">
                               {notice.type === 'banner' && notice.imageUrl && (
-                                  <div className="w-full h-48 sm:h-64 bg-slate-100">
+                                  <div className="w-full h-48 sm:h-64 bg-slate-300">
                                       <img src={notice.imageUrl} alt={notice.title} className="w-full h-full object-cover" />
                                   </div>
                               )}
                               <div className="p-6">
                                   <div className="flex items-center gap-2 mb-2">
-                                      {notice.type === 'banner' ? <ImageIcon size={16} className="text-blue-500"/> : <Bell size={16} className="text-orange-500"/>}
-                                      <h4 className="font-black text-lg text-slate-800">{notice.title}</h4>
+                                      {notice.type === 'banner' ? <ImageIcon size={20} className="text-blue-600"/> : <Bell size={20} className="text-orange-600"/>}
+                                      <h4 className="font-black text-xl text-slate-800">{notice.title}</h4>
                                   </div>
-                                  {notice.content && <p className="text-slate-600 whitespace-pre-wrap">{notice.content}</p>}
-                                  <p className="text-xs text-slate-400 mt-4">{formatDate(notice.createdAt)}</p>
+                                  {notice.content && <p className="text-slate-700 whitespace-pre-wrap font-medium">{notice.content}</p>}
+                                  <p className="text-xs text-slate-500 mt-4 font-bold">{formatDate(notice.createdAt)}</p>
                               </div>
                            </div>
                         ))}
@@ -572,7 +593,7 @@ function App() {
               </div>
             )}
 
-            {/* --- VIEW: CATÁLOGO (GRID COM FOTOS GRANDES) --- */}
+            {/* --- VIEW: CATÁLOGO (GRID COM FOTOS GRANDES E ESTOQUE OCULTO) --- */}
             {userView === 'catalog' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                  {/* Barra de Pesquisa */}
@@ -598,10 +619,6 @@ function App() {
                                        ) : (
                                            <div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>
                                        )}
-                                       {/* Badge de Estoque Total */}
-                                       <div className="absolute top-2 right-2 bg-white/90 backdrop-blur text-slate-800 text-[10px] font-black px-2 py-1 rounded-lg shadow-sm">
-                                           {group.total} NO ESTOQUE
-                                       </div>
                                    </div>
                                    
                                    {/* Info Resumida */}
@@ -618,24 +635,26 @@ function App() {
                                        </div>
                                    </div>
 
-                                   {/* Lista de Variações Expandida (Aparece embaixo dentro do card) */}
+                                   {/* Lista de Variações Expandida */}
                                    {expandedGroups[name] && (
                                        <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 max-h-64 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2">
                                            {group.items.map(p => (
                                                <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
                                                    <div className="flex flex-col">
                                                        <span className="text-[10px] text-slate-500 font-bold uppercase">{p.color}</span>
-                                                       <div className="flex items-center gap-1 mt-0.5">
+                                                       <div className="flex items-center gap-2 mt-0.5">
                                                            <span className="text-xs font-black bg-slate-800 text-white px-1.5 py-0.5 rounded">{p.size}</span>
-                                                           {p.quantity > 0 ? (
-                                                              <span className="text-[10px] font-bold text-green-600">{p.quantity} un</span>
+                                                           
+                                                           {/* REGRA DO ESTOQUE CEGO: <= 4 É ZERADO */}
+                                                           {p.quantity > 4 ? (
+                                                              <span className="text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-1.5 py-0.5 rounded">Em Estoque</span>
                                                            ) : (
-                                                              <span className="text-[10px] font-bold text-red-500">Esgotado</span>
+                                                              <span className="text-[10px] font-bold text-red-600 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded">Estoque ZERADO</span>
                                                            )}
                                                        </div>
                                                    </div>
                                                    <div>
-                                                       {p.quantity > 0 ? (
+                                                       {p.quantity > 4 ? (
                                                            <button onClick={(e) => { e.stopPropagation(); handleAddToCart(p); }} className="bg-blue-600 hover:bg-blue-700 text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-sm active:scale-95"><Plus size={16} /></button>
                                                        ) : (
                                                            <div className="w-8 h-8 rounded-lg border border-red-200 bg-red-50 flex items-center justify-center"><X size={16} className="text-red-400" /></div>
@@ -650,6 +669,19 @@ function App() {
                        </div>
                    )}
                  </div>
+
+                 {/* Botão de Finalizar que substitui o ícone do topo */}
+                 {cart.length > 0 && (
+                   <div className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-80 z-50 animate-in slide-in-from-bottom-10">
+                      <button onClick={() => setUserView('cart')} className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-2xl p-4 rounded-2xl flex justify-between items-center transition-transform hover:scale-105">
+                         <div className="flex items-center gap-3">
+                            <div className="bg-blue-800 w-10 h-10 rounded-full flex items-center justify-center font-black">{cart.length}</div>
+                            <span className="font-bold text-sm">Avançar para o Carrinho</span>
+                         </div>
+                         <ShoppingCart size={24} />
+                      </button>
+                   </div>
+                 )}
               </div>
             )}
 
@@ -679,7 +711,7 @@ function App() {
                     <div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p></div>
                   ) : (
                     <>
-                      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+                      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2 hidden-scroll">
                         {cart.map(item => (
                           <div key={item.product.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                             <div className="flex items-center gap-4">
@@ -760,7 +792,6 @@ function App() {
             <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
-            {/* NOVO BOTÃO DE AVISOS NO ADMIN */}
             <button onClick={() => setAdminView('notices')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg col-span-2 md:col-span-1 border-t-4 border-t-orange-500"><div className="w-12 h-12 md:w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Megaphone size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Mural de Avisos</h3></div></button>
           </div>
         )}
@@ -798,10 +829,22 @@ function App() {
                         </div>
                     )}
 
+                    {/* BOTÃO DE UPLOAD AQUI */}
                     {noticeType === 'banner' && (
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Imagem (Google Drive ou URL)</label>
-                            <input value={noticeImage} onChange={e => setNoticeImage(e.target.value)} required placeholder="Cole o link da foto do banner aqui..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-orange-500 outline-none text-xs" />
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto (Máx 800KB)</label>
+                            <input 
+                               type="file" 
+                               accept="image/*" 
+                               onChange={handleImageUpload} 
+                               className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 cursor-pointer" 
+                            />
+                            {noticeImage && (
+                               <div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700">
+                                   <p className="text-xs text-slate-400 mb-2">Pré-visualização:</p>
+                                   <img src={noticeImage} alt="Preview" className="h-32 object-cover rounded shadow-md" />
+                               </div>
+                            )}
                         </div>
                     )}
                     
