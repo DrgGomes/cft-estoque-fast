@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore,
@@ -30,7 +30,8 @@ import {
   ChevronLeft, ClipboardList, ChevronDown, ChevronUp,
   ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag,
   LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
-  Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock
+  Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
+  TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -65,7 +66,6 @@ const sendSystemNotification = (title: string, body: string) => {
   }
 };
 
-// BLINDAGEM DE MOEDA: Impede erro se o valor vier quebrado ou indefinido
 const formatCurrency = (value: any) => {
   const num = Number(value);
   if (isNaN(num)) return 'R$ 0,00';
@@ -155,7 +155,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'notices' | 'links' | 'showcases' | 'customers' | 'tickets'>('menu');
+  // ADICIONADO 'predictive' AOS MENUS DO ADMIN
+  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'notices' | 'links' | 'showcases' | 'customers' | 'tickets' | 'predictive'>('menu');
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   
   const [userView, setUserView] = useState<'dashboard' | 'catalog' | 'cart' | 'orders' | 'support'>('dashboard');
@@ -217,17 +218,16 @@ function App() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
-  // BLINDAGEM NO AGRUPAMENTO (Impede a tela de ficar branca se faltar dado)
   const groupProducts = (items: Product[]) => { 
       const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
       if (!items || !Array.isArray(items)) return groups;
 
       items.forEach(product => { 
           if (!product) return;
-          const key = String(product.name || 'Sem Nome'); // Força a ser string
+          const key = String(product.name || 'Sem Nome');
           if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; 
           groups[key].items.push(product); 
-          groups[key].total += Number(product.quantity || 0); // Força a ser número
+          groups[key].total += Number(product.quantity || 0);
       }); 
       Object.values(groups).forEach(group => group.items.sort((a, b) => (String(a.size || '') > String(b.size || '') ? 1 : -1))); 
       return groups; 
@@ -289,9 +289,11 @@ function App() {
      }
   }, [user, selectedRole]);
 
+  // Modificado para carregar histórico sempre no admin, útil para dashboard preditivo
   useEffect(() => {
     if (selectedRole === 'admin') {
-      const unsubHist = onSnapshot(query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(50)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
+      // Carrega até 1000 itens de histórico para a predição funcionar bem (ajustável)
+      const unsubHist = onSnapshot(query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(1000)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
       const unsubPurch = onSnapshot(query(collection(db, PURCHASES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setPurchases(snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder))));
       const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
           const list = snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile));
@@ -303,7 +305,6 @@ function App() {
     }
   }, [selectedRole]);
 
-  // BLINDAGEM DE PESQUISA: Impede quebrar se um produto não tiver SKU ou for um número
   useEffect(() => {
     if (searchTerm.trim() === '') { setFilteredProducts(products); } 
     else {
@@ -317,8 +318,59 @@ function App() {
       setFilteredProducts(filtered);
     }
   }, [searchTerm, products]);
+
+  // ==========================================
+  // CÁLCULOS DO DASHBOARD PREDITIVO (USEMEMO)
+  // ==========================================
+  const predictiveData = useMemo(() => {
+      if (adminView !== 'predictive' || products.length === 0) return null;
+
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      // Calcular saídas (vendas) por produto
+      const exitStats: Record<string, number> = {};
+      history.forEach(h => {
+          if (h.type === 'exit') {
+              const date = h.timestamp?.toDate ? h.timestamp.toDate() : new Date();
+              if (date >= thirtyDaysAgo) {
+                  exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount;
+              }
+          }
+      });
+
+      // Avaliar os produtos
+      const insights = products.map(p => {
+          const exits30d = exitStats[p.id] || 0;
+          const velocityPerDay = exits30d / 30; // Média de venda por dia
+          // Se vende > 0, quantos dias dura o estoque atual? Se não vende, infinito.
+          const daysRemaining = velocityPerDay > 0 ? (p.quantity / velocityPerDay) : Infinity;
+
+          return { ...p, exits30d, velocityPerDay, daysRemaining };
+      });
+
+      // 1. URGENTE: Filha de Produção (Produtos vendendo bem, com menos de 15 dias de estoque ou <= 4 de qtd)
+      const toProduce = insights
+          .filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0)
+          .sort((a, b) => a.daysRemaining - b.daysRemaining) // Mais urgente primeiro
+          .slice(0, 10);
+
+      // 2. EM ALTA: Campeões de venda (Últimos 30 dias)
+      const topSellers = [...insights]
+          .filter(p => p.exits30d > 0)
+          .sort((a, b) => b.exits30d - a.exits30d) // Mais vendidos primeiro
+          .slice(0, 10);
+
+      // 3. ENCALHADOS: Estoque parado (Quantidade alta, 0 saídas em 30 dias)
+      const deadStock = insights
+          .filter(p => p.quantity > 10 && p.exits30d === 0)
+          .sort((a, b) => b.quantity - a.quantity) // Maior quantidade primeiro
+          .slice(0, 10);
+
+      return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
+  }, [adminView, products, history]);
   
-  // --- FUNÇÕES DE LOGIN ---
+  // --- FUNÇÕES DE LOGIN E UPLOAD ---
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -326,13 +378,7 @@ function App() {
       if (isRegistering) {
         if(!authName) return setAuthError('Por favor, preencha o seu nome completo.');
         const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          name: authName,
-          email: authEmail,
-          role: 'revendedor',
-          creditBalance: 0,
-          createdAt: serverTimestamp()
-        });
+        await setDoc(doc(db, 'users', userCredential.user.uid), { name: authName, email: authEmail, role: 'revendedor', creditBalance: 0, createdAt: serverTimestamp() });
         setSelectedRole('user'); playSound('success');
       } else {
         await signInWithEmailAndPassword(auth, authEmail, authPassword);
@@ -342,111 +388,12 @@ function App() {
   };
 
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { const file = e.target.files?.[0]; if (file) { if(file.size > 800000) { alert("A imagem é muito grande. Escolha uma foto menor que 800KB."); return; } const reader = new FileReader(); reader.onloadend = () => { setter(reader.result as string); }; reader.readAsDataURL(file); } };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
-    const file = e.target.files?.[0];
-    if (file) {
-       if(file.size > 800000) { alert("A imagem é muito grande. Escolha uma foto menor que 800KB."); return; }
-       const reader = new FileReader();
-       reader.onloadend = () => { setter(reader.result as string); };
-       reader.readAsDataURL(file);
-    }
-  };
-
-  // --- FUNÇÕES DE TICKETS (REVENDEDOR & ADMIN) ---
-  const handleOpenTicket = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if(!ticketProduct || !ticketReason || !ticketValue) return alert("Preencha todos os campos do produto, valor e motivo.");
-      if(!user || !userProfile) return;
-      setIsSavingBatch(true);
-      try {
-          await addDoc(collection(db, TICKETS_COLLECTION), {
-              userId: user.uid,
-              userName: userProfile.name,
-              type: ticketType,
-              status: 'pendente',
-              productInfo: ticketProduct,
-              productValue: parseFloat(ticketValue),
-              reason: ticketReason,
-              createdAt: serverTimestamp()
-          });
-          setTicketProduct(''); setTicketValue(''); setTicketReason('');
-          alert("Solicitação enviada com sucesso! Aguarde o retorno do fornecedor.");
-          playSound('success');
-      } catch (error) { console.error(error); alert("Erro ao abrir chamado."); } finally { setIsSavingBatch(false); }
-  };
-
-  const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => {
-      setIsSavingBatch(true);
-      try {
-          const ticketRef = doc(db, TICKETS_COLLECTION, ticket.id);
-          
-          if (action === 'aceitar_troca') {
-              await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() });
-              alert("Troca Aceita! Imprima a via de troca e separe o produto.");
-          } 
-          else if (action === 'recusar') {
-              const note = prompt("Motivo da recusa (Opcional):");
-              await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() });
-          }
-          else if (action === 'aceitar_devolucao') {
-              await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() });
-              alert("Devolução autorizada. Aguardando o cliente entregar o produto.");
-          }
-          else if (action === 'recebido_gerar_credito') {
-              if (confirm(`Confirma o recebimento do produto? Isso vai gerar R$ ${ticket.productValue.toFixed(2)} de CRÉDITO para o cliente ${ticket.userName}.`)) {
-                  const batch = writeBatch(db);
-                  batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() });
-                  batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) });
-                  await batch.commit();
-                  playSound('magic');
-                  alert("Sucesso! O crédito já está na conta do cliente.");
-              }
-          }
-      } catch (e) { console.error(e); alert("Erro ao processar ticket."); } finally { setIsSavingBatch(false); }
-  };
-
-  const handlePrintTicket = (ticket: SupportTicket) => {
-      const printContent = `
-          <html>
-          <head>
-              <title>Via de Troca</title>
-              <style>
-                  body { font-family: sans-serif; padding: 20px; }
-                  .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; }
-                  h2 { text-align: center; margin-top: 0; }
-                  p { margin: 8px 0; font-size: 14px; }
-                  .line { border-top: 1px solid #ccc; margin: 15px 0; }
-                  .sign { margin-top: 40px; text-align: center; }
-              </style>
-          </head>
-          <body>
-              <div class="box">
-                  <h2>VIA DE AUTORIZAÇÃO</h2>
-                  <p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p>
-                  <p><strong>CLIENTE:</strong> ${ticket.userName}</p>
-                  <p><strong>PRODUTO:</strong> ${ticket.productInfo}</p>
-                  <p><strong>MOTIVO:</strong> ${ticket.reason}</p>
-                  <div class="line"></div>
-                  <p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p>
-                  <div class="sign">
-                      ___________________________________<br/>
-                      Assinatura Responsável
-                  </div>
-              </div>
-          </body>
-          </html>
-      `;
-      const printWindow = window.open('', '_blank', 'width=600,height=600');
-      if (printWindow) {
-          printWindow.document.write(printContent);
-          printWindow.document.close();
-          printWindow.focus();
-          setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
-      }
-  };
-
-  // --- FUNÇÕES RESTANTES (GERADOR, CRUD, ADMIN AVISOS/VITRINES) ---
+  // --- FUNÇÕES DE TICKETS, AVISOS, LINKS E VITRINES ---
+  const handleOpenTicket = async (e: React.FormEvent) => { e.preventDefault(); if(!ticketProduct || !ticketReason || !ticketValue) return alert("Preencha os campos."); if(!user || !userProfile) return; setIsSavingBatch(true); try { await addDoc(collection(db, TICKETS_COLLECTION), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productInfo: ticketProduct, productValue: parseFloat(ticketValue), reason: ticketReason, createdAt: serverTimestamp() }); setTicketProduct(''); setTicketValue(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); } catch (error) { console.error(error); alert("Erro ao abrir chamado."); } finally { setIsSavingBatch(false); } };
+  const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, TICKETS_COLLECTION, ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
+  const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>PRODUTO:</strong> ${ticket.productInfo}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
   const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, NOTICES_COLLECTION), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, NOTICES_COLLECTION, id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, QUICKLINKS_COLLECTION), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
@@ -458,6 +405,7 @@ function App() {
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
   const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
   
+  // --- GERADOR DE PRODUTOS E CRUD ---
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
@@ -466,21 +414,13 @@ function App() {
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
   
   const handleSaveBatch = async () => { if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; } setIsSavingBatch(true); const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; try { const batch = writeBatch(db); generatedRows.forEach(row => { const docRef = doc(collection(db, PRODUCTS_COLLECTION)); batch.set(docRef, { name: baseName, image: baseImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() }); }); await batch.commit(); setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!"); } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); } };
-  const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); alert("Erro."); } };
-  
-  // Excluir e Editar Variação Específica
-  const handleDeleteProductFromModal = async () => { if (editingProduct && confirm('Deseja realmente EXCLUIR esta variação específica? Essa ação não pode ser desfeita.')) { await deleteDoc(doc(db, PRODUCTS_COLLECTION, editingProduct.id)); setEditingProduct(null); } };
+  const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); } };
+  const handleDeleteProductFromModal = async () => { if (editingProduct && confirm('Excluir?')) { await deleteDoc(doc(db, PRODUCTS_COLLECTION, editingProduct.id)); setEditingProduct(null); } };
   const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; try { await updateDoc(doc(db, PRODUCTS_COLLECTION, editingProduct.id), { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro ao editar."); } };
-  
-  // Excluir e Editar Modelo Inteiro
   const openGroupEdit = (groupName: string, groupData: any) => { setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items }); };
-  const handleDeleteGroup = async () => { if(editingGroup && confirm('Tem certeza que deseja EXCLUIR TODAS as variações deste modelo? Essa ação apagará todos os tamanhos e cores vinculados a ele.')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach(item => { batch.delete(doc(db, PRODUCTS_COLLECTION, item.id)); }); await batch.commit(); setEditingGroup(null); alert('Modelo inteiro excluído com sucesso!'); } catch(e) { console.error(e); alert('Erro ao excluir modelo.'); } finally { setIsSavingBatch(false); } } };
-  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: editingGroup.image, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar."); } finally { setIsSavingBatch(false); } };
+  const handleDeleteGroup = async () => { if(editingGroup && confirm('Tem certeza que deseja EXCLUIR TODAS as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach(item => { batch.delete(doc(db, PRODUCTS_COLLECTION, item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
+  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: editingGroup.image, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   
-  const handleProcessCodeCamera = async (code: string) => { 
-     // Reusing logic
-  };
-
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
 
@@ -549,11 +489,11 @@ function App() {
                                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Cores e Numerações</p>
                                          <div className="flex flex-wrap gap-2">
                                              {group.items.map((p: Product) => (
-                                                 p.quantity > 4 && (
+                                                 Number(p.quantity) > 4 && (
                                                     <div key={p.id} className="bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm flex items-center gap-1">
-                                                        <span className="font-bold text-slate-800">{p.size}</span>
+                                                        <span className="font-bold text-slate-800">{String(p.size)}</span>
                                                         <span className="text-slate-400">|</span>
-                                                        <span className="text-slate-600 uppercase font-medium">{p.color}</span>
+                                                        <span className="text-slate-600 uppercase font-medium">{String(p.color)}</span>
                                                     </div>
                                                  )
                                              ))}
@@ -571,7 +511,7 @@ function App() {
 
 
   // ==========================================
-  // RENDERIZAÇÃO: LOGIN (COM NOME NO CADASTRO)
+  // RENDERIZAÇÃO: LOGIN
   // ==========================================
   if (!selectedRole) {
     return (
@@ -679,7 +619,6 @@ function App() {
             </button>
           </nav>
           
-          {/* DISPLAY DE CRÉDITO DO USUÁRIO */}
           <div className="p-4 mx-4 mb-4 bg-slate-800 rounded-xl border border-slate-700 text-center">
              <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center justify-center gap-1"><Wallet size={12}/> Seu Crédito</p>
              <p className="text-xl font-black text-green-400">{formatCurrency(userProfile?.creditBalance || 0)}</p>
@@ -884,8 +823,8 @@ function App() {
                                    
                                    <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
                                        <div>
-                                           <h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3>
-                                           <span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : '---'}</span>
+                                           <h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{String(name)}</h3>
+                                           <span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : ''}</span>
                                        </div>
                                        <div className="mt-3 flex items-center justify-between">
                                            <span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span>
@@ -973,6 +912,7 @@ function App() {
         
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 mt-2">
+            <button onClick={() => setAdminView('predictive')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-fuchsia-500"><div className="w-14 h-14 bg-fuchsia-500/10 rounded-full flex items-center justify-center"><BrainCircuit size={28} className="text-fuchsia-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Inteligência IA</h3></div></button>
             <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
             <button onClick={() => { setShowQuickEntry(true); setScannedItems([]); }} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-yellow-500/10 rounded-full flex items-center justify-center"><Zap size={28} className="text-yellow-500 fill-yellow-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Entrada Rápida</h3></div></button>
@@ -988,8 +928,92 @@ function App() {
             <button onClick={() => setAdminView('history')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-purple-500/10 rounded-full flex items-center justify-center"><ClipboardList size={28} className="text-purple-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Relatórios</h3></div></button>
             <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
             <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
-            <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
+            <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
           </div>
+        )}
+
+        {/* --- TELA: INTELIGÊNCIA PREDITIVA (DASHBOARD IA) --- */}
+        {adminView === 'predictive' && predictiveData && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between">
+                    <div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div>
+                    <div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Análise dos Últimos 30 Dias</div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* COLUNA 1: URGÊNCIAS (Produção) */}
+                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2">
+                            <AlertTriangle className="text-red-500" size={20} />
+                            <h3 className="font-bold text-red-500">Fila de Produção Urgente</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim (menos de 15 dias) que estão vendendo rápido.</p>
+                            {predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
+                                        <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span>
+                                        <span className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded">Fura em {Math.ceil(p.daysRemaining)} dias</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* COLUNA 2: CAMPEÕES (Em Alta) */}
+                    <div className="bg-slate-900 rounded-2xl border border-emerald-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-emerald-500/10 border-b border-emerald-900/50 flex items-center gap-2">
+                            <TrendingUp className="text-emerald-500" size={20} />
+                            <h3 className="font-bold text-emerald-500">Campeões de Venda</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Os modelos com mais saídas nos últimos 30 dias.</p>
+                            {predictiveData.topSellers.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Sem dados recentes.</p> : predictiveData.topSellers.map((p, idx) => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-emerald-900/30 flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-emerald-500 font-black text-lg">#{idx + 1}</span>
+                                        <div>
+                                            <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
+                                            <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-emerald-400 font-black">{p.exits30d} saídas</span>
+                                        <span className="text-[10px] text-slate-500">{(p.velocityPerDay).toFixed(1)} un/dia</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* COLUNA 3: ENCALHADOS (Estoque Parado) */}
+                    <div className="bg-slate-900 rounded-2xl border border-blue-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-blue-500/10 border-b border-blue-900/50 flex items-center gap-2">
+                            <TrendingDown className="text-blue-500" size={20} />
+                            <h3 className="font-bold text-blue-500">Estoque Encalhado</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Produtos com muito estoque (>10) e ZERO vendas em 30 dias. Faça uma promoção!</p>
+                            {predictiveData.deadStock.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Estoque girando bem.</p> : predictiveData.deadStock.map(p => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-blue-900/30 flex justify-between items-center">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
+                                        <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-blue-400 font-black">{Number(p.quantity)} un</span>
+                                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">Capital Travado</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
         )}
 
         {/* --- TELA DE CLIENTES (ADMIN) --- */}
@@ -1004,7 +1028,7 @@ function App() {
                         <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 font-black text-lg uppercase">
-                                    {u.name ? u.name.substring(0,2) : 'CL'}
+                                    {u.name ? String(u.name).substring(0,2) : 'CL'}
                                 </div>
                                 <div>
                                     <h3 className="font-bold text-white text-lg">{u.name || 'Sem Nome'}</h3>
@@ -1177,9 +1201,93 @@ function App() {
             </div>
         )}
 
-        {/* --- TELA DE AVISOS E LINKS IGUAL À ANTERIOR --- */}
-        {/* ... */}
-        {/* (Estou mantendo a interface de Admin normal aqui para baixo) */}
+        {/* --- TELA DE AVISOS (ADMIN) --- */}
+        {adminView === 'notices' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
+                 </div>
+                 <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo de Publicação</label>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Aviso Normal</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Banner com Imagem</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título Importante*</label>
+                        <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
+                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none"></textarea>
+                    </div>
+                    {noticeType === 'banner' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
+                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setNoticeImage)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 cursor-pointer" />
+                            {noticeImage && (<div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700"><img src={noticeImage} className="h-32 object-cover rounded shadow-md" /></div>)}
+                        </div>
+                    )}
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Megaphone size={20} />} Publicar no Dashboard
+                    </button>
+                 </form>
+              </div>
+
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {notices.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum aviso ativo.</p> : notices.map(notice => (
+                         <div key={notice.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
+                             <div>
+                                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${notice.type === 'banner' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>{notice.type}</span><h3 className="font-bold text-white text-sm">{notice.title}</h3></div>
+                                 <p className="text-xs text-slate-500">{formatDate(notice.createdAt)}</p>
+                             </div>
+                             <button onClick={() => handleDeleteNotice(notice.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
+        {adminView === 'links' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div></div>
+                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label><input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino*</label><input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none"><option value="MessageCircle">WhatsApp</option><option value="ImageIcon">Fotos/Drive</option><option value="Globe">Site</option><option value="Link2">Link Padrão</option></select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        </div>
+                    </div>
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
+                 </form>
+              </div>
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {quickLinks.map(link => (
+                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center"><div className="flex items-center gap-4"><div className="bg-slate-800 p-3 rounded-lg text-slate-300">{renderDynamicIcon(link.icon, 20)}</div><div><div className="flex items-center gap-2"><h3 className="font-bold text-white text-sm">{link.title}</h3><span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span></div><p className="text-xs text-blue-400 truncate max-w-[200px]">{link.url}</p></div></div><button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button></div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
 
         {/* --- ESTOQUE DO ADMIN COM FOTO MELHORADA E EDIÇÃO AVANÇADA --- */}
         {adminView === 'stock' && (
@@ -1198,7 +1306,7 @@ function App() {
                         {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-700"/>}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-bold text-white text-sm md:text-base truncate">{name}</div>
+                        <div className="font-bold text-white text-sm md:text-base truncate">{String(name)}</div>
                         <div className="text-sm font-bold text-slate-500 mt-0.5">{group.info.sku ? String(group.info.sku).split('-')[0] : '---'}</div>
                         <div className="text-[10px] md:text-xs font-bold text-blue-400 mt-2 bg-blue-500/10 px-2 py-1 inline-block rounded-md">{group.items.length} variações</div>
                       </div>
