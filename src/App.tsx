@@ -113,7 +113,9 @@ function App() {
   
   const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'create_purchase'>('menu');
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
-  const [userView, setUserView] = useState<'stock' | 'cart'>('stock');
+  
+  // Atualizado para suportar as novas telas do revendedor
+  const [userView, setUserView] = useState<'dashboard' | 'stock' | 'cart' | 'orders'>('dashboard');
   
   const [cart, setCart] = useState<CartItem[]>([]);
   const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
@@ -152,6 +154,7 @@ function App() {
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   const [lastScannedFeedback, setLastScannedFeedback] = useState<{type: 'success' | 'error' | 'magic', msg: string} | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -185,7 +188,7 @@ function App() {
   const handleLogout = async () => {
     await signOut(auth);
     setSelectedRole(null);
-    setUserView('stock');
+    setUserView('dashboard');
     setAdminView('menu');
   };
 
@@ -253,6 +256,7 @@ function App() {
       setFilteredProducts(filtered);
     }
   }, [searchTerm, products]);
+
   // --- CÂMERA E FUNÇÕES DE SCANNER ---
   const startCamera = () => {
     if (scannerRef.current?.isScanning) return;
@@ -268,8 +272,70 @@ function App() {
   };
   const stopCamera = () => { if (scannerRef.current && scannerRef.current.isScanning) { scannerRef.current.stop().then(() => { scannerRef.current?.clear(); setIsScanning(false); }).catch(err => { console.error("Erro ao parar", err); setIsScanning(false); }); } };
   useEffect(() => { if (!showQuickEntry) { if (scannerRef.current) { try { if (scannerRef.current.isScanning) { scannerRef.current.stop().then(() => scannerRef.current?.clear()); } else { scannerRef.current.clear(); } } catch(e) {} } setIsScanning(false); setCameraLoading(false); } }, [showQuickEntry]);
-  const handleProcessCode = async (code: string) => { const term = code.trim(); if (!term) return; const now = Date.now(); if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; lastScanRef.current = { code: term, time: now }; if (term.startsWith('PED-')) { const order = purchases.find(p => p.orderCode === term); if (!order) { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido inválido` }); return; } if (order.status === 'received') { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido já recebido` }); return; } await handleReceiveOrder(order); setLastScannedFeedback({ type: 'magic', msg: `PEDIDO RECEBIDO!` }); return; } const found = products.find(p => (p.sku && p.sku.toLowerCase() === term.toLowerCase()) || (p.barcode && p.barcode.toLowerCase() === term.toLowerCase())); if (found) { playSound('success'); setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` }); setScannedItems(prev => { const existingIndex = prev.findIndex(item => item.product.id === found.id); if (existingIndex >= 0) { const newList = [...prev]; newList[existingIndex].count += 1; return newList; } else { return [{ product: found, count: 1 }, ...prev]; } }); setQuickScanInput(''); } else { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Produto não encontrado` }); } setTimeout(() => setLastScannedFeedback(null), 3000); };
-  const handleReceiveOrder = async (order: PurchaseOrder) => { setIsSavingBatch(true); try { const batch = writeBatch(db); const orderRef = doc(db, PURCHASES_COLLECTION, order.id); batch.update(orderRef, { status: 'received', receivedAt: serverTimestamp() }); for (const item of order.items) { const currentProduct = products.find(p => p.id === item.productId); if (currentProduct) { const productRef = doc(db, PRODUCTS_COLLECTION, item.productId); const newQty = currentProduct.quantity + item.quantity; batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: item.productId, productName: item.name, sku: item.sku, image: '', type: 'entry', amount: item.quantity, previousQty: currentProduct.quantity, newQty: newQty, timestamp: serverTimestamp() }); } } await batch.commit(); playSound('magic'); alert(`SUCESSO! Pedido ${order.orderCode} recebido.`); setShowQuickEntry(false); } catch (e) { console.error(e); playSound('error'); alert("Erro ao processar."); } finally { setIsSavingBatch(false); } };
+  
+  const handleProcessCode = async (code: string) => { 
+    const term = code.trim(); 
+    if (!term) return; 
+    const now = Date.now(); 
+    if (term === lastScanRef.current.code && now - lastScanRef.current.time < 2500) return; 
+    lastScanRef.current = { code: term, time: now }; 
+    if (term.startsWith('PED-')) { 
+      const order = purchases.find(p => p.orderCode === term); 
+      if (!order) { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido inválido` }); return; } 
+      if (order.status === 'received') { playSound('error'); setLastScannedFeedback({ type: 'error', msg: `Pedido já recebido` }); return; } 
+      await handleReceiveOrder(order); 
+      setLastScannedFeedback({ type: 'magic', msg: `PEDIDO RECEBIDO!` }); return; 
+    } 
+    const found = products.find(p => (p.sku && p.sku.toLowerCase() === term.toLowerCase()) || (p.barcode && p.barcode.toLowerCase() === term.toLowerCase())); 
+    if (found) { 
+      playSound('success'); 
+      setLastScannedFeedback({ type: 'success', msg: `Lido: ${found.name}` }); 
+      setScannedItems(prev => { 
+        const existingIndex = prev.findIndex(item => item.product.id === found.id); 
+        if (existingIndex >= 0) { 
+          const newList = [...prev]; 
+          newList[existingIndex].count += 1; 
+          return newList; 
+        } else { 
+          return [{ product: found, count: 1 }, ...prev]; 
+        } 
+      }); 
+      setQuickScanInput(''); 
+    } else { 
+      playSound('error'); 
+      setLastScannedFeedback({ type: 'error', msg: `Produto não encontrado` }); 
+    } 
+    setTimeout(() => setLastScannedFeedback(null), 3000); 
+  };
+  
+  const handleReceiveOrder = async (order: PurchaseOrder) => { 
+    setIsSavingBatch(true); 
+    try { 
+      const batch = writeBatch(db); 
+      const orderRef = doc(db, PURCHASES_COLLECTION, order.id); 
+      batch.update(orderRef, { status: 'received', receivedAt: serverTimestamp() }); 
+      for (const item of order.items) { 
+        const currentProduct = products.find(p => p.id === item.productId); 
+        if (currentProduct) { 
+          const productRef = doc(db, PRODUCTS_COLLECTION, item.productId); 
+          const newQty = currentProduct.quantity + item.quantity; 
+          batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); 
+          const historyRef = doc(collection(db, HISTORY_COLLECTION)); 
+          batch.set(historyRef, { productId: item.productId, productName: item.name, sku: item.sku, image: '', type: 'entry', amount: item.quantity, previousQty: currentProduct.quantity, newQty: newQty, timestamp: serverTimestamp() }); 
+        } 
+      } 
+      await batch.commit(); 
+      playSound('magic'); 
+      alert(`SUCESSO! Pedido ${order.orderCode} recebido.`); 
+      setShowQuickEntry(false); 
+    } catch (e) { 
+      console.error(e); 
+      playSound('error'); 
+      alert("Erro ao processar."); 
+    } finally { 
+      setIsSavingBatch(false); 
+    } 
+  };
   
   // --- CARRINHO DE COMPRAS E PEDIDOS ---
   const handleAddToPurchaseCart = (product: Product) => { setPurchaseCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); return [...prev, { product, quantity: 1 }]; }); };
@@ -286,6 +352,7 @@ function App() {
   const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
   const removeSize = (s: string) => setSizes(sizes.filter(item => item !== s));
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
+  
   const handleSaveBatch = async () => { if (!baseName || !baseSku || generatedRows.length === 0) { alert("Preencha dados."); return; } setIsSavingBatch(true); const processedImage = processImageUrl(baseImage); const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; try { const batch = writeBatch(db); generatedRows.forEach(row => { const docRef = doc(collection(db, PRODUCTS_COLLECTION)); batch.set(docRef, { name: baseName, image: processedImage, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, updatedAt: serverTimestamp() }); }); await batch.commit(); setBaseSku(''); setBaseName(''); setBaseImage(''); setBasePrice(''); setColors([]); setSizes([]); setAdminView('stock'); alert("Sucesso!"); } catch (e) { console.error(e); alert("Erro."); } finally { setIsSavingBatch(false); } };
   const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, PRODUCTS_COLLECTION, product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); alert("Erro."); } };
   const handleDeleteProduct = async (id: string) => { if (confirm('Excluir?')) await deleteDoc(doc(db, PRODUCTS_COLLECTION, id)); };
@@ -294,9 +361,11 @@ function App() {
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; const processedImage = processImageUrl(editingGroup.image || ''); try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); } };
   const handleQuickScanSubmit = (e: React.FormEvent) => { e.preventDefault(); handleProcessCode(quickScanInput); };
   const handleCommitQuickEntry = async () => { if (scannedItems.length === 0) return; setIsSavingBatch(true); try { const batch = writeBatch(db); scannedItems.forEach(item => { const docRef = doc(db, PRODUCTS_COLLECTION, item.product.id); const newTotal = item.product.quantity + item.count; batch.update(docRef, { quantity: newTotal, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, HISTORY_COLLECTION)); batch.set(historyRef, { productId: item.product.id, productName: item.product.name, sku: item.product.sku || '', image: item.product.image || '', type: 'entry', amount: item.count, previousQty: item.product.quantity, newQty: newTotal, timestamp: serverTimestamp() }); }); await batch.commit(); setScannedItems([]); setShowQuickEntry(false); alert("Entrada realizada!"); } catch (e) { console.error(e); alert("Erro ao salvar."); } finally { setIsSavingBatch(false); } };
+  
   const handleAddToCart = (product: Product) => { if (product.quantity <= 0) return alert("Produto sem estoque!"); setCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) { if (existing.quantity >= product.quantity) { alert("Máximo atingido!"); return prev; } return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); } return [...prev, { product, quantity: 1 }]; }); playSound('success'); };
   const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
   const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
+  
   const generateWhatsAppMessage = () => { if (!customerName) return alert("Digite o nome do cliente!"); if (cart.length === 0) return alert("Carrinho vazio!"); const now = new Date(); const orderId = Math.floor(Math.random() * 900000) + 100000; let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`; let totalPedido = 0; cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; const price = item.product.price || 0; const subtotal = price * item.quantity; totalPedido += subtotal; message += `${displaySku} --- ${item.quantity}x (${formatCurrency(price)})\n`; message += `-\n`; }); message += `\n💰 *TOTAL: ${formatCurrency(totalPedido)}*`; window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank'); };
   
   const groupProducts = (items: Product[]) => { const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; items.forEach(product => { const key = product.name; if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; groups[key].items.push(product); groups[key].total += product.quantity; }); Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1))); return groups; };
@@ -354,48 +423,225 @@ function App() {
     );
   }
 
-  // --- TELA DO REVENDEDOR (Limpa sem Mercado Livre) ---
+  // --- TELA DO REVENDEDOR (NOVO DESIGN PREMIUM) ---
   if (selectedRole === 'user') {
     return (
-      <div className="min-h-screen bg-slate-50 relative">
-        <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10">
-          <div className="max-w-md mx-auto flex flex-col gap-3">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                {userView === 'cart' ? (<button onClick={() => setUserView('stock')} className="bg-blue-700 p-2 rounded-lg hover:bg-blue-800 transition-colors"><ChevronLeft size={24}/></button>) : (<div className="bg-white/20 p-2 rounded-lg"><Bell className="w-6 h-6" /></div>)}
-                <div><h1 className="font-bold text-lg">{userView === 'stock' ? 'Estoque' : 'Seu Pedido'}</h1><div className="flex items-center gap-1.5">{userView === 'stock' ? (<><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span><span className="text-xs text-blue-100 font-medium">Online</span></>) : (<span className="text-xs text-blue-100 font-medium">Finalizar Compra</span>)}</div></div>
-              </div>
-              <div className="flex items-center gap-2">
-                {userView === 'stock' && (<button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>)}
-                <button onClick={handleLogout} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-blue-800 transition-colors"><LogOut size={16} /></button>
+      <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
+        
+        {/* MENU LATERAL (Sidebar - Desktop) */}
+        <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex h-screen sticky top-0">
+          <div className="p-6 text-center border-b border-slate-800">
+            <h1 className="text-2xl font-black text-blue-500 flex items-center justify-center gap-2">
+              <RefreshCw size={24} /> DropFast
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">Área do Revendedor</p>
+          </div>
+          <nav className="flex-1 p-4 space-y-2">
+            <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Layers size={20} /> Visão Geral</button>
+            <button onClick={() => setUserView('stock')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'stock' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Package size={20} /> Fazer Pedido</button>
+            <button onClick={() => setUserView('orders')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'orders' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><ClipboardList size={20} /> Meus Pedidos</button>
+          </nav>
+          <div className="p-4 border-t border-slate-800">
+            <button onClick={handleLogout} className="flex items-center gap-3 text-red-400 hover:text-red-300 w-full p-2"><LogOut size={20} /> Sair da conta</button>
+          </div>
+        </aside>
+
+        {/* CONTEÚDO PRINCIPAL */}
+        <main className="flex-1 flex flex-col h-screen overflow-y-auto">
+          
+          {/* Topbar (Mobile e Carrinho) */}
+          <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="md:hidden bg-blue-600 text-white p-2 rounded-lg"><RefreshCw size={20} /></div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800 hidden md:block">
+                  {userView === 'dashboard' ? 'Dashboard' : userView === 'stock' ? 'Catálogo de Produtos' : userView === 'cart' ? 'Finalizar Compra' : 'Histórico de Pedidos'}
+                </h2>
               </div>
             </div>
-          </div>
-        </header>
+            
+            <div className="flex items-center gap-4">
+              <button onClick={() => setUserView('cart')} className="relative bg-slate-100 hover:bg-slate-200 p-3 rounded-xl transition-colors text-slate-600">
+                <ShoppingCart size={20} />
+                {cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full animate-bounce">{cart.length}</span>)}
+              </button>
+              {/* Menu Mobile */}
+              <button onClick={handleLogout} className="md:hidden text-xs bg-slate-100 p-3 rounded-xl text-red-500"><LogOut size={20} /></button>
+            </div>
+          </header>
 
-        <main className="max-w-md mx-auto p-4 space-y-4">
-          {userView === 'stock' && (<><div className="relative"><Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-          <div className="space-y-3 pb-20">
-            {loading ? <p className="text-center text-slate-400">Carregando...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400">Nada encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (
-            <div key={name} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-14 h-14 shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
-                  <div className="min-w-0"><h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div></div>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  <div className="text-right"><div className="text-2xl font-bold text-blue-600">{group.total}</div><div className="text-[9px] text-slate-400 uppercase">Total</div></div>
-                  {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+          <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto w-full">
+
+            {/* --- VIEW: DASHBOARD --- */}
+            {userView === 'dashboard' && (
+              <div className="space-y-6 animate-in fade-in zoom-in duration-300">
+                {/* Métricas */}
+                <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                    <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center"><ShoppingBag size={28} /></div>
+                    <div><p className="text-sm text-slate-500 font-medium">Total Comprado (Mês)</p><p className="text-2xl font-black text-slate-800">R$ 0,00</p></div>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                    <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center"><Package size={28} /></div>
+                    <div><p className="text-sm text-slate-500 font-medium">Pedidos Realizados</p><p className="text-2xl font-black text-slate-800">0</p></div>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                    <div className="w-14 h-14 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center"><Zap size={28} /></div>
+                    <div><p className="text-sm text-slate-500 font-medium">Seu Top Produto</p><p className="text-lg font-bold text-slate-800 truncate">Nenhum ainda</p></div>
+                  </div>
+                </section>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Ferramentas e Links */}
+                  <section className="lg:col-span-2 space-y-4">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Smartphone className="text-blue-500"/> Central de Ferramentas</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <a href="#" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-green-500 hover:shadow-md transition flex items-center gap-4">
+                        <div className="w-12 h-12 bg-green-50 text-green-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition"><MessageCircle size={24} /></div>
+                        <div><h4 className="font-bold text-slate-800">Grupo VIP (WhatsApp)</h4><p className="text-xs text-slate-500 mt-1">Avisos e reposições.</p></div>
+                      </a>
+                      <a href="#" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-500 hover:shadow-md transition flex items-center gap-4">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition"><ImageIcon size={24} /></div>
+                        <div><h4 className="font-bold text-slate-800">Fotos p/ Divulgar</h4><p className="text-xs text-slate-500 mt-1">Acesse o Google Drive.</p></div>
+                      </a>
+                    </div>
+                  </section>
+
+                  {/* Atualizações */}
+                  <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                    <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4 mb-4 flex items-center gap-2"><Bell className="text-orange-500"/> Mural de Avisos</h3>
+                    <div className="space-y-4">
+                      <div className="flex gap-4">
+                        <div className="mt-1 w-2 h-2 rounded-full bg-blue-500 ring-4 ring-blue-50"></div>
+                        <div><p className="text-sm font-bold text-slate-800">Bem-vindo ao DropFast!</p><p className="text-xs text-slate-500 mt-1">Comece a vender agora mesmo.</p></div>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
-              
-              {expandedGroups[name] && (<div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">{group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200"><div className="flex items-center gap-2"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase">{p.color}</span></div><div className="flex items-center gap-3"><div className="text-right"><div className="text-sm font-bold text-green-600">{formatCurrency(p.price || 0)}</div></div>{p.quantity > 0 ? (<><span className="text-green-600 font-bold text-sm">{p.quantity} un</span><button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded-md transition-colors flex items-center gap-1 shadow-sm"><Plus size={14} /> <span className="text-[10px] font-bold uppercase">Add</span></button></>) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded">ESGOTADO</span>)}</div></div>))}</div>)}
-            </div>))}
-          </div></>)}
-          
-          {userView === 'cart' && (<div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden"><div className="p-4 border-b border-slate-100 bg-slate-50"><h2 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2></div><div className="p-4 space-y-4">{cart.length === 0 ? (<div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p><button onClick={() => setUserView('stock')} className="mt-4 text-blue-600 font-bold text-sm hover:underline">Voltar para o estoque</button></div>) : (<><div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">{cart.map(item => (<div key={item.product.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300"/>}</div><div><div className="text-xs font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div><div className="text-[10px] text-slate-500">{item.product.color} - {item.product.size}</div><div className="text-xs text-green-600 font-bold mt-1">{formatCurrency(item.product.price || 0)}</div></div></div><div className="flex items-center gap-2"><div className="flex items-center bg-white border border-slate-300 rounded overflow-hidden"><button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">-</button><span className="text-xs font-bold px-1">{item.quantity}</span><button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-2 py-1 hover:bg-slate-100 text-slate-600">+</button></div><button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div></div>))}</div><div className="bg-slate-100 p-3 rounded-lg flex justify-between items-center border border-slate-200"><span className="font-bold text-slate-600">TOTAL ESTIMADO:</span><span className="font-black text-xl text-green-700">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span></div><div className="pt-4 border-t border-slate-100"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Cliente Final*</label><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" /></div><button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${!customerName ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 hover:scale-[1.02]'}`}><MessageCircle size={20} /> ENVIAR PEDIDO NO ZAP</button></>)}</div></div>)}
+            )}
+
+            {/* --- VIEW: ESTOQUE --- */}
+            {userView === 'stock' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                 <div className="relative">
+                    <Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" />
+                    <input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" />
+                 </div>
+                 
+                 <div className="space-y-3 pb-20">
+                   {loading ? <p className="text-center text-slate-400">Carregando catálogo...</p> : Object.keys(groupedProducts).length === 0 ? <p className="text-center text-slate-400 py-10">Nenhum produto encontrado.</p> : Object.entries(groupedProducts).map(([name, group]) => (
+                     <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                       <div onClick={() => toggleGroup(name)} className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
+                         <div className="flex items-center gap-4 min-w-0">
+                           <div className="w-16 h-16 shrink-0 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex items-center justify-center">{group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-8 h-8" />}</div>
+                           <div className="min-w-0"><h3 className="font-bold text-slate-800 text-base leading-tight truncate">{name}</h3><div className="text-xs font-bold text-slate-500 mt-1">{group.info.sku ? group.info.sku.split('-')[0] : ''}</div><div className="text-[11px] text-slate-400 mt-1 bg-slate-100 inline-block px-2 py-0.5 rounded-full">{group.items.length} variações</div></div>
+                         </div>
+                         <div className="flex items-center gap-4">
+                           <div className="text-right"><div className="text-2xl font-black text-blue-600">{group.total}</div><div className="text-[10px] text-slate-400 uppercase font-bold">No Estoque</div></div>
+                           {expandedGroups[name] ? <ChevronUp size={24} className="text-slate-400" /> : <ChevronDown size={24} className="text-slate-400" />}
+                         </div>
+                       </div>
+                       
+                       {expandedGroups[name] && (<div className="bg-slate-50 border-t border-slate-100 p-3 space-y-2 animate-in slide-in-from-top-2">
+                         {group.items.map(p => (
+                           <div key={p.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                             <div className="flex items-center gap-3">
+                               <span className="text-sm font-black bg-slate-800 text-white w-10 h-10 flex items-center justify-center rounded-lg">{p.size}</span>
+                               <span className="text-xs text-slate-600 uppercase font-bold">{p.color}</span>
+                             </div>
+                             <div className="flex items-center gap-4">
+                               <div className="text-sm font-black text-green-600">{formatCurrency(p.price || 0)}</div>
+                               {p.quantity > 0 ? (
+                                 <div className="flex items-center gap-3">
+                                   <span className="text-slate-600 font-medium text-xs bg-slate-100 px-2 py-1 rounded">{p.quantity} unid.</span>
+                                   <button onClick={() => handleAddToCart(p)} className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition-colors flex items-center gap-1 shadow-md hover:scale-105 active:scale-95"><Plus size={16} /> <span className="text-xs font-bold uppercase hidden sm:inline">Add</span></button>
+                                 </div>
+                               ) : (<span className="text-red-500 font-bold text-xs bg-red-50 px-2 py-1 rounded border border-red-100">ESGOTADO</span>)}
+                             </div>
+                           </div>
+                         ))}
+                       </div>)}
+                     </div>
+                   ))}
+                 </div>
+              </div>
+            )}
+
+            {/* --- VIEW: ORDERS (HISTÓRICO DE PEDIDOS) --- */}
+            {userView === 'orders' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ClipboardList className="text-blue-600"/> Histórico de Pedidos</h3>
+                </div>
+                <div className="p-10 text-center text-slate-500">
+                    <Truck size={48} className="mx-auto mb-4 opacity-20" />
+                    <p className="font-medium text-slate-800">Nenhum pedido registrado ainda.</p>
+                    <p className="text-sm mt-2">Assim que você fizer a primeira compra, ela aparecerá aqui com o status.</p>
+                </div>
+              </div>
+            )}
+
+            {/* --- VIEW: CARRINHO --- */}
+            {userView === 'cart' && (
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-2xl mx-auto animate-in fade-in zoom-in-95">
+                <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                  <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2>
+                  <button onClick={() => setUserView('stock')} className="text-sm font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1"><ChevronLeft size={16}/> Voltar</button>
+                </div>
+                <div className="p-6 space-y-6">
+                  {cart.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p></div>
+                  ) : (
+                    <>
+                      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+                        {cart.map(item => (
+                          <div key={item.product.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={20} className="text-slate-300"/>}</div>
+                              <div>
+                                <div className="text-sm font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div>
+                                <div className="text-xs text-slate-500 mt-0.5"><span className="font-bold">{item.product.color}</span> • Tam: <span className="font-bold">{item.product.size}</span></div>
+                                <div className="text-sm text-green-600 font-black mt-1">{formatCurrency(item.product.price || 0)}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                                <button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-3 py-2 hover:bg-slate-200 text-slate-600 font-bold">-</button>
+                                <span className="text-sm font-black w-6 text-center">{item.quantity}</span>
+                                <button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-3 py-2 hover:bg-slate-200 text-slate-600 font-bold">+</button>
+                              </div>
+                              <button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="bg-slate-900 p-4 rounded-xl flex justify-between items-center border border-slate-800 shadow-inner text-white">
+                        <span className="font-bold text-slate-400">TOTAL ESTIMADO:</span>
+                        <span className="font-black text-2xl text-green-400">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span>
+                      </div>
+                      <div className="pt-2">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Nome do Cliente Final*</label>
+                        <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border-2 border-slate-200 rounded-xl p-4 text-base focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none transition-all" />
+                      </div>
+                      <button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-5 rounded-xl font-black text-white flex items-center justify-center gap-2 shadow-xl transition-all ${!customerName ? 'bg-slate-300 cursor-not-allowed text-slate-500' : 'bg-green-500 hover:bg-green-600 hover:scale-[1.02] active:scale-95'}`}>
+                        <MessageCircle size={24} /> ENVIAR PEDIDO E FINALIZAR
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            
+          </div>
         </main>
+
+        {/* Menu Inferior (Mobile Only) */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+          <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
+          <button onClick={() => setUserView('stock')} className={`flex flex-col items-center gap-1 ${userView === 'stock' ? 'text-blue-600' : 'text-slate-400'}`}><Package size={20} /><span className="text-[10px] font-bold">Fazer Pedido</span></button>
+          <button onClick={() => setUserView('orders')} className={`flex flex-col items-center gap-1 ${userView === 'orders' ? 'text-blue-600' : 'text-slate-400'}`}><ClipboardList size={20} /><span className="text-[10px] font-bold">Meus Pedidos</span></button>
+        </nav>
       </div>
     );
   }
