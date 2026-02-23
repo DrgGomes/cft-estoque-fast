@@ -155,7 +155,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // ADICIONADO 'predictive' AOS MENUS DO ADMIN
   const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'notices' | 'links' | 'showcases' | 'customers' | 'tickets' | 'predictive'>('menu');
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   
@@ -289,10 +288,8 @@ function App() {
      }
   }, [user, selectedRole]);
 
-  // Modificado para carregar histórico sempre no admin, útil para dashboard preditivo
   useEffect(() => {
     if (selectedRole === 'admin') {
-      // Carrega até 1000 itens de histórico para a predição funcionar bem (ajustável)
       const unsubHist = onSnapshot(query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(1000)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
       const unsubPurch = onSnapshot(query(collection(db, PURCHASES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setPurchases(snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder))));
       const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -328,7 +325,6 @@ function App() {
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-      // Calcular saídas (vendas) por produto
       const exitStats: Record<string, number> = {};
       history.forEach(h => {
           if (h.type === 'exit') {
@@ -339,32 +335,26 @@ function App() {
           }
       });
 
-      // Avaliar os produtos
       const insights = products.map(p => {
           const exits30d = exitStats[p.id] || 0;
-          const velocityPerDay = exits30d / 30; // Média de venda por dia
-          // Se vende > 0, quantos dias dura o estoque atual? Se não vende, infinito.
+          const velocityPerDay = exits30d / 30; 
           const daysRemaining = velocityPerDay > 0 ? (p.quantity / velocityPerDay) : Infinity;
-
           return { ...p, exits30d, velocityPerDay, daysRemaining };
       });
 
-      // 1. URGENTE: Filha de Produção (Produtos vendendo bem, com menos de 15 dias de estoque ou <= 4 de qtd)
       const toProduce = insights
           .filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0)
-          .sort((a, b) => a.daysRemaining - b.daysRemaining) // Mais urgente primeiro
+          .sort((a, b) => a.daysRemaining - b.daysRemaining)
           .slice(0, 10);
 
-      // 2. EM ALTA: Campeões de venda (Últimos 30 dias)
       const topSellers = [...insights]
           .filter(p => p.exits30d > 0)
-          .sort((a, b) => b.exits30d - a.exits30d) // Mais vendidos primeiro
+          .sort((a, b) => b.exits30d - a.exits30d)
           .slice(0, 10);
 
-      // 3. ENCALHADOS: Estoque parado (Quantidade alta, 0 saídas em 30 dias)
       const deadStock = insights
           .filter(p => p.quantity > 10 && p.exits30d === 0)
-          .sort((a, b) => b.quantity - a.quantity) // Maior quantidade primeiro
+          .sort((a, b) => b.quantity - a.quantity)
           .slice(0, 10);
 
       return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
@@ -423,7 +413,6 @@ function App() {
   
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
-
 
   // ==========================================
   // RENDERIZAÇÃO MODO VITRINE (CATÁLOGO PÚBLICO)
@@ -508,7 +497,6 @@ function App() {
           </div>
       );
   }
-
 
   // ==========================================
   // RENDERIZAÇÃO: LOGIN
@@ -997,7 +985,9 @@ function App() {
                             <h3 className="font-bold text-blue-500">Estoque Encalhado</h3>
                         </div>
                         <div className="p-4 space-y-3">
-                        <p className="text-xs text-slate-400 mb-3">Produtos com muito estoque (&gt;10) e ZERO vendas em 30 dias. Faça uma promoção!</p>                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-blue-900/30 flex justify-between items-center">
+                            <p className="text-xs text-slate-400 mb-3">Produtos com muito estoque (mais de 10) e ZERO vendas em 30 dias. Faça uma promoção!</p>
+                            {predictiveData.deadStock.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Estoque girando bem.</p> : predictiveData.deadStock.map(p => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-blue-900/30 flex justify-between items-center">
                                     <div>
                                         <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
                                         <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
