@@ -997,9 +997,7 @@ function App() {
                             <h3 className="font-bold text-blue-500">Estoque Encalhado</h3>
                         </div>
                         <div className="p-4 space-y-3">
-                            <p className="text-xs text-slate-400 mb-3">Produtos com muito estoque (>10) e ZERO vendas em 30 dias. Faça uma promoção!</p>
-                            {predictiveData.deadStock.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Estoque girando bem.</p> : predictiveData.deadStock.map(p => (
-                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-blue-900/30 flex justify-between items-center">
+                        <p className="text-xs text-slate-400 mb-3">Produtos com muito estoque (&gt;10) e ZERO vendas em 30 dias. Faça uma promoção!</p>                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-blue-900/30 flex justify-between items-center">
                                     <div>
                                         <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
                                         <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
