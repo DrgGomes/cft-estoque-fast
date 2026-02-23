@@ -28,7 +28,7 @@ import {
   Layers, Pencil, Zap, AlertCircle, Camera, StopCircle,
   ChevronLeft, ClipboardList, ChevronDown, ChevronUp,
   ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag,
-  LayoutGrid, Megaphone, Upload
+  LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -75,6 +75,20 @@ const processImageUrl = (url: string) => {
   return url;
 };
 
+// --- RENDERIZADOR DE ÍCONES DINÂMICO ---
+const renderDynamicIcon = (iconName: string, size = 24, className = "") => {
+  switch (iconName) {
+    case 'MessageCircle': return <MessageCircle size={size} className={className} />;
+    case 'ImageIcon': return <ImageIcon size={size} className={className} />;
+    case 'Video': return <Video size={size} className={className} />;
+    case 'Globe': return <Globe size={size} className={className} />;
+    case 'ShoppingBag': return <ShoppingBag size={size} className={className} />;
+    case 'FileText': return <FileText size={size} className={className} />;
+    case 'Smartphone': return <Smartphone size={size} className={className} />;
+    default: return <Link2 size={size} className={className} />;
+  }
+};
+
 // --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDG8hpJggHKpWBLaILx2WJrD-Jw7XcKvRg",
@@ -93,6 +107,7 @@ const PRODUCTS_COLLECTION = `artifacts/${appId}/public/data/products`;
 const HISTORY_COLLECTION = `artifacts/${appId}/public/data/history`;
 const PURCHASES_COLLECTION = `artifacts/${appId}/public/data/purchases`;
 const NOTICES_COLLECTION = `artifacts/${appId}/public/data/notices`; 
+const QUICKLINKS_COLLECTION = `artifacts/${appId}/public/data/quickLinks`;
 
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
@@ -102,6 +117,7 @@ type HistoryItem = { id: string; productId: string; productName: string; sku: st
 type CartItem = { product: Product; quantity: number; };
 type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 'pending' | 'received'; items: { productId: string; sku: string; name: string; quantity: number }[]; totalItems: number; createdAt: any; receivedAt?: any; };
 type Notice = { id: string; type: 'text' | 'banner'; title: string; content?: string; imageUrl?: string; createdAt: any; };
+type QuickLink = { id: string; title: string; subtitle: string; icon: string; url: string; order: number; createdAt?: any; };
 
 function App() {
   const [user, setUser] = useState<any>(null);
@@ -110,12 +126,13 @@ function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
   
   const [selectedRole, setSelectedRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'create_purchase' | 'notices'>('menu');
+  const [adminView, setAdminView] = useState<'menu' | 'stock' | 'add' | 'history' | 'purchases' | 'create_purchase' | 'notices' | 'links'>('menu');
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   
   const [userView, setUserView] = useState<'dashboard' | 'catalog' | 'cart' | 'orders'>('dashboard');
@@ -155,6 +172,16 @@ function App() {
   const [noticeContent, setNoticeContent] = useState('');
   const [noticeImage, setNoticeImage] = useState('');
 
+  // Estados Admin - Links Rápidos
+  const [linkTitle, setLinkTitle] = useState('');
+  const [linkSubtitle, setLinkSubtitle] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkIcon, setLinkIcon] = useState('Link2');
+  const [linkOrder, setLinkOrder] = useState('1');
+
+  // Estados User - Modal de Aviso
+  const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+
   // Estados Scanner
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -163,9 +190,7 @@ function App() {
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanError, setScanError] = useState('');
   const [lastScannedFeedback, setLastScannedFeedback] = useState<{type: 'success' | 'error' | 'magic', msg: string} | null>(null);
-  const [showCamera, setShowCamera] = useState(false);
 
-  const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
@@ -219,7 +244,6 @@ function App() {
         const previousProducts = prevProductsRef.current;
         const soldOutItems = items.filter(newItem => {
           const oldItem = previousProducts.find(p => p.id === newItem.id);
-          // Atualizado para considerar <= 4 como zerado na notificação também
           return oldItem && oldItem.quantity > 4 && newItem.quantity <= 4;
         });
         if (soldOutItems.length > 0) {
@@ -241,7 +265,15 @@ function App() {
       setNotices(items);
     });
 
-    return () => { unsubscribe(); unsubscribeNotices(); };
+    // Buscar Botões Rápidos
+    const qLinks = query(collection(db, QUICKLINKS_COLLECTION), orderBy('order', 'asc'));
+    const unsubscribeLinks = onSnapshot(qLinks, (snapshot) => {
+      const items: QuickLink[] = [];
+      snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as QuickLink); });
+      setQuickLinks(items);
+    });
+
+    return () => { unsubscribe(); unsubscribeNotices(); unsubscribeLinks(); };
   }, [loading, selectedRole]);
 
   useEffect(() => {
@@ -278,21 +310,6 @@ function App() {
   }, [searchTerm, products]);
 
   // --- CÂMERA E FUNÇÕES DE SCANNER ---
-  const startCamera = () => {
-    if (scannerRef.current?.isScanning) return;
-    setScanError('');
-    setCameraLoading(true);
-    setTimeout(() => {
-        if (!document.getElementById("reader")) { setScanError("Erro: Elemento de vídeo não encontrado."); setCameraLoading(false); return; }
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-        html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => { handleProcessCode(decodedText); }, (errorMessage) => {}).then(() => { setIsScanning(true); setCameraLoading(false); }).catch(err => { console.error("Erro ao iniciar câmera", err); setScanError("Erro ao abrir câmera. Verifique permissões."); setCameraLoading(false); setIsScanning(false); });
-    }, 500);
-  };
-  const stopCamera = () => { if (scannerRef.current && scannerRef.current.isScanning) { scannerRef.current.stop().then(() => { scannerRef.current?.clear(); setIsScanning(false); }).catch(err => { console.error("Erro ao parar", err); setIsScanning(false); }); } };
-  useEffect(() => { if (!showQuickEntry) { if (scannerRef.current) { try { if (scannerRef.current.isScanning) { scannerRef.current.stop().then(() => scannerRef.current?.clear()); } else { scannerRef.current.clear(); } } catch(e) {} } setIsScanning(false); setCameraLoading(false); } }, [showQuickEntry]);
-  
   const handleProcessCode = async (code: string) => { 
     const term = code.trim(); 
     if (!term) return; 
@@ -357,23 +374,17 @@ function App() {
     } 
   };
   
-  // --- CARRINHO DE COMPRAS E PEDIDOS ---
-  const handleAddToPurchaseCart = (product: Product) => { setPurchaseCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); return [...prev, { product, quantity: 1 }]; }); };
-  const handleRemoveFromPurchaseCart = (id: string) => setPurchaseCart(prev => prev.filter(i => i.product.id !== id));
-  const handleUpdatePurchaseCartQty = (id: string, delta: number) => { setPurchaseCart(prev => prev.map(item => { if (item.product.id === id) return { ...item, quantity: Math.max(0, item.quantity + delta) }; return item; }).filter(item => item.quantity > 0)); };
-  const handleCreatePurchaseOrder = async () => { if (!supplierName || purchaseCart.length === 0) return alert("Defina fornecedor e produtos."); setIsSavingBatch(true); try { const orderCode = `PED-${Math.floor(Math.random() * 900000) + 100000}`; const itemsData = purchaseCart.map(i => ({ productId: i.product.id, sku: i.product.sku || '', name: i.product.name, quantity: i.quantity })); await addDoc(collection(db, PURCHASES_COLLECTION), { orderCode, supplier: supplierName, status: 'pending', items: itemsData, totalItems: purchaseCart.reduce((a, b) => a + b.quantity, 0), createdAt: serverTimestamp() }); setPurchaseCart([]); setSupplierName(''); setAdminView('purchases'); setPurchaseStep('select'); playSound('success'); alert(`Pedido ${orderCode} criado!`); } catch (e) { console.error(e); alert("Erro ao criar pedido."); } finally { setIsSavingBatch(false); } };
-  
   // --- FUNÇÕES DE AVISOS (ADMIN) ---
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string>>) => {
     const file = e.target.files?.[0];
     if (file) {
-       if(file.size > 800000) { // Limita pra não explodir o banco com imagem gigantesca
+       if(file.size > 800000) { 
            alert("A imagem é muito grande. Escolha uma foto menor que 800KB.");
            return;
        }
        const reader = new FileReader();
        reader.onloadend = () => {
-          setNoticeImage(reader.result as string);
+          setter(reader.result as string);
        };
        reader.readAsDataURL(file);
     }
@@ -410,6 +421,35 @@ function App() {
       await deleteDoc(doc(db, NOTICES_COLLECTION, id));
     }
   };
+
+  // --- FUNÇÕES DE LINKS RÁPIDOS (ADMIN) ---
+  const handleSaveLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!linkTitle || !linkUrl) return alert("Preencha título e link.");
+    setIsSavingBatch(true);
+    try {
+      await addDoc(collection(db, QUICKLINKS_COLLECTION), {
+        title: linkTitle,
+        subtitle: linkSubtitle,
+        icon: linkIcon,
+        url: linkUrl,
+        order: parseInt(linkOrder) || 1,
+        createdAt: serverTimestamp()
+      });
+      setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1');
+      alert("Botão salvo com sucesso!");
+    } catch (e) {
+      console.error(e); alert("Erro ao salvar botão.");
+    } finally {
+      setIsSavingBatch(false);
+    }
+  };
+
+  const handleDeleteLink = async (id: string) => {
+    if(confirm('Apagar este botão?')) {
+      await deleteDoc(doc(db, QUICKLINKS_COLLECTION, id));
+    }
+  };
   
   // --- GERADOR DE PRODUTOS E CRUD ---
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
@@ -426,7 +466,6 @@ function App() {
   const openGroupEdit = (groupName: string, groupData: any) => { setEditingGroup({ oldName: groupName, name: groupData.info.name, image: groupData.info.image || '', price: groupData.info.price || 0, items: groupData.items }); };
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; const processedImage = processImageUrl(editingGroup.image || ''); try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, PRODUCTS_COLLECTION, item.id); batch.update(ref, { name: editingGroup.name, image: processedImage, price: priceNumber, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Modelo inteiro atualizado com sucesso!"); } catch (error) { console.error(error); alert("Erro ao atualizar o modelo."); } finally { setIsSavingBatch(false); } };
   
-  const handleAddToCart = (product: Product) => { if (product.quantity <= 4) return alert("Produto ZERADO no estoque!"); setCart(prev => { const existing = prev.find(item => item.product.id === product.id); if (existing) { if (existing.quantity >= (product.quantity - 4)) { alert("Você já selecionou todo o estoque disponível deste item!"); return prev; } return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item); } return [...prev, { product, quantity: 1 }]; }); playSound('success'); };
   const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
   const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > (item.product.quantity - 4)) { alert("Quantidade máxima disponível atingida!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
   
@@ -492,6 +531,36 @@ function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
         
+        {/* MODAL DE AVISO (POP-UP) */}
+        {selectedNotice && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="flex justify-between items-center p-4 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            {selectedNotice.type === 'banner' ? <ImageIcon className="text-blue-500" size={18}/> : <Bell className="text-orange-500" size={18}/>}
+                            Detalhes do Aviso
+                        </h3>
+                        <button onClick={() => setSelectedNotice(null)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-600"><X size={20}/></button>
+                    </div>
+                    <div className="overflow-y-auto p-6 space-y-4">
+                        {selectedNotice.type === 'banner' && selectedNotice.imageUrl && (
+                            <img src={selectedNotice.imageUrl} className="w-full rounded-xl object-cover border border-slate-200" />
+                        )}
+                        <h2 className="text-2xl font-black text-slate-800">{selectedNotice.title}</h2>
+                        <p className="text-sm text-slate-400">{formatDate(selectedNotice.createdAt)}</p>
+                        {selectedNotice.content && (
+                            <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                {selectedNotice.content}
+                            </div>
+                        )}
+                    </div>
+                    <div className="p-4 border-t border-slate-100">
+                        <button onClick={() => setSelectedNotice(null)} className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold transition-colors">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* MENU LATERAL (Sidebar - Desktop) */}
         <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex h-screen sticky top-0">
           <div className="p-6 text-center border-b border-slate-800">
@@ -516,7 +585,6 @@ function App() {
         {/* CONTEÚDO PRINCIPAL */}
         <main className="flex-1 flex flex-col h-screen overflow-y-auto">
           
-          {/* Topbar (Mobile e Carrinho) */}
           <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100">
             <div className="flex items-center gap-3">
               <div className="md:hidden bg-blue-600 text-white p-2 rounded-lg"><RefreshCw size={20} /></div>
@@ -528,14 +596,6 @@ function App() {
             </div>
             
             <div className="flex items-center gap-4">
-              {/* O CARRINHO ESTÁ OCULTO NO TOPO, APENAS APARECE NO FIM DO PEDIDO SE VOCÊ REATIVAR
-              <button onClick={() => setUserView('cart')} className="relative bg-slate-100 hover:bg-slate-200 p-3 rounded-xl transition-colors text-slate-600">
-                <ShoppingCart size={20} />
-                {cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full animate-bounce">{cart.length}</span>)}
-              </button>
-              */}
-              
-              {/* Menu Mobile */}
               <button onClick={handleLogout} className="md:hidden text-xs bg-slate-100 p-3 rounded-xl text-red-500"><LogOut size={20} /></button>
             </div>
           </header>
@@ -546,17 +606,22 @@ function App() {
             {userView === 'dashboard' && (
               <div className="space-y-6 animate-in fade-in zoom-in duration-300 pb-24 md:pb-6">
                 
-                {/* Botões Rápidos */}
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <a href="#" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-green-500 hover:shadow-md transition flex items-center gap-4">
-                    <div className="w-14 h-14 bg-green-50 text-green-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition"><MessageCircle size={28} /></div>
-                    <div><h4 className="font-bold text-slate-800 text-lg">Grupo VIP (WhatsApp)</h4><p className="text-sm text-slate-500 mt-1">Avisos de reposição e novidades em tempo real.</p></div>
-                  </a>
-                  <a href="#" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-500 hover:shadow-md transition flex items-center gap-4">
-                    <div className="w-14 h-14 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition"><ImageIcon size={28} /></div>
-                    <div><h4 className="font-bold text-slate-800 text-lg">Materiais de Divulgação</h4><p className="text-sm text-slate-500 mt-1">Acesse as fotos e vídeos no Google Drive.</p></div>
-                  </a>
-                </section>
+                {/* Botões Rápidos (Dinâmicos via Firebase) */}
+                {quickLinks.length > 0 && (
+                  <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {quickLinks.map(link => (
+                      <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-500 hover:shadow-md transition flex items-center gap-4">
+                        <div className="w-14 h-14 bg-slate-100 text-slate-700 group-hover:bg-blue-50 group-hover:text-blue-600 rounded-xl flex items-center justify-center transition">
+                          {renderDynamicIcon(link.icon, 28)}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-800 text-lg group-hover:text-blue-600 transition-colors">{link.title}</h4>
+                          <p className="text-sm text-slate-500 mt-1">{link.subtitle}</p>
+                        </div>
+                      </a>
+                    ))}
+                  </section>
+                )}
 
                 {/* Mural de Avisos e Banners */}
                 <section className="space-y-4">
@@ -568,22 +633,26 @@ function App() {
                           <p className="text-slate-500 font-medium">Nenhum aviso no momento.</p>
                       </div>
                   ) : (
-                      <div className="grid grid-cols-1 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {notices.map(notice => (
-                           // FUNDO CINZA COM BORDAS PARA DESTACAR BEM DO FUNDO BRANCO
-                           <div key={notice.id} className="bg-slate-200 rounded-2xl shadow-md border border-slate-300 overflow-hidden relative">
+                           <div onClick={() => setSelectedNotice(notice)} key={notice.id} className="bg-slate-200 hover:bg-slate-300 cursor-pointer rounded-2xl shadow-sm border border-slate-300 overflow-hidden relative transition-colors group">
                               {notice.type === 'banner' && notice.imageUrl && (
-                                  <div className="w-full h-48 sm:h-64 bg-slate-300">
-                                      <img src={notice.imageUrl} alt={notice.title} className="w-full h-full object-cover" />
+                                  <div className="w-full h-40 bg-slate-300">
+                                      <img src={notice.imageUrl} alt={notice.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                   </div>
                               )}
-                              <div className="p-6">
+                              <div className="p-5">
                                   <div className="flex items-center gap-2 mb-2">
-                                      {notice.type === 'banner' ? <ImageIcon size={20} className="text-blue-600"/> : <Bell size={20} className="text-orange-600"/>}
-                                      <h4 className="font-black text-xl text-slate-800">{notice.title}</h4>
+                                      {notice.type === 'banner' ? <ImageIcon size={18} className="text-blue-600"/> : <Bell size={18} className="text-orange-600"/>}
+                                      <h4 className="font-black text-lg text-slate-800 line-clamp-1">{notice.title}</h4>
                                   </div>
-                                  {notice.content && <p className="text-slate-700 whitespace-pre-wrap font-medium">{notice.content}</p>}
-                                  <p className="text-xs text-slate-500 mt-4 font-bold">{formatDate(notice.createdAt)}</p>
+                                  {notice.content && (
+                                      <p className="text-slate-500 text-sm line-clamp-2 mt-1">{notice.content}</p>
+                                  )}
+                                  <div className="mt-4 flex items-center justify-between">
+                                     <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(notice.createdAt)}</p>
+                                     <span className="text-xs font-bold text-blue-600 group-hover:underline flex items-center gap-1">Ver mais <MousePointerClick size={12}/></span>
+                                  </div>
                               </div>
                            </div>
                         ))}
@@ -596,13 +665,11 @@ function App() {
             {/* --- VIEW: CATÁLOGO (GRID COM FOTOS GRANDES E ESTOQUE OCULTO) --- */}
             {userView === 'catalog' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                 {/* Barra de Pesquisa */}
                  <div className="relative">
                     <Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" />
                     <input type="text" placeholder="Buscar modelo, cor ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" />
                  </div>
                  
-                 {/* Grade de Produtos */}
                  <div className="pb-24">
                    {loading ? (
                        <p className="text-center text-slate-400">Carregando catálogo...</p>
@@ -612,7 +679,6 @@ function App() {
                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
                            {Object.entries(groupedProducts).map(([name, group]) => (
                                <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
-                                   {/* Foto Grande */}
                                    <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
                                        {group.info.image ? (
                                            <img src={group.info.image} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
@@ -621,7 +687,6 @@ function App() {
                                        )}
                                    </div>
                                    
-                                   {/* Info Resumida */}
                                    <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
                                        <div>
                                            <h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3>
@@ -635,29 +700,22 @@ function App() {
                                        </div>
                                    </div>
 
-                                   {/* Lista de Variações Expandida */}
                                    {expandedGroups[name] && (
                                        <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 max-h-64 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2">
                                            {group.items.map(p => (
-                                               <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                                               <div key={p.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                                                    <div className="flex flex-col">
-                                                       <span className="text-[10px] text-slate-500 font-bold uppercase">{p.color}</span>
-                                                       <div className="flex items-center gap-2 mt-0.5">
-                                                           <span className="text-xs font-black bg-slate-800 text-white px-1.5 py-0.5 rounded">{p.size}</span>
-                                                           
-                                                           {/* REGRA DO ESTOQUE CEGO: <= 4 É ZERADO */}
-                                                           {p.quantity > 4 ? (
-                                                              <span className="text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-1.5 py-0.5 rounded">Em Estoque</span>
-                                                           ) : (
-                                                              <span className="text-[10px] font-bold text-red-600 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded">Estoque ZERADO</span>
-                                                           )}
+                                                       <span className="text-xs text-slate-600 font-bold uppercase mb-1">{p.color}</span>
+                                                       <div className="flex items-center gap-2">
+                                                           <span className="text-sm font-black bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span>
                                                        </div>
                                                    </div>
                                                    <div>
+                                                       {/* APENAS O STATUS DE ESTOQUE - BOTÃO DE '+' REMOVIDO */}
                                                        {p.quantity > 4 ? (
-                                                           <button onClick={(e) => { e.stopPropagation(); handleAddToCart(p); }} className="bg-blue-600 hover:bg-blue-700 text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-sm active:scale-95"><Plus size={16} /></button>
+                                                          <span className="text-xs font-bold text-green-700 bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg shadow-sm">Em Estoque</span>
                                                        ) : (
-                                                           <div className="w-8 h-8 rounded-lg border border-red-200 bg-red-50 flex items-center justify-center"><X size={16} className="text-red-400" /></div>
+                                                          <span className="text-xs font-bold text-red-600 bg-red-100 border border-red-200 px-3 py-1.5 rounded-lg shadow-sm">Estoque ZERADO</span>
                                                        )}
                                                    </div>
                                                </div>
@@ -669,19 +727,6 @@ function App() {
                        </div>
                    )}
                  </div>
-
-                 {/* Botão de Finalizar que substitui o ícone do topo */}
-                 {cart.length > 0 && (
-                   <div className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-80 z-50 animate-in slide-in-from-bottom-10">
-                      <button onClick={() => setUserView('cart')} className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-2xl p-4 rounded-2xl flex justify-between items-center transition-transform hover:scale-105">
-                         <div className="flex items-center gap-3">
-                            <div className="bg-blue-800 w-10 h-10 rounded-full flex items-center justify-center font-black">{cart.length}</div>
-                            <span className="font-bold text-sm">Avançar para o Carrinho</span>
-                         </div>
-                         <ShoppingCart size={24} />
-                      </button>
-                   </div>
-                 )}
               </div>
             )}
 
@@ -695,57 +740,6 @@ function App() {
                     <h2 className="text-2xl font-black text-slate-800 mb-2">Função em Breve!</h2>
                     <p className="text-slate-500 mb-6">Estamos construindo um histórico completo para você acompanhar o status de todos os seus pedidos de forma automática.</p>
                     <button onClick={() => setUserView('catalog')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition-colors w-full">Voltar para o Catálogo</button>
-                </div>
-              </div>
-            )}
-
-            {/* --- VIEW: CARRINHO --- */}
-            {userView === 'cart' && (
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-2xl mx-auto animate-in fade-in zoom-in-95 pb-24 md:pb-6">
-                <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                  <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg"><ShoppingCart className="text-blue-600" /> Resumo do Pedido</h2>
-                  <button onClick={() => setUserView('catalog')} className="text-sm font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1"><ChevronLeft size={16}/> Voltar</button>
-                </div>
-                <div className="p-6 space-y-6">
-                  {cart.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400"><ShoppingCart size={48} className="mx-auto mb-2 opacity-20" /><p>Seu carrinho está vazio.</p></div>
-                  ) : (
-                    <>
-                      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2 hidden-scroll">
-                        {cart.map(item => (
-                          <div key={item.product.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon size={20} className="text-slate-300"/>}</div>
-                              <div>
-                                <div className="text-sm font-bold text-slate-800">{item.product.sku ? item.product.sku.split('-')[0] : item.product.name}</div>
-                                <div className="text-xs text-slate-500 mt-0.5"><span className="font-bold">{item.product.color}</span> • Tam: <span className="font-bold">{item.product.size}</span></div>
-                                <div className="text-sm text-green-600 font-black mt-1">{formatCurrency(item.product.price || 0)}</div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-                                <button onClick={() => handleUpdateCartQty(item.product.id, -1)} className="px-3 py-2 hover:bg-slate-200 text-slate-600 font-bold">-</button>
-                                <span className="text-sm font-black w-6 text-center">{item.quantity}</span>
-                                <button onClick={() => handleUpdateCartQty(item.product.id, 1)} className="px-3 py-2 hover:bg-slate-200 text-slate-600 font-bold">+</button>
-                              </div>
-                              <button onClick={() => handleRemoveFromCart(item.product.id)} className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="bg-slate-900 p-4 rounded-xl flex justify-between items-center border border-slate-800 shadow-inner text-white">
-                        <span className="font-bold text-slate-400">TOTAL ESTIMADO:</span>
-                        <span className="font-black text-2xl text-green-400">{formatCurrency(cart.reduce((acc, item) => acc + ((item.product.price || 0) * item.quantity), 0))}</span>
-                      </div>
-                      <div className="pt-2">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Nome do Cliente Final*</label>
-                        <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Ex: Maria Silva" className="w-full border-2 border-slate-200 rounded-xl p-4 text-base focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none transition-all" />
-                      </div>
-                      <button onClick={generateWhatsAppMessage} disabled={!customerName} className={`w-full py-5 rounded-xl font-black text-white flex items-center justify-center gap-2 shadow-xl transition-all ${!customerName ? 'bg-slate-300 cursor-not-allowed text-slate-500' : 'bg-green-500 hover:bg-green-600 hover:scale-[1.02] active:scale-95'}`}>
-                        <MessageCircle size={24} /> ENVIAR PEDIDO NO ZAP
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
             )}
@@ -789,10 +783,11 @@ function App() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <button onClick={() => setAdminView('stock')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Package size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Estoque</h3></div></button>
             <button onClick={() => { setAdminView('purchases'); setPurchaseStep('select'); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Truck size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Compras</h3></div></button>
-            <button onClick={() => { setShowQuickEntry(true); setShowCamera(false); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
+            <button onClick={() => { setShowQuickEntry(true); setScannedItems([]); }} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center"><Zap size={24} className="text-yellow-400 fill-yellow-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Entrada Rápida</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center"><Plus size={24} className="text-green-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Novo Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center"><ClipboardList size={24} className="text-purple-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Relatório</h3></div></button>
-            <button onClick={() => setAdminView('notices')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg col-span-2 md:col-span-1 border-t-4 border-t-orange-500"><div className="w-12 h-12 md:w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Megaphone size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Mural de Avisos</h3></div></button>
+            <button onClick={() => setAdminView('notices')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg"><div className="w-12 h-12 md:w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center"><Megaphone size={24} className="text-orange-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Avisos</h3></div></button>
+            <button onClick={() => setAdminView('links')} className="bg-slate-800 hover:bg-slate-750 border border-slate-700 p-4 md:p-6 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg col-span-2 md:col-span-1 border-t-4 border-t-blue-500"><div className="w-12 h-12 md:w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center"><Link2 size={24} className="text-blue-400" /></div><div className="text-center"><h3 className="font-bold text-white text-sm md:text-xl">Botões Rápidos</h3></div></button>
           </div>
         )}
 
@@ -809,11 +804,11 @@ function App() {
                         <div className="flex gap-4">
                             <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
                                 <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-orange-500" />
-                                <span className="font-bold text-sm">Aviso de Texto</span>
+                                <span className="font-bold text-sm">Aviso Normal</span>
                             </label>
                             <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
                                 <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-orange-500" />
-                                <span className="font-bold text-sm">Banner (Imagem)</span>
+                                <span className="font-bold text-sm">Banner com Imagem</span>
                             </label>
                         </div>
                     </div>
@@ -822,21 +817,19 @@ function App() {
                         <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-orange-500 outline-none" />
                     </div>
                     
-                    {noticeType === 'text' && (
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso</label>
-                            <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem para os revendedores..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-orange-500 outline-none"></textarea>
-                        </div>
-                    )}
+                    {/* TEXTO AGORA APARECE PARA AMBOS */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
+                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-orange-500 outline-none"></textarea>
+                    </div>
 
-                    {/* BOTÃO DE UPLOAD AQUI */}
                     {noticeType === 'banner' && (
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto (Máx 800KB)</label>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
                             <input 
                                type="file" 
                                accept="image/*" 
-                               onChange={handleImageUpload} 
+                               onChange={(e) => handleImageUpload(e, setNoticeImage)} 
                                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 cursor-pointer" 
                             />
                             {noticeImage && (
@@ -854,7 +847,6 @@ function App() {
                  </form>
               </div>
 
-              {/* Lista de Avisos Ativos no Admin */}
               <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
                  <div className="p-4 border-b border-slate-800 bg-slate-800/50">
                     <h2 className="text-lg font-bold text-white">Avisos Ativos</h2>
@@ -877,96 +869,82 @@ function App() {
            </div>
         )}
 
-        {adminView === 'purchases' && (
-          <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-            <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
-               <div className="flex items-center gap-2"><Truck className="text-orange-400" /><h2 className="text-lg font-bold text-white">Pedidos de Compra</h2></div>
-               <button onClick={() => { setAdminView('create_purchase'); setPurchaseStep('select'); }} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Plus size={16}/> Criar Pedido</button>
-            </div>
-            <div className="p-4 space-y-3">
-               {purchases.length === 0 ? <p className="text-slate-500 text-center py-8">Nenhum pedido encontrado.</p> : purchases.map(order => (
-                 <div key={order.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col gap-3">
-                    <div className="flex justify-between items-start">
-                       <div><div className="text-white font-bold text-lg">{order.supplier}</div><div className="text-xs text-slate-500 font-mono">ID: {order.orderCode} • {formatDate(order.createdAt)}</div></div>
-                       {order.status === 'pending' ? (<span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-1 rounded border border-yellow-500/30 uppercase font-bold">Pendente</span>) : (<span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded border border-green-500/30 uppercase font-bold">Recebido</span>)}
-                    </div>
-                    <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm text-slate-400">{order.totalItems} itens: {order.items.map(i => `${i.name} (${i.quantity})`).join(', ').substring(0, 50)}...</div>
-                    {order.status === 'pending' && (<div className="flex gap-3"><div className="flex-1 bg-slate-800 rounded flex items-center justify-center gap-2 text-slate-400 text-xs py-2 border border-slate-700"><ScanBarcode size={14}/> Bipe: <span className="font-mono font-bold text-white">{order.orderCode}</span></div><button onClick={() => handleReceiveOrder(order)} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Receber Manualmente</button></div>)}
+        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
+        {adminView === 'links' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-2"><Link2 className="text-blue-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div>
                  </div>
-               ))}
-            </div>
-          </div>
-        )}
+                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label>
+                            <input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required placeholder="Ex: Grupo VIP" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo (Opcional)</label>
+                            <input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} placeholder="Ex: Novidades em tempo real" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino (URL)*</label>
+                            <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required placeholder="https://" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label>
+                                <select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-blue-500 outline-none appearance-none">
+                                    <option value="MessageCircle">WhatsApp (Chat)</option>
+                                    <option value="ImageIcon">Fotos / Drive</option>
+                                    <option value="Video">Vídeo / YouTube</option>
+                                    <option value="Globe">Site Público</option>
+                                    <option value="ShoppingBag">Sacola</option>
+                                    <option value="FileText">Documento</option>
+                                    <option value="Smartphone">Celular</option>
+                                    <option value="Link2">Link (Padrão)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label>
+                                <input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-blue-500 outline-none" />
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão
+                    </button>
+                 </form>
+              </div>
 
-        {/* --- CRIADOR DE PEDIDO DE COMPRA --- */}
-        {adminView === 'create_purchase' && (
-          <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[85vh]">
-            <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center shrink-0">
-               <h2 className="text-lg font-bold text-white flex items-center gap-2"><Plus className="text-green-400" /> Novo Pedido</h2>
-               <button onClick={() => { setAdminView('purchases'); setPurchaseStep('select'); }} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={20}/></button>
-            </div>
-
-            {purchaseStep === 'select' && (
-              <div className="flex flex-col h-full overflow-hidden">
-                <div className="p-3 border-b border-slate-800 shrink-0">
-                  <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar produto..." className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-blue-500 outline-none" />
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                   {filteredProducts.map(p => {
-                     const inCart = purchaseCart.find(item => item.product.id === p.id);
-                     return (
-                      <div key={p.id} className="flex items-center justify-between bg-slate-950 p-3 rounded border border-slate-800">
-                         <div className="min-w-0 flex-1 mr-2">
-                            <div className="text-slate-200 font-bold text-sm truncate">{p.name}</div>
-                            <div className="text-xs text-slate-500 flex gap-2"><span>{p.color}</span><span className="bg-slate-800 px-1 rounded">{p.size}</span></div>
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50">
+                    <h2 className="text-lg font-bold text-white">Botões Ativos</h2>
+                 </div>
+                 <div className="p-4 space-y-3">
+                     {quickLinks.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum botão configurado.</p> : quickLinks.map(link => (
+                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                             <div className="flex items-center gap-4">
+                                 <div className="bg-slate-800 p-3 rounded-lg text-slate-300">
+                                     {renderDynamicIcon(link.icon, 20)}
+                                 </div>
+                                 <div>
+                                     <div className="flex items-center gap-2">
+                                        <h3 className="font-bold text-white text-sm">{link.title}</h3>
+                                        <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span>
+                                     </div>
+                                     <p className="text-xs text-blue-400 truncate max-w-[200px] md:max-w-md">{link.url}</p>
+                                 </div>
+                             </div>
+                             <button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
                          </div>
-                         {inCart ? (
-                           <div className="flex items-center bg-slate-800 rounded-lg border border-slate-700 shrink-0">
-                              <button onClick={() => handleUpdatePurchaseCartQty(p.id, -1)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white"><Minus size={14}/></button>
-                              <span className="w-8 text-center font-bold text-white text-sm">{inCart.quantity}</span>
-                              <button onClick={() => handleUpdatePurchaseCartQty(p.id, 1)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white"><Plus size={14}/></button>
-                           </div>
-                         ) : (
-                           <button onClick={() => handleAddToPurchaseCart(p)} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg flex items-center gap-1 shrink-0"><Plus size={16}/> <span className="text-xs font-bold uppercase">Add</span></button>
-                         )}
-                      </div>
-                     );
-                   })}
-                </div>
-
-                {purchaseCart.length > 0 && (
-                  <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0">
-                    <button onClick={() => setPurchaseStep('review')} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg animate-in slide-in-from-bottom-2"><ShoppingBag size={20} />{purchaseCart.reduce((a,b)=>a+b.quantity,0)} Itens Selecionados - Avançar</button>
-                  </div>
-                )}
+                     ))}
+                 </div>
               </div>
-            )}
-
-            {purchaseStep === 'review' && (
-              <div className="flex flex-col h-full overflow-hidden">
-                <div className="p-4 border-b border-slate-800 bg-slate-900 shrink-0">
-                   <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Fornecedor</label>
-                   <input value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Nome do Fornecedor..." className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-3 text-white focus:border-orange-500 outline-none" autoFocus />
-                </div>
-                <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-900">
-                   <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold text-slate-400">ITENS DO PEDIDO</span><button onClick={() => setPurchaseStep('select')} className="text-xs text-blue-400 hover:underline">Editar lista</button></div>
-                   {purchaseCart.map(item => (
-                      <div key={item.product.id} className="flex justify-between items-center bg-slate-950 p-3 rounded border border-slate-800">
-                         <div className="text-sm text-slate-300"><span className="font-bold text-white">{item.quantity}x</span> {item.product.name} <span className="text-slate-500 text-xs">({item.product.size})</span></div>
-                         <button onClick={() => handleRemoveFromPurchaseCart(item.product.id)} className="text-red-500 p-2"><Trash2 size={14}/></button>
-                      </div>
-                   ))}
-                </div>
-                <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0 flex gap-3">
-                   <button onClick={() => setPurchaseStep('select')} className="flex-1 bg-slate-800 text-slate-300 py-3 rounded-lg font-bold">Voltar</button>
-                   <button onClick={handleCreatePurchaseOrder} className="flex-[2] bg-orange-600 hover:bg-orange-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2"><FileText size={18}/> GERAR PEDIDO</button>
-                </div>
-              </div>
-            )}
-          </div>
+           </div>
         )}
 
+        {/* --- ESTOQUE DO ADMIN COM FOTO MELHORADA --- */}
         {adminView === 'stock' && (
           <>
             <div className="bg-slate-800 p-3 md:p-4 rounded-xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
@@ -975,46 +953,52 @@ function App() {
             </div>
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4">
               {Object.entries(groupedAdminProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedAdminProducts).map(([name, group]) => (
-                <div key={name} className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
+                <div key={name} className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm group overflow-hidden">
                   
-                  <div onClick={() => toggleGroup(name)} className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-14 h-14 md:w-16 h-16 shrink-0 bg-slate-100 rounded-md border overflow-hidden flex items-center justify-center">
+                  <div onClick={() => toggleGroup(name)} className="p-2 md:p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center gap-4 min-w-0">
+                      {/* IMAGEM DO PRODUTO NO ADMIN - MAIOR E QUADRADA */}
+                      <div className="w-20 h-20 md:w-24 md:h-24 shrink-0 bg-slate-100 rounded-lg border overflow-hidden flex items-center justify-center">
                         {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 text-sm truncate">{name}</div>
+                        <div className="font-bold text-slate-900 text-sm md:text-base truncate">{name}</div>
                         <div className="text-sm font-bold text-slate-700 mt-0.5">{group.info.sku ? group.info.sku.split('-')[0] : '---'}</div>
-                        <div className="text-[10px] text-slate-400 mt-1">{group.items.length} variações</div>
+                        <div className="text-[10px] md:text-xs font-bold text-slate-400 mt-1 bg-slate-100 px-2 py-0.5 inline-block rounded-md">{group.items.length} variações</div>
                       </div>
                     </div>
                     
                     <div className="flex items-center gap-3 shrink-0">
                       <button 
                         onClick={(e) => { e.stopPropagation(); openGroupEdit(name, group); }} 
-                        className="bg-blue-100 text-blue-600 hover:bg-blue-200 p-2 rounded-lg transition-colors shadow-sm"
+                        className="bg-blue-100 text-blue-600 hover:bg-blue-200 p-3 rounded-lg transition-colors shadow-sm hidden md:block"
                         title="Editar Modelo"
                       >
-                        <Pencil size={16} />
+                        <Pencil size={18} />
                       </button>
 
-                      <div className="text-right bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
-                        <div className="text-xl font-bold text-slate-800">{group.total}</div>
-                        <div className="text-[9px] text-slate-500 uppercase font-bold">Total</div>
+                      <div className="text-right bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
+                        <div className="text-2xl font-black text-slate-800">{group.total}</div>
+                        <div className="text-[10px] text-slate-500 uppercase font-bold">Total</div>
                       </div>
-                      {expandedGroups[name] ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+                      <div className="bg-slate-50 p-2 rounded-lg">
+                         {expandedGroups[name] ? <ChevronUp size={24} className="text-slate-400" /> : <ChevronDown size={24} className="text-slate-400" />}
+                      </div>
                     </div>
                   </div>
 
                   {expandedGroups[name] && (
-                    <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-2 animate-in slide-in-from-top-2">
+                    <div className="bg-slate-50 border-t border-slate-100 p-2 mt-2 space-y-2 animate-in slide-in-from-top-2">
+                      <div className="md:hidden flex justify-end mb-2">
+                          <button onClick={(e) => { e.stopPropagation(); openGroupEdit(name, group); }} className="bg-blue-100 text-blue-600 hover:bg-blue-200 px-3 py-1.5 rounded-lg transition-colors shadow-sm text-xs font-bold flex items-center gap-1"><Pencil size={12} /> Editar Modelo em Lote</button>
+                      </div>
                       {group.items.map(p => (
                         <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
-                          <div className="min-w-0 flex-1"><div className="flex items-center gap-2 mb-1"><span className="text-xs font-bold bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase font-bold">{p.color}</span></div><div className="text-[10px] text-slate-400 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode || '---'}</div></div>
+                          <div className="min-w-0 flex-1"><div className="flex items-center gap-2 mb-1"><span className="text-xs font-black bg-slate-800 text-white px-2 py-1 rounded">{p.size}</span><span className="text-xs text-slate-600 uppercase font-bold">{p.color}</span></div><div className="text-[10px] text-slate-400 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode || '---'}</div></div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-8"><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity - 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">-</button><div className="w-10 text-center font-bold text-slate-800 text-sm">{p.quantity}</div><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity + 1); }} className="w-8 h-full hover:bg-slate-200 text-slate-600 font-bold">+</button></div>
-                            <button onClick={(e) => { e.stopPropagation(); setEditingProduct(p); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 bg-white border border-slate-200 rounded-lg" title="Editar variação"><Pencil size={14} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 bg-white border border-slate-200 rounded-lg"><Trash2 size={14} /></button>
+                            <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden h-9 shadow-sm"><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity - 1); }} className="w-10 h-full hover:bg-slate-200 text-slate-600 font-black text-lg">-</button><div className="w-12 text-center font-black text-slate-800 text-sm">{p.quantity}</div><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, p.quantity + 1); }} className="w-10 h-full hover:bg-slate-200 text-slate-600 font-black text-lg">+</button></div>
+                            <button onClick={(e) => { e.stopPropagation(); setEditingProduct(p); }} className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-blue-500 bg-white border border-slate-200 rounded-lg" title="Editar variação"><Pencil size={16} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-red-500 bg-white border border-slate-200 rounded-lg"><Trash2 size={16} /></button>
                           </div>
                         </div>
                       ))}
@@ -1035,7 +1019,23 @@ function App() {
                 <div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                 <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                 <div><label className="text-sm text-slate-400 block mb-1">Preço (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
-                <div><label className="text-sm text-slate-400 block mb-1">Foto (URL Google Drive)</label><input value={baseImage} onChange={e => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-xs" /></div>
+                
+                {/* UPLOAD DE IMAGEM NO CADASTRO DE PRODUTO */}
+                <div>
+                  <label className="text-sm text-slate-400 block mb-1">Foto Principal (Máx 800KB)</label>
+                  <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={(e) => handleImageUpload(e, setBaseImage)} 
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" 
+                  />
+                  {baseImage && (
+                      <div className="mt-2 w-16 h-16 rounded overflow-hidden border border-slate-700">
+                          <img src={baseImage} className="w-full h-full object-cover" />
+                      </div>
+                  )}
+                </div>
+
               </div></div>
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
@@ -1044,7 +1044,7 @@ function App() {
           </div>
         )}
 
-        {/* --- MODAL DE EDIÇÃO EM LOTE --- */}
+        {/* --- MODAIS DE EDIÇÃO ADMIN --- */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-xl w-full max-w-md border border-slate-700 shadow-2xl">
@@ -1084,7 +1084,6 @@ function App() {
           </div>
         )}
 
-        {/* --- MODAL DE EDIÇÃO INDIVIDUAL --- */}
         {editingProduct && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 p-6 rounded-xl w-full max-w-md border border-slate-700 shadow-2xl">
