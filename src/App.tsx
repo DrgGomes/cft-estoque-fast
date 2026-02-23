@@ -14,7 +14,9 @@ import {
   onSnapshot,
   writeBatch,
   limit,
-  increment
+  increment,
+  arrayUnion,
+  arrayRemove
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -32,7 +34,7 @@ import {
   LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
   Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
   TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
-  Play, Film, GraduationCap
+  Play, Film, GraduationCap, CheckCircle2, Circle
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -50,21 +52,6 @@ const playSound = (type: 'success' | 'error' | 'alert' | 'magic') => {
     audio.volume = 0.5;
     audio.play().catch(e => console.log("Audio bloqueado:", e));
   } catch (e) { console.error(e); }
-};
-
-const sendSystemNotification = (title: string, body: string) => {
-  if (!("Notification" in window)) return;
-  if (Notification.permission === "granted") {
-    try {
-      navigator.serviceWorker.getRegistration().then(reg => {
-        if (reg) {
-          reg.showNotification(title, { body, icon: '/vite.svg', vibrate: [200, 100, 200] });
-        } else {
-          new Notification(title, { body, icon: '/vite.svg' });
-        }
-      });
-    } catch (e) { new Notification(title, { body }); }
-  }
 };
 
 const formatCurrency = (value: any) => {
@@ -136,7 +123,7 @@ type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 
 type Notice = { id: string; type: 'text' | 'banner'; title: string; content?: string; imageUrl?: string; createdAt: any; };
 type QuickLink = { id: string; title: string; subtitle: string; icon: string; url: string; order: number; createdAt?: any; };
 type Showcase = { id: string; name: string; linkId: string; config: { showPrice: boolean; priceMarkup: number; }; models: string[]; createdAt?: any; };
-type UserProfile = { id: string; name: string; email: string; role: string; creditBalance: number; createdAt?: any; };
+type UserProfile = { id: string; name: string; email: string; role: string; creditBalance: number; completedLessons?: string[]; createdAt?: any; };
 type SupportTicket = { id: string; userId: string; userName: string; type: 'troca' | 'devolucao'; status: 'pendente' | 'aceito' | 'recusado' | 'aguardando_devolucao' | 'concluido'; productId: string; productInfo: string; productValue: number; reason: string; adminNote?: string; createdAt: any; updatedAt?: any; };
 type AcademyLesson = { id: string; season: string; episode: number; title: string; description: string; youtubeUrl: string; bannerUrl: string; materialLinks: string; createdAt: any; };
 
@@ -211,7 +198,9 @@ function App() {
   const [linkOrder, setLinkOrder] = useState('1');
 
   // Estados Admin - Academy
+  const [academySeasonMode, setAcademySeasonMode] = useState<'existing' | 'new'>('existing');
   const [academySeason, setAcademySeason] = useState('');
+  const [academyNewSeason, setAcademyNewSeason] = useState('');
   const [academyEpisode, setAcademyEpisode] = useState('1');
   const [academyTitle, setAcademyTitle] = useState('');
   const [academyDesc, setAcademyDesc] = useState('');
@@ -225,9 +214,11 @@ function App() {
   const [editingShowcase, setEditingShowcase] = useState<Partial<Showcase> | null>(null);
 
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+  
+  // Estados TICKET ATUALIZADOS
   const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca');
-  const [ticketProductId, setTicketProductId] = useState('');
-  const [ticketValue, setTicketValue] = useState(0);
+  const [ticketReturnProductId, setTicketReturnProductId] = useState('');
+  const [ticketDesiredProductId, setTicketDesiredProductId] = useState('');
   const [ticketReason, setTicketReason] = useState('');
 
   const [showQuickEntry, setShowQuickEntry] = useState(false);
@@ -258,23 +249,13 @@ function App() {
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date); };
 
-  // --- FETCH DADOS INICIAIS (OTIMIZADO) ---
+  // --- FETCH DADOS INICIAIS ---
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const items: Product[] = [];
       snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as Product); });
       
-      if (!loading && selectedRole === 'user' && !isVitrineMode) {
-        const previousProducts = prevProductsRef.current;
-        const soldOutItems = items.filter(newItem => {
-          const oldItem = previousProducts.find(p => p.id === newItem.id);
-          return oldItem && oldItem.quantity > 4 && newItem.quantity <= 4;
-        });
-        if (soldOutItems.length > 0) {
-          playSound('alert'); sendSystemNotification("⚠️ ESTOQUE ZEROU!", `${soldOutItems.length} produtos acabaram de esgotar!`);
-        }
-      }
       prevProductsRef.current = items;
       setProducts(items);
       setFilteredProducts(items);
@@ -285,8 +266,6 @@ function App() {
         const unsubNotices = onSnapshot(query(collection(db, NOTICES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setNotices(snap.docs.map(d => ({id: d.id, ...d.data()} as Notice))));
         const unsubLinks = onSnapshot(query(collection(db, QUICKLINKS_COLLECTION), orderBy('order', 'asc')), (snap) => setQuickLinks(snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink))));
         const unsubShowcases = onSnapshot(query(collection(db, SHOWCASES_COLLECTION)), (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase))));
-        
-        // CORREÇÃO DA BUSCA DAS AULAS (Removido os múltiplos orderBy para evitar erro de índice do Firebase)
         const unsubAcademy = onSnapshot(collection(db, ACADEMY_COLLECTION), (snap) => {
             setLessons(snap.docs.map(d => ({id: d.id, ...d.data()} as AcademyLesson)));
         });
@@ -304,7 +283,7 @@ function App() {
   useEffect(() => {
      if (user && selectedRole === 'user') {
          const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-             if (docSnap.exists()) setUserProfile({ id: docSnap.id, ...docSnap.data() } as UserProfile);
+             if (docSnap.exists()) setUserProfile({ id: docSnap.id, completedLessons: [], ...docSnap.data() } as UserProfile);
          });
          
          const unsubMyTickets = onSnapshot(collection(db, TICKETS_COLLECTION), (snap) => {
@@ -319,7 +298,6 @@ function App() {
 
   useEffect(() => {
     if (selectedRole === 'admin') {
-      // Otimização de Performance: Limitado a 300 históricos para a IA Preditiva não travar o navegador
       const unsubHist = onSnapshot(query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(300)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
       const unsubPurch = onSnapshot(query(collection(db, PURCHASES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setPurchases(snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder))));
       const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -347,21 +325,18 @@ function App() {
   }, [searchTerm, products]);
 
   // ==========================================
-  // CÁLCULOS DO DASHBOARD PREDITIVO (USEMEMO)
+  // CÁLCULOS (IA E ACADEMY)
   // ==========================================
   const predictiveData = useMemo(() => {
       if (adminView !== 'predictive' || products.length === 0) return null;
-
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
       const exitStats: Record<string, number> = {};
+      
       history.forEach(h => {
           if (h.type === 'exit') {
               const date = h.timestamp?.toDate ? h.timestamp.toDate() : new Date();
-              if (date >= thirtyDaysAgo) {
-                  exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount;
-              }
+              if (date >= thirtyDaysAgo) exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount;
           }
       });
 
@@ -372,38 +347,37 @@ function App() {
           return { ...p, exits30d, velocityPerDay, daysRemaining };
       });
 
-      const toProduce = insights
-          .filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0)
-          .sort((a, b) => a.daysRemaining - b.daysRemaining)
-          .slice(0, 10);
-
-      const topSellers = [...insights]
-          .filter(p => p.exits30d > 0)
-          .sort((a, b) => b.exits30d - a.exits30d)
-          .slice(0, 10);
-
-      const deadStock = insights
-          .filter(p => p.quantity > 10 && p.exits30d === 0)
-          .sort((a, b) => b.quantity - a.quantity)
-          .slice(0, 10);
+      const toProduce = insights.filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0).sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 10);
+      const topSellers = [...insights].filter(p => p.exits30d > 0).sort((a, b) => b.exits30d - a.exits30d).slice(0, 10);
+      const deadStock = insights.filter(p => p.quantity > 10 && p.exits30d === 0).sort((a, b) => b.quantity - a.quantity).slice(0, 10);
 
       return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
   }, [adminView, products, history]);
 
-  // CÁLCULO DAS AULAS POR TEMPORADA (Ordenação via JS para evitar erros do Firebase)
   const academySeasons = useMemo(() => {
       const seasonsObj: Record<string, AcademyLesson[]> = {};
       lessons.forEach(l => {
           if (!seasonsObj[l.season]) seasonsObj[l.season] = [];
           seasonsObj[l.season].push(l);
       });
-      // Retorna em Array ordenado alfabeticamente pela temporada, e com os episódios ordenados numericamente
       return Object.entries(seasonsObj).map(([name, eps]) => ({
           name,
           episodes: eps.sort((a,b) => a.episode - b.episode)
       })).sort((a,b) => a.name.localeCompare(b.name));
   }, [lessons]);
-  
+
+  const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season))), [lessons]);
+
+  // Hook pra preencher o Ep automaticamente no Admin ao selecionar a temporada
+  useEffect(() => {
+      if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) {
+          const eps = lessons.filter(l => l.season === academySeason);
+          setAcademyEpisode(String(eps.length + 1));
+      } else if (academySeasonMode === 'new') {
+          setAcademyEpisode('1');
+      }
+  }, [academySeason, academySeasonMode, lessons, adminView]);
+
   // --- FUNÇÕES DE LOGIN E UPLOAD ---
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -424,25 +398,25 @@ function App() {
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { const file = e.target.files?.[0]; if (file) { if(file.size > 800000) { alert("A imagem é muito grande. Escolha uma foto menor que 800KB."); return; } const reader = new FileReader(); reader.onloadend = () => { setter(reader.result as string); }; reader.readAsDataURL(file); } };
 
-  // --- FUNÇÕES DE TICKETS (REVENDEDOR & ADMIN) ---
-  const handleProductSelectForTicket = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const pId = e.target.value;
-      setTicketProductId(pId);
-      const selected = products.find(p => p.id === pId);
-      if (selected) {
-          setTicketValue(selected.price || 0);
-      } else {
-          setTicketValue(0);
-      }
-  };
-
+  // --- FUNÇÕES DE TICKETS ATUALIZADAS (TROCA VS DEVOLUÇÃO) ---
   const handleOpenTicket = async (e: React.FormEvent) => { 
       e.preventDefault(); 
-      if(!ticketProductId || !ticketReason || ticketValue <= 0) return alert("Selecione um produto e preencha o motivo."); 
       if(!user || !userProfile) return; 
       
-      const selected = products.find(p => p.id === ticketProductId);
-      if (!selected) return alert("Produto não encontrado.");
+      const returnProd = products.find(p => p.id === ticketReturnProductId);
+      if (!returnProd) return alert("Selecione o produto que vai devolver.");
+
+      let finalProductInfo = '';
+      let finalValue = returnProd.price || 0;
+
+      if (ticketType === 'troca') {
+          const desiredProd = products.find(p => p.id === ticketDesiredProductId);
+          if (!desiredProd) return alert("Selecione o produto desejado para a troca.");
+          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`;
+      } else {
+          if (!ticketReason) return alert("Preencha o motivo do defeito para a devolução.");
+          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`;
+      }
 
       setIsSavingBatch(true); 
       try { 
@@ -451,43 +425,47 @@ function App() {
               userName: userProfile.name, 
               type: ticketType, 
               status: 'pendente', 
-              productId: selected.id,
-              productInfo: `${selected.name} - ${selected.color} - Tam: ${selected.size}`, 
-              productValue: ticketValue, 
-              reason: ticketReason, 
+              productId: returnProd.id,
+              productInfo: finalProductInfo, 
+              productValue: finalValue, 
+              reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', 
               createdAt: serverTimestamp() 
           }); 
-          setTicketProductId(''); setTicketValue(0); setTicketReason(''); 
+          setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); 
           alert("Solicitação enviada!"); playSound('success'); 
       } catch (error) { console.error(error); alert("Erro ao abrir chamado."); } finally { setIsSavingBatch(false); } 
   };
 
   const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, TICKETS_COLLECTION, ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>PRODUTO:</strong> ${ticket.productInfo}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
+  const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>DADOS:</strong><br/> ${ticket.productInfo.replace(/\n/g, '<br/>')}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
   
-  // --- FUNÇÕES DE ACADEMY (ADMIN) ---
+  // --- FUNÇÕES DE ACADEMY ---
   const handleSaveAcademy = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!academySeason || !academyTitle || !academyYoutube) return alert('Preencha Temporada, Título e Link do Vídeo.');
+      const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason;
+      if (!finalSeason || !academyTitle || !academyYoutube) return alert('Preencha Temporada, Título e Link do Vídeo.');
       setIsSavingBatch(true);
       try {
-          await addDoc(collection(db, ACADEMY_COLLECTION), {
-              season: academySeason,
-              episode: parseInt(academyEpisode) || 1,
-              title: academyTitle,
-              description: academyDesc,
-              youtubeUrl: academyYoutube,
-              bannerUrl: academyBanner,
-              materialLinks: academyLinks,
-              createdAt: serverTimestamp()
-          });
+          await addDoc(collection(db, ACADEMY_COLLECTION), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() });
           setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1));
           alert("Aula publicada com sucesso!"); playSound('success');
       } catch(e) { console.error(e); alert("Erro ao salvar aula."); } finally { setIsSavingBatch(false); }
   };
   const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir esta aula?')) await deleteDoc(doc(db, ACADEMY_COLLECTION, id)); };
 
-  // --- FUNÇÕES AVISOS, LINKS, VITRINES (ADMIN) ---
+  const toggleLessonCompletion = async (lessonId: string) => {
+      if (!user) return;
+      const isCompleted = userProfile?.completedLessons?.includes(lessonId);
+      try {
+          await updateDoc(doc(db, 'users', user.uid), {
+              completedLessons: isCompleted ? arrayRemove(lessonId) : arrayUnion(lessonId)
+          });
+      } catch (e) { console.error("Erro ao marcar aula", e); }
+  };
+
+  const academyProgress = Math.round(((userProfile?.completedLessons?.length || 0) / (lessons.length || 1)) * 100);
+
+  // --- OUTRAS FUNÇÕES ---
   const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, NOTICES_COLLECTION), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, NOTICES_COLLECTION, id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, QUICKLINKS_COLLECTION), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
@@ -499,7 +477,6 @@ function App() {
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
   const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
   
-  // --- GERADOR DE PRODUTOS E CRUD ---
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
@@ -517,6 +494,7 @@ function App() {
   
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
+
 
   // ==========================================
   // RENDERIZAÇÃO MODO VITRINE (CATÁLOGO PÚBLICO)
@@ -601,7 +579,6 @@ function App() {
           </div>
       );
   }
-
 
   // ==========================================
   // RENDERIZAÇÃO: LOGIN
@@ -802,52 +779,95 @@ function App() {
 
             {/* --- VIEW: COMO FUNCIONA A MAXDROP (ACADEMY - ESTILO NETFLIX) --- */}
             {userView === 'academy' && (
-                <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+                <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
                     
-                    {activeLesson ? (
-                        <div className="space-y-4">
-                            <button onClick={() => setActiveLesson(null)} className="text-slate-400 hover:text-white flex items-center gap-2 font-bold text-sm bg-slate-800 px-4 py-2 rounded-lg w-fit transition-colors"><ChevronLeft size={16}/> Voltar para as Temporadas</button>
-                            
-                            <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 w-full aspect-video">
-                                {getYoutubeId(activeLesson.youtubeUrl) ? (
-                                    <iframe 
-                                        src={`https://www.youtube.com/embed/${getYoutubeId(activeLesson.youtubeUrl)}?autoplay=1&rel=0`}
-                                        className="w-full h-full"
-                                        title={activeLesson.title}
-                                        frameBorder="0"
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                        allowFullScreen>
-                                    </iframe>
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-slate-500 bg-slate-900 font-bold">Vídeo Indisponível</div>
-                                )}
+                    {/* BARRA DE PROGRESSO GLOBAL */}
+                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 flex flex-col md:flex-row items-center gap-6 shadow-xl">
+                        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center shrink-0">
+                            <GraduationCap className="text-red-500" size={32} />
+                        </div>
+                        <div className="flex-1 w-full text-center md:text-left">
+                            <h3 className="font-black text-lg text-white mb-2">Seu Progresso na MaxDrop</h3>
+                            <div className="w-full bg-slate-800 rounded-full h-4 overflow-hidden relative">
+                                <div className="bg-red-500 h-full transition-all duration-1000 ease-out" style={{ width: `${academyProgress}%` }}></div>
                             </div>
+                            <p className="text-slate-400 text-xs mt-2 font-bold">{userProfile?.completedLessons?.length || 0} de {lessons.length} aulas concluídas ({academyProgress}%)</p>
+                        </div>
+                    </div>
 
-                            <div className="bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-800 shadow-xl">
-                                <span className="text-red-500 font-black text-sm uppercase tracking-widest">{activeLesson.season} - Ep {activeLesson.episode}</span>
-                                <h1 className="text-2xl md:text-4xl font-black text-white mt-1 mb-4">{activeLesson.title}</h1>
-                                <p className="text-slate-400 text-sm md:text-base leading-relaxed whitespace-pre-wrap max-w-4xl">{activeLesson.description}</p>
+                    {activeLesson ? (
+                        // MODO PLAYER E PLAYLIST LATERAL
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2 space-y-4">
+                                <button onClick={() => setActiveLesson(null)} className="text-slate-400 hover:text-white flex items-center gap-2 font-bold text-sm bg-slate-800 px-4 py-2 rounded-lg w-fit transition-colors"><ChevronLeft size={16}/> Voltar para Categorias</button>
                                 
-                                {activeLesson.materialLinks && (
-                                    <div className="mt-6 pt-6 border-t border-slate-800">
-                                        <h3 className="font-bold text-white mb-3 flex items-center gap-2"><Link2 size={18} className="text-blue-400"/> Materiais Complementares</h3>
-                                        <a href={activeLesson.materialLinks} target="_blank" rel="noreferrer" className="inline-block bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-3 rounded-xl text-sm font-bold transition-colors">
-                                            Acessar Links / Materiais
-                                        </a>
-                                    </div>
-                                )}
+                                <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 w-full aspect-video">
+                                    {getYoutubeId(activeLesson.youtubeUrl) ? (
+                                        <iframe 
+                                            src={`https://www.youtube.com/embed/${getYoutubeId(activeLesson.youtubeUrl)}?autoplay=1&rel=0`}
+                                            className="w-full h-full"
+                                            title={activeLesson.title}
+                                            frameBorder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                            allowFullScreen>
+                                        </iframe>
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-slate-500 bg-slate-900 font-bold">Vídeo Indisponível</div>
+                                    )}
+                                </div>
+
+                                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl">
+                                    <span className="text-red-500 font-black text-sm uppercase tracking-widest">{activeLesson.season} - Ep {activeLesson.episode}</span>
+                                    <h1 className="text-2xl md:text-3xl font-black text-white mt-1 mb-4">{activeLesson.title}</h1>
+                                    <p className="text-slate-400 text-sm leading-relaxed whitespace-pre-wrap">{activeLesson.description}</p>
+                                    
+                                    {activeLesson.materialLinks && (
+                                        <div className="mt-6 pt-6 border-t border-slate-800">
+                                            <h3 className="font-bold text-white mb-3 flex items-center gap-2"><Link2 size={18} className="text-blue-400"/> Materiais Complementares</h3>
+                                            <a href={activeLesson.materialLinks} target="_blank" rel="noreferrer" className="inline-block bg-slate-800 hover:bg-slate-700 text-blue-400 px-4 py-3 rounded-xl text-sm font-bold transition-colors">
+                                                Acessar Links / Materiais
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            {/* PLAYLIST LATERAL */}
+                            <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[70vh]">
+                                <div className="p-4 border-b border-slate-800 bg-slate-800/50">
+                                    <h3 className="font-black text-white">Conteúdo do Módulo</h3>
+                                </div>
+                                <div className="flex-1 overflow-y-auto hidden-scroll p-2 space-y-2">
+                                    {lessons.filter(l => l.season === activeLesson.season).sort((a,b)=> a.episode - b.episode).map((ep) => {
+                                        const isCompleted = userProfile?.completedLessons?.includes(ep.id);
+                                        const isActive = activeLesson.id === ep.id;
+                                        return (
+                                            <div key={ep.id} className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${isActive ? 'bg-slate-800 border border-slate-700' : 'hover:bg-slate-800/50 border border-transparent'}`}>
+                                                <button onClick={(e) => { e.stopPropagation(); toggleLessonCompletion(ep.id); }} className="text-slate-400 hover:text-green-500 shrink-0">
+                                                    {isCompleted ? <CheckCircle2 size={24} className="text-green-500" /> : <Circle size={24} />}
+                                                </button>
+                                                <div onClick={() => setActiveLesson(ep)} className="flex-1 min-w-0">
+                                                    <h4 className={`font-bold text-sm truncate ${isActive ? 'text-red-400' : 'text-slate-200'}`}>{ep.episode}. {ep.title}</h4>
+                                                    <span className="text-[10px] text-slate-500 font-bold uppercase">{isCompleted ? 'Concluído' : 'Pendente'}</span>
+                                                </div>
+                                                {isActive && <Play size={16} className="text-red-500 shrink-0" fill="currentColor"/>}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
                             </div>
                         </div>
                     ) : (
+                        // MODO CATÁLOGO NETFLIX
                         <>
                             {lessons.length > 0 && (
-                                <div className="relative w-full h-[400px] md:h-[500px] rounded-3xl overflow-hidden shadow-2xl border border-slate-800 group">
+                                <div className="relative w-full h-[300px] md:h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-slate-800 group">
                                     <img src={lessons[0].bannerUrl || 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?q=80&w=2070&auto=format&fit=crop'} loading="lazy" className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700" alt="Hero" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent"></div>
+                                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent"></div>
                                     <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:w-2/3">
-                                        <div className="flex items-center gap-2 mb-2"><Film size={16} className="text-red-500"/><span className="text-red-500 font-black text-xs uppercase tracking-widest">Em Destaque</span></div>
-                                        <h2 className="text-3xl md:text-5xl font-black text-white mb-2 leading-tight">{lessons[0].title}</h2>
-                                        <p className="text-slate-300 text-sm md:text-base line-clamp-2 mb-6 max-w-xl">{lessons[0].description}</p>
+                                        <div className="flex items-center gap-2 mb-2"><Film size={16} className="text-red-500"/><span className="text-red-500 font-black text-xs uppercase tracking-widest">Comece por aqui</span></div>
+                                        <h2 className="text-2xl md:text-5xl font-black text-white mb-2 leading-tight">{lessons[0].title}</h2>
+                                        <p className="text-slate-300 text-xs md:text-sm line-clamp-2 mb-6 max-w-xl">{lessons[0].description}</p>
                                         <button onClick={() => setActiveLesson(lessons[0])} className="bg-white text-black hover:bg-slate-200 px-6 py-3 rounded-lg font-black flex items-center gap-2 transition-transform hover:scale-105 shadow-xl"><Play fill="black" size={20} /> Assistir Agora</button>
                                     </div>
                                 </div>
@@ -856,14 +876,16 @@ function App() {
                             {lessons.length === 0 ? (
                                 <div className="text-center py-20 text-slate-500 font-bold">Nenhuma aula disponível no momento.</div>
                             ) : (
-                                <div className="space-y-8">
+                                <div className="space-y-10">
                                     {academySeasons.map((season, idx) => (
                                         <div key={idx}>
                                             <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2 border-l-4 border-red-500 pl-3">{season.name}</h3>
                                             <div className="flex overflow-x-auto gap-4 pb-4 hidden-scroll snap-x">
-                                                {season.episodes.map(ep => (
-                                                    <div key={ep.id} onClick={() => setActiveLesson(ep)} className="snap-start shrink-0 w-[280px] md:w-[320px] cursor-pointer group">
-                                                        <div className="w-full aspect-video bg-slate-800 rounded-xl overflow-hidden relative shadow-lg border border-slate-800 group-hover:border-slate-600 transition-colors">
+                                                {season.episodes.map(ep => {
+                                                    const isCompleted = userProfile?.completedLessons?.includes(ep.id);
+                                                    return (
+                                                    <div key={ep.id} onClick={() => setActiveLesson(ep)} className="snap-start shrink-0 w-[260px] md:w-[320px] cursor-pointer group">
+                                                        <div className="w-full aspect-video bg-slate-800 rounded-xl overflow-hidden relative shadow-lg border-2 border-slate-800 group-hover:border-slate-500 transition-colors">
                                                             {ep.bannerUrl ? (
                                                                 <img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100" />
                                                             ) : (
@@ -874,14 +896,14 @@ function App() {
                                                                     <Play fill="white" size={24} className="ml-1"/>
                                                                 </div>
                                                             </div>
-                                                            <span className="absolute top-2 right-2 bg-black/80 text-white text-[10px] font-black px-2 py-1 rounded shadow-lg backdrop-blur">Ep {ep.episode}</span>
+                                                            <span className="absolute top-2 left-2 bg-black/80 text-white text-[10px] font-black px-2 py-1 rounded shadow-lg backdrop-blur">Ep {ep.episode}</span>
+                                                            {isCompleted && <span className="absolute top-2 right-2 text-green-500 bg-black/80 rounded-full"><CheckCircle2 size={16}/></span>}
                                                         </div>
                                                         <div className="mt-3 pr-2">
                                                             <h4 className="font-bold text-slate-200 text-sm group-hover:text-white transition-colors line-clamp-1">{ep.title}</h4>
-                                                            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{ep.description}</p>
                                                         </div>
                                                     </div>
-                                                ))}
+                                                )})}
                                             </div>
                                         </div>
                                     ))}
@@ -892,64 +914,87 @@ function App() {
                 </div>
             )}
 
-            {/* --- VIEW: SUPORTE E TROCAS (TICKETS) --- */}
+            {/* --- VIEW: SUPORTE E TROCAS (TICKETS - ATUALIZADO TROCA/DEVOLUÇÃO) --- */}
             {userView === 'support' && (
                 <div className="space-y-6 animate-in slide-in-from-bottom-4">
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50">
-                            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket className="text-blue-600"/> Abrir Chamado (Troca / Devolução)</h3>
-                            <p className="text-sm text-slate-500 mt-1">Selecione o produto do catálogo que você comprou e relate o problema.</p>
+                            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket className="text-blue-600"/> Abrir Chamado</h3>
+                            <p className="text-sm text-slate-500 mt-1">Preencha os dados abaixo para solicitar uma troca ou devolução.</p>
                         </div>
-                        <form onSubmit={handleOpenTicket} className="p-6 space-y-4">
+                        <form onSubmit={handleOpenTicket} className="p-6 space-y-6">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">O que você deseja?</label>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">1. O que você deseja fazer?</label>
                                 <div className="flex gap-4">
-                                    <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-xl flex-1 transition-colors">
-                                        <input type="radio" name="ticketType" checked={ticketType === 'troca'} onChange={() => setTicketType('troca')} className="accent-blue-600 w-4 h-4" />
-                                        <span className="font-bold text-slate-800">Troca Normal</span>
+                                    <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-4 rounded-xl flex-1 transition-colors">
+                                        <input type="radio" name="ticketType" checked={ticketType === 'troca'} onChange={() => {setTicketType('troca'); setTicketReason(''); setTicketDesiredProductId('');}} className="accent-blue-600 w-5 h-5" />
+                                        <div>
+                                            <span className="font-bold text-slate-800 block">Troca Normal</span>
+                                            <span className="text-[10px] text-slate-500 font-medium">Trocar uma peça por outra</span>
+                                        </div>
                                     </label>
-                                    <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-xl flex-1 transition-colors">
-                                        <input type="radio" name="ticketType" checked={ticketType === 'devolucao'} onChange={() => setTicketType('devolucao')} className="accent-red-600 w-4 h-4" />
-                                        <span className="font-bold text-slate-800 text-red-600">Devolução (Defeito)</span>
+                                    <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-4 rounded-xl flex-1 transition-colors">
+                                        <input type="radio" name="ticketType" checked={ticketType === 'devolucao'} onChange={() => {setTicketType('devolucao'); setTicketDesiredProductId('');}} className="accent-red-600 w-5 h-5" />
+                                        <div>
+                                            <span className="font-bold text-slate-800 text-red-600 block">Devolução (Defeito)</span>
+                                            <span className="text-[10px] text-slate-500 font-medium">Devolver e gerar crédito</span>
+                                        </div>
                                     </label>
                                 </div>
                             </div>
 
                             {ticketType === 'devolucao' && (
                                 <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-sm font-medium animate-in zoom-in">
-                                    <strong>ATENÇÃO:</strong> Aceitamos devolução <strong>APENAS em casos de defeito de fabricação</strong>. Solicitações por outros motivos serão recusadas. O valor será creditado na sua carteira após o produto chegar na fábrica.
+                                    <strong>ATENÇÃO:</strong> Aceitamos devolução <strong>APENAS em casos de defeito de fabricação</strong>. Solicitações por outros motivos serão recusadas. O valor será creditado na sua carteira.
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Selecione o Produto Exato*</label>
-                                    <select value={ticketProductId} onChange={handleProductSelectForTicket} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-blue-500 outline-none font-medium">
-                                        <option value="">-- Clique para selecionar --</option>
-                                        {products.map(p => (
-                                            <option key={p.id} value={p.id}>{String(p.name)} - {String(p.color)} - Tam: {String(p.size)}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Valor de Referência (Automático)</label>
-                                    <div className="w-full bg-slate-100 border border-slate-200 rounded-xl p-3 text-slate-500 font-black">
-                                        {ticketValue > 0 ? formatCurrency(ticketValue) : 'R$ 0,00'}
-                                    </div>
-                                </div>
-                            </div>
-                            
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Motivo Detalhado*</label>
-                                <textarea value={ticketReason} onChange={e => setTicketReason(e.target.value)} required rows={3} placeholder="Explique o motivo da troca ou especifique o defeito..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-blue-500 outline-none"></textarea>
+                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">2. Selecione o Produto que vai devolver*</label>
+                                <select value={ticketReturnProductId} onChange={(e) => {setTicketReturnProductId(e.target.value); const p = products.find(x => x.id === e.target.value); setTicketValue(p?.price || 0);}} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 focus:border-blue-500 outline-none font-medium text-sm">
+                                    <option value="">-- Clique para escolher no catálogo --</option>
+                                    {products.map(p => (
+                                        <option key={p.id} value={p.id}>{String(p.name)} - Cor: {String(p.color)} - Tam: {String(p.size)} (R$ {formatCurrency(p.price)})</option>
+                                    ))}
+                                </select>
                             </div>
 
-                            <button type="submit" disabled={isSavingBatch || !ticketProductId} className={`w-full md:w-auto px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-transform ${isSavingBatch || !ticketProductId ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'}`}>
-                                {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Enviar Solicitação
-                            </button>
+                            {/* CONDICIONAL TROCA: MOSTRA SEGUNDO SELECT (PRODUTO DESEJADO) E OCULTA MOTIVO */}
+                            {ticketType === 'troca' && (
+                                <div className="bg-blue-50 border border-blue-100 p-5 rounded-xl space-y-4 animate-in slide-in-from-top-2">
+                                    <div className="flex items-center gap-2 text-blue-700 font-bold mb-2">
+                                        <RefreshCw size={18}/> <span>3. Escolha a nova peça:</span>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-blue-600 uppercase mb-1 block">Selecione o Produto Desejado*</label>
+                                        <select value={ticketDesiredProductId} onChange={(e) => setTicketDesiredProductId(e.target.value)} required className="w-full bg-white border border-blue-200 rounded-xl p-4 text-slate-800 focus:border-blue-500 outline-none font-medium text-sm shadow-sm">
+                                            <option value="">-- Clique para escolher a nova peça --</option>
+                                            {products.filter(p => p.quantity > 4).map(p => (
+                                                <option key={p.id} value={p.id}>{String(p.name)} - Cor: {String(p.color)} - Tam: {String(p.size)}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-blue-500 mt-2 font-medium">*Apenas produtos com estoque disponível aparecem nesta lista.</p>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* CONDICIONAL DEVOLUÇÃO: MOSTRA CAMPO DE MOTIVO DO DEFEITO */}
+                            {ticketType === 'devolucao' && (
+                                <div className="animate-in slide-in-from-top-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">3. Motivo da Devolução (Qual o defeito?)*</label>
+                                    <textarea value={ticketReason} onChange={e => setTicketReason(e.target.value)} required rows={3} placeholder="Explique qual defeito o produto apresentou..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 focus:border-blue-500 outline-none text-sm"></textarea>
+                                </div>
+                            )}
+
+                            <div className="pt-4 border-t border-slate-100">
+                                <button type="submit" disabled={isSavingBatch || !ticketReturnProductId || (ticketType === 'troca' && !ticketDesiredProductId)} className={`w-full md:w-auto px-8 py-4 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg transition-transform ${isSavingBatch || !ticketReturnProductId || (ticketType === 'troca' && !ticketDesiredProductId) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'}`}>
+                                    {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Enviar Solicitação
+                                </button>
+                            </div>
                         </form>
                     </div>
 
+                    {/* Meus Chamados */}
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50">
                             <h3 className="font-bold text-slate-800 text-lg">Meu Histórico de Chamados</h3>
@@ -958,31 +1003,40 @@ function App() {
                             {myTickets.length === 0 ? (
                                 <p className="text-slate-400 text-center py-6">Você não possui chamados abertos.</p>
                             ) : myTickets.map(ticket => (
-                                <div key={ticket.id} className="border border-slate-200 p-4 rounded-xl flex flex-col gap-3">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${ticket.type === 'devolucao' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{ticket.type}</span>
-                                                <span className="text-xs text-slate-500 font-bold">{formatDate(ticket.createdAt)}</span>
+                                <div key={ticket.id} className="border border-slate-200 p-4 rounded-xl flex flex-col gap-3 relative overflow-hidden">
+                                    <div className={`absolute top-0 left-0 w-1.5 h-full ${ticket.type === 'devolucao' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                                    <div className="pl-3 flex flex-col gap-3">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${ticket.type === 'devolucao' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{ticket.type}</span>
+                                                    <span className="text-xs text-slate-500 font-bold">{formatDate(ticket.createdAt)}</span>
+                                                </div>
                                             </div>
-                                            <h4 className="font-bold text-slate-800">{ticket.productInfo}</h4>
+                                            <div>
+                                                {ticket.status === 'pendente' && <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded font-bold uppercase border border-yellow-200">Em Análise</span>}
+                                                {ticket.status === 'aceito' && <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded font-bold uppercase border border-emerald-200">Troca Aceita</span>}
+                                                {ticket.status === 'aguardando_devolucao' && <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded font-bold uppercase border border-orange-200 text-center block leading-tight">Aguardando<br/>Entrega</span>}
+                                                {ticket.status === 'recusado' && <span className="bg-red-100 text-red-700 text-xs px-2 py-1 rounded font-bold uppercase border border-red-200">Recusado</span>}
+                                                {ticket.status === 'concluido' && <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold uppercase border border-blue-200">Concluído</span>}
+                                            </div>
                                         </div>
-                                        <div>
-                                            {ticket.status === 'pendente' && <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded font-bold uppercase border border-yellow-200">Em Análise</span>}
-                                            {ticket.status === 'aceito' && <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded font-bold uppercase border border-emerald-200">Troca Aceita</span>}
-                                            {ticket.status === 'aguardando_devolucao' && <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded font-bold uppercase border border-orange-200 text-center block leading-tight">Aguardando<br/>Entrega</span>}
-                                            {ticket.status === 'recusado' && <span className="bg-red-100 text-red-700 text-xs px-2 py-1 rounded font-bold uppercase border border-red-200">Recusado</span>}
-                                            {ticket.status === 'concluido' && <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold uppercase border border-blue-200">Concluído</span>}
+                                        
+                                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm">
+                                            <p className="font-bold text-slate-700 whitespace-pre-wrap leading-relaxed">{ticket.productInfo}</p>
                                         </div>
+
+                                        {ticket.type === 'devolucao' && ticket.reason && (
+                                            <p className="text-sm text-slate-600"><strong>Motivo:</strong> {ticket.reason}</p>
+                                        )}
+                                        
+                                        {ticket.adminNote && (
+                                            <div className="bg-slate-800 text-white p-3 rounded-lg text-sm flex gap-2">
+                                                <MessageCircle size={16} className="shrink-0 text-blue-400" />
+                                                <div><strong className="text-blue-400 block mb-0.5">Resposta do Fornecedor:</strong> {ticket.adminNote}</div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <p className="text-sm text-slate-600 bg-slate-50 p-2 rounded border border-slate-100">{ticket.reason}</p>
-                                    
-                                    {ticket.adminNote && (
-                                        <div className="bg-slate-800 text-white p-3 rounded-lg text-sm flex gap-2">
-                                            <MessageCircle size={16} className="shrink-0 text-blue-400" />
-                                            <div><strong className="text-blue-400 block mb-0.5">Resposta do Fornecedor:</strong> {ticket.adminNote}</div>
-                                        </div>
-                                    )}
                                 </div>
                             ))}
                         </div>
@@ -1213,15 +1267,35 @@ function App() {
                  <div className="p-5 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
                     <div className="flex items-center gap-3"><GraduationCap className="text-red-500" size={24}/><h2 className="text-xl font-black text-white">Criar Nova Aula</h2></div>
                  </div>
-                 <form onSubmit={handleSaveAcademy} className="p-5 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Temporada / Módulo*</label>
-                            <input value={academySeason} onChange={e => setAcademySeason(e.target.value)} required placeholder="Ex: Módulo 1: Primeiros Passos" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                 <form onSubmit={handleSaveAcademy} className="p-5 space-y-5">
+                    
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-3 block">1. Organização do Módulo</label>
+                        <div className="flex gap-4 mb-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="seasonMode" checked={academySeasonMode === 'existing'} onChange={() => setAcademySeasonMode('existing')} className="accent-red-500" />
+                                <span className="text-sm font-bold">Módulo Existente</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="seasonMode" checked={academySeasonMode === 'new'} onChange={() => {setAcademySeasonMode('new'); setAcademySeason('');}} className="accent-red-500" />
+                                <span className="text-sm font-bold">Criar Novo Módulo</span>
+                            </label>
                         </div>
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Número do Episódio (Ordem)*</label>
-                            <input type="number" value={academyEpisode} onChange={e => setAcademyEpisode(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                {academySeasonMode === 'existing' ? (
+                                    <select value={academySeason} onChange={e => setAcademySeason(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-red-500 outline-none">
+                                        <option value="">-- Selecione o Módulo --</option>
+                                        {availableSeasons.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                ) : (
+                                    <input value={academyNewSeason} onChange={e => setAcademyNewSeason(e.target.value)} required placeholder="Ex: Módulo 1: Primeiros Passos" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                                )}
+                            </div>
+                            <div>
+                                <input type="number" value={academyEpisode} onChange={e => setAcademyEpisode(e.target.value)} required min="1" placeholder="Número da Aula (Ordem)" title="Número do Episódio (Ordem)" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                            </div>
                         </div>
                     </div>
 
@@ -1265,18 +1339,20 @@ function App() {
                  <div className="p-5 space-y-6">
                      {academySeasons.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhuma aula cadastrada.</p> : academySeasons.map((season, idx) => (
                          <div key={idx}>
-                             <h3 className="font-black text-white text-lg mb-3 pb-2 border-b border-slate-800">{season.name}</h3>
-                             <div className="space-y-3">
+                             <h3 className="font-black text-white text-lg mb-3 pb-2 border-b border-slate-800 flex items-center gap-2">
+                                 <GraduationCap className="text-red-500" size={20}/> {season.name}
+                             </h3>
+                             <div className="space-y-3 pl-2 border-l-2 border-slate-800">
                                  {season.episodes.map(ep => (
-                                     <div key={ep.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
+                                     <div key={ep.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors ml-2">
                                          <div className="flex items-center gap-4">
                                             {ep.bannerUrl ? (
-                                                <div className="w-20 h-14 bg-slate-800 rounded-lg overflow-hidden shrink-0"><img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover"/></div>
+                                                <div className="w-24 h-16 bg-slate-800 rounded-lg overflow-hidden shrink-0"><img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover"/></div>
                                             ) : (
-                                                <div className="w-20 h-14 bg-slate-800 rounded-lg shrink-0 flex items-center justify-center"><Film className="text-slate-500"/></div>
+                                                <div className="w-24 h-16 bg-slate-800 rounded-lg shrink-0 flex items-center justify-center"><Film className="text-slate-500"/></div>
                                             )}
                                             <div>
-                                                <span className="text-[10px] text-red-500 font-black uppercase tracking-wider block mb-1">Episódio {ep.episode}</span>
+                                                <span className="text-[10px] text-red-500 font-black uppercase tracking-wider block mb-1">Aula {ep.episode}</span>
                                                 <h4 className="font-bold text-white text-sm">{ep.title}</h4>
                                             </div>
                                          </div>
@@ -1351,12 +1427,12 @@ function App() {
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
-                                    <span className="block text-xs text-slate-500 uppercase font-bold mb-1">Produto Informado</span>
-                                    <span className="font-medium text-white">{ticket.productInfo}</span>
+                                    <span className="block text-xs text-slate-500 uppercase font-bold mb-1">Dados da Solicitação</span>
+                                    <span className="font-medium text-white whitespace-pre-wrap leading-relaxed block">{ticket.productInfo}</span>
                                 </div>
                                 <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
                                     <span className="block text-xs text-slate-500 uppercase font-bold mb-1">Motivo / Defeito</span>
-                                    <span className="font-medium text-slate-300 text-sm leading-relaxed">{ticket.reason}</span>
+                                    <span className="font-medium text-slate-300 text-sm leading-relaxed block">{ticket.reason}</span>
                                 </div>
                             </div>
 
@@ -1476,7 +1552,95 @@ function App() {
             </div>
         )}
 
-        {/* --- ESTOQUE DO ADMIN --- */}
+        {/* --- TELA DE AVISOS (ADMIN) --- */}
+        {adminView === 'notices' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
+                 </div>
+                 <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo de Publicação</label>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Aviso Normal</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Banner com Imagem</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título Importante*</label>
+                        <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
+                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none"></textarea>
+                    </div>
+                    {noticeType === 'banner' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
+                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setNoticeImage)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 cursor-pointer" />
+                            {noticeImage && (<div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700"><img src={noticeImage} className="h-32 object-cover rounded shadow-md" /></div>)}
+                        </div>
+                    )}
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Megaphone size={20} />} Publicar no Dashboard
+                    </button>
+                 </form>
+              </div>
+
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {notices.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum aviso ativo.</p> : notices.map(notice => (
+                         <div key={notice.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
+                             <div>
+                                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${notice.type === 'banner' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>{notice.type}</span><h3 className="font-bold text-white text-sm">{notice.title}</h3></div>
+                                 <p className="text-xs text-slate-500">{formatDate(notice.createdAt)}</p>
+                             </div>
+                             <button onClick={() => handleDeleteNotice(notice.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
+        {adminView === 'links' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div></div>
+                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label><input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino*</label><input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none"><option value="MessageCircle">WhatsApp</option><option value="ImageIcon">Fotos/Drive</option><option value="Globe">Site</option><option value="Link2">Link Padrão</option></select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        </div>
+                    </div>
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
+                 </form>
+              </div>
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {quickLinks.map(link => (
+                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center"><div className="flex items-center gap-4"><div className="bg-slate-800 p-3 rounded-lg text-slate-300">{renderDynamicIcon(link.icon, 20)}</div><div><div className="flex items-center gap-2"><h3 className="font-bold text-white text-sm">{link.title}</h3><span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span></div><p className="text-xs text-blue-400 truncate max-w-[200px]">{link.url}</p></div></div><button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button></div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- ESTOQUE DO ADMIN COM FOTO MELHORADA E EDIÇÃO AVANÇADA --- */}
         {adminView === 'stock' && (
           <>
             <div className="bg-slate-900 p-3 md:p-4 rounded-2xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
