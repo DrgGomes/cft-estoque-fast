@@ -124,7 +124,7 @@ const NOTICES_COLLECTION = `artifacts/${appId}/public/data/notices`;
 const QUICKLINKS_COLLECTION = `artifacts/${appId}/public/data/quickLinks`;
 const SHOWCASES_COLLECTION = `artifacts/${appId}/public/data/showcases`; 
 const TICKETS_COLLECTION = `artifacts/${appId}/public/data/tickets`;
-const ACADEMY_COLLECTION = `artifacts/${appId}/public/data/academy`; // NOVA COLEÇÃO PARA AULAS
+const ACADEMY_COLLECTION = `artifacts/${appId}/public/data/academy`; 
 
 // Tipos
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; color: string; size: string; quantity: number; price: number; updatedAt?: any; };
@@ -258,7 +258,7 @@ function App() {
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date); };
 
-  // --- FETCH DADOS INICIAIS ---
+  // --- FETCH DADOS INICIAIS (OTIMIZADO) ---
   useEffect(() => {
     const q = query(collection(db, PRODUCTS_COLLECTION), orderBy('updatedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -285,7 +285,11 @@ function App() {
         const unsubNotices = onSnapshot(query(collection(db, NOTICES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setNotices(snap.docs.map(d => ({id: d.id, ...d.data()} as Notice))));
         const unsubLinks = onSnapshot(query(collection(db, QUICKLINKS_COLLECTION), orderBy('order', 'asc')), (snap) => setQuickLinks(snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink))));
         const unsubShowcases = onSnapshot(query(collection(db, SHOWCASES_COLLECTION)), (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase))));
-        const unsubAcademy = onSnapshot(query(collection(db, ACADEMY_COLLECTION), orderBy('season'), orderBy('episode')), (snap) => setLessons(snap.docs.map(d => ({id: d.id, ...d.data()} as AcademyLesson))));
+        
+        // CORREÇÃO DA BUSCA DAS AULAS (Removido os múltiplos orderBy para evitar erro de índice do Firebase)
+        const unsubAcademy = onSnapshot(collection(db, ACADEMY_COLLECTION), (snap) => {
+            setLessons(snap.docs.map(d => ({id: d.id, ...d.data()} as AcademyLesson)));
+        });
 
         return () => { unsubscribe(); unsubNotices(); unsubLinks(); unsubShowcases(); unsubAcademy(); };
     } else {
@@ -315,7 +319,8 @@ function App() {
 
   useEffect(() => {
     if (selectedRole === 'admin') {
-      const unsubHist = onSnapshot(query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(1000)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
+      // Otimização de Performance: Limitado a 300 históricos para a IA Preditiva não travar o navegador
+      const unsubHist = onSnapshot(query(collection(db, HISTORY_COLLECTION), orderBy('timestamp', 'desc'), limit(300)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
       const unsubPurch = onSnapshot(query(collection(db, PURCHASES_COLLECTION), orderBy('createdAt', 'desc')), (snap) => setPurchases(snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder))));
       const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
           const list = snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile));
@@ -385,17 +390,18 @@ function App() {
       return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
   }, [adminView, products, history]);
 
-  // CÁLCULO DAS AULAS POR TEMPORADA
+  // CÁLCULO DAS AULAS POR TEMPORADA (Ordenação via JS para evitar erros do Firebase)
   const academySeasons = useMemo(() => {
       const seasonsObj: Record<string, AcademyLesson[]> = {};
       lessons.forEach(l => {
           if (!seasonsObj[l.season]) seasonsObj[l.season] = [];
           seasonsObj[l.season].push(l);
       });
+      // Retorna em Array ordenado alfabeticamente pela temporada, e com os episódios ordenados numericamente
       return Object.entries(seasonsObj).map(([name, eps]) => ({
           name,
           episodes: eps.sort((a,b) => a.episode - b.episode)
-      }));
+      })).sort((a,b) => a.name.localeCompare(b.name));
   }, [lessons]);
   
   // --- FUNÇÕES DE LOGIN E UPLOAD ---
@@ -550,7 +556,7 @@ function App() {
                              <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
                                  <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
                                      {group.info.image ? (
-                                         <img src={group.info.image} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                                         <img src={group.info.image} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
                                      ) : (
                                          <div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>
                                      )}
@@ -596,8 +602,9 @@ function App() {
       );
   }
 
+
   // ==========================================
-  // RENDERIZAÇÃO: LOGIN (COM NOME NO CADASTRO)
+  // RENDERIZAÇÃO: LOGIN
   // ==========================================
   if (!selectedRole) {
     return (
@@ -671,7 +678,7 @@ function App() {
                     </div>
                     <div className="overflow-y-auto p-6 space-y-4">
                         {selectedNotice.type === 'banner' && selectedNotice.imageUrl && (
-                            <img src={selectedNotice.imageUrl} className="w-full rounded-xl object-cover border border-slate-200" />
+                            <img src={selectedNotice.imageUrl} loading="lazy" className="w-full rounded-xl object-cover border border-slate-200" />
                         )}
                         <h2 className="text-2xl font-black text-slate-800">{selectedNotice.title}</h2>
                         <p className="text-sm text-slate-400">{formatDate(selectedNotice.createdAt)}</p>
@@ -769,7 +776,7 @@ function App() {
                            <div onClick={() => setSelectedNotice(notice)} key={notice.id} className="bg-slate-200 hover:bg-slate-300 cursor-pointer rounded-2xl shadow-sm border border-slate-300 overflow-hidden relative transition-colors group">
                               {notice.type === 'banner' && notice.imageUrl && (
                                   <div className="w-full h-40 bg-slate-300">
-                                      <img src={notice.imageUrl} alt={notice.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                      <img src={notice.imageUrl} loading="lazy" alt={notice.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                   </div>
                               )}
                               <div className="p-5">
@@ -798,7 +805,6 @@ function App() {
                 <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
                     
                     {activeLesson ? (
-                        // MODO PLAYER
                         <div className="space-y-4">
                             <button onClick={() => setActiveLesson(null)} className="text-slate-400 hover:text-white flex items-center gap-2 font-bold text-sm bg-slate-800 px-4 py-2 rounded-lg w-fit transition-colors"><ChevronLeft size={16}/> Voltar para as Temporadas</button>
                             
@@ -833,12 +839,10 @@ function App() {
                             </div>
                         </div>
                     ) : (
-                        // MODO CATÁLOGO NETFLIX
                         <>
-                            {/* Hero Banner (Primeiro vídeo em destaque) */}
                             {lessons.length > 0 && (
                                 <div className="relative w-full h-[400px] md:h-[500px] rounded-3xl overflow-hidden shadow-2xl border border-slate-800 group">
-                                    <img src={lessons[0].bannerUrl || 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?q=80&w=2070&auto=format&fit=crop'} className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700" alt="Hero" />
+                                    <img src={lessons[0].bannerUrl || 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?q=80&w=2070&auto=format&fit=crop'} loading="lazy" className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700" alt="Hero" />
                                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent"></div>
                                     <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:w-2/3">
                                         <div className="flex items-center gap-2 mb-2"><Film size={16} className="text-red-500"/><span className="text-red-500 font-black text-xs uppercase tracking-widest">Em Destaque</span></div>
@@ -849,7 +853,6 @@ function App() {
                                 </div>
                             )}
 
-                            {/* Trilhos de Temporadas */}
                             {lessons.length === 0 ? (
                                 <div className="text-center py-20 text-slate-500 font-bold">Nenhuma aula disponível no momento.</div>
                             ) : (
@@ -862,7 +865,7 @@ function App() {
                                                     <div key={ep.id} onClick={() => setActiveLesson(ep)} className="snap-start shrink-0 w-[280px] md:w-[320px] cursor-pointer group">
                                                         <div className="w-full aspect-video bg-slate-800 rounded-xl overflow-hidden relative shadow-lg border border-slate-800 group-hover:border-slate-600 transition-colors">
                                                             {ep.bannerUrl ? (
-                                                                <img src={ep.bannerUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100" />
+                                                                <img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100" />
                                                             ) : (
                                                                 <div className="w-full h-full flex items-center justify-center text-slate-600"><Film size={40}/></div>
                                                             )}
@@ -889,7 +892,7 @@ function App() {
                 </div>
             )}
 
-            {/* --- VIEW: SUPORTE E TROCAS (TICKETS - COM SELECT DE PRODUTO) --- */}
+            {/* --- VIEW: SUPORTE E TROCAS (TICKETS) --- */}
             {userView === 'support' && (
                 <div className="space-y-6 animate-in slide-in-from-bottom-4">
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -947,7 +950,6 @@ function App() {
                         </form>
                     </div>
 
-                    {/* Meus Chamados */}
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50">
                             <h3 className="font-bold text-slate-800 text-lg">Meu Histórico de Chamados</h3>
@@ -1006,7 +1008,7 @@ function App() {
                                <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
                                    <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
                                        {group.info.image ? (
-                                           <img src={group.info.image} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                                           <img src={group.info.image} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
                                        ) : (
                                            <div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>
                                        )}
@@ -1116,6 +1118,7 @@ function App() {
 
             <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Jornada Alunos</h3></div></button>
 
+            <button onClick={() => setAdminView('history')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-purple-500/10 rounded-full flex items-center justify-center"><ClipboardList size={28} className="text-purple-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Relatórios</h3></div></button>
             <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
             <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
             <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
@@ -1268,7 +1271,7 @@ function App() {
                                      <div key={ep.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
                                          <div className="flex items-center gap-4">
                                             {ep.bannerUrl ? (
-                                                <div className="w-20 h-14 bg-slate-800 rounded-lg overflow-hidden shrink-0"><img src={ep.bannerUrl} className="w-full h-full object-cover"/></div>
+                                                <div className="w-20 h-14 bg-slate-800 rounded-lg overflow-hidden shrink-0"><img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover"/></div>
                                             ) : (
                                                 <div className="w-20 h-14 bg-slate-800 rounded-lg shrink-0 flex items-center justify-center"><Film className="text-slate-500"/></div>
                                             )}
@@ -1456,7 +1459,7 @@ function App() {
                                         return (
                                             <div key={name} onClick={() => toggleModelInShowcase(name)} className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex flex-col gap-2 ${isSelected ? 'border-emerald-500 bg-emerald-500/10' : 'border-slate-800 bg-slate-950 hover:border-slate-700'}`}>
                                                 <div className="w-full aspect-square bg-slate-900 rounded overflow-hidden">
-                                                    {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="m-auto mt-4 text-slate-600"/>}
+                                                    {group.info.image ? <img src={group.info.image} loading="lazy" className="w-full h-full object-cover" /> : <ImageIcon className="m-auto mt-4 text-slate-600"/>}
                                                 </div>
                                                 <span className="text-sm font-bold text-white line-clamp-1">{name}</span>
                                             </div>
@@ -1473,95 +1476,7 @@ function App() {
             </div>
         )}
 
-        {/* --- TELA DE AVISOS (ADMIN) --- */}
-        {adminView === 'notices' && (
-           <div className="space-y-6">
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
-                    <div className="flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
-                 </div>
-                 <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo de Publicação</label>
-                        <div className="flex gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
-                                <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-amber-500" />
-                                <span className="font-bold text-sm">Aviso Normal</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
-                                <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-amber-500" />
-                                <span className="font-bold text-sm">Banner com Imagem</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título Importante*</label>
-                        <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
-                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none"></textarea>
-                    </div>
-                    {noticeType === 'banner' && (
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
-                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setNoticeImage)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 cursor-pointer" />
-                            {noticeImage && (<div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700"><img src={noticeImage} className="h-32 object-cover rounded shadow-md" /></div>)}
-                        </div>
-                    )}
-                    <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
-                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Megaphone size={20} />} Publicar no Dashboard
-                    </button>
-                 </form>
-              </div>
-
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
-                 <div className="p-4 space-y-3">
-                     {notices.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum aviso ativo.</p> : notices.map(notice => (
-                         <div key={notice.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
-                             <div>
-                                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${notice.type === 'banner' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>{notice.type}</span><h3 className="font-bold text-white text-sm">{notice.title}</h3></div>
-                                 <p className="text-xs text-slate-500">{formatDate(notice.createdAt)}</p>
-                             </div>
-                             <button onClick={() => handleDeleteNotice(notice.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
-                         </div>
-                     ))}
-                 </div>
-              </div>
-           </div>
-        )}
-
-        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
-        {adminView === 'links' && (
-           <div className="space-y-6">
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div></div>
-                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label><input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino*</label><input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none"><option value="MessageCircle">WhatsApp</option><option value="ImageIcon">Fotos/Drive</option><option value="Globe">Site</option><option value="Link2">Link Padrão</option></select></div>
-                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        </div>
-                    </div>
-                    <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
-                 </form>
-              </div>
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
-                 <div className="p-4 space-y-3">
-                     {quickLinks.map(link => (
-                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center"><div className="flex items-center gap-4"><div className="bg-slate-800 p-3 rounded-lg text-slate-300">{renderDynamicIcon(link.icon, 20)}</div><div><div className="flex items-center gap-2"><h3 className="font-bold text-white text-sm">{link.title}</h3><span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span></div><p className="text-xs text-blue-400 truncate max-w-[200px]">{link.url}</p></div></div><button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button></div>
-                     ))}
-                 </div>
-              </div>
-           </div>
-        )}
-
-        {/* --- ESTOQUE DO ADMIN COM FOTO MELHORADA E EDIÇÃO AVANÇADA --- */}
+        {/* --- ESTOQUE DO ADMIN --- */}
         {adminView === 'stock' && (
           <>
             <div className="bg-slate-900 p-3 md:p-4 rounded-2xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
@@ -1575,7 +1490,7 @@ function App() {
                   <div onClick={() => toggleGroup(name)} className="p-2 md:p-3 flex items-center justify-between cursor-pointer hover:bg-slate-800/50 transition-colors rounded-xl">
                     <div className="flex items-center gap-4 min-w-0">
                       <div className="w-20 h-20 md:w-24 md:h-24 shrink-0 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden flex items-center justify-center">
-                        {group.info.image ? <img src={group.info.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-700"/>}
+                        {group.info.image ? <img src={group.info.image} loading="lazy" className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-700"/>}
                       </div>
                       <div className="min-w-0">
                         <div className="font-bold text-white text-sm md:text-base truncate">{String(name)}</div>
