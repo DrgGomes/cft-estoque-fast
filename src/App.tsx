@@ -57,7 +57,7 @@ import {
   Link as LinkIcon,
   CheckCircle,
   Megaphone,
-  Wand2 // Ícone da Varinha Mágica
+  ListFilter // Ícone para Categorias
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -170,13 +170,17 @@ function App() {
     price: '', 
     type: 'gold_special', 
     category: '', 
-    categoryName: 'Aguardando título...',
+    categoryName: '',
     gender: 'Masculino',
     brand: 'Genérica',
     model: ''
   });
   const [isPublishing, setIsPublishing] = useState(false);
   const [isPredicting, setIsPredicting] = useState(false);
+  
+  // NOVOS ESTADOS PARA CATEGORIAS
+  const [suggestedCategories, setSuggestedCategories] = useState<any[]>([]);
+  const [manualCategory, setManualCategory] = useState(false);
 
   // Estados Admin
   const [baseSku, setBaseSku] = useState('');
@@ -266,27 +270,32 @@ function App() {
     window.location.href = authUrl;
   };
 
-  // --- 🧠 INTELIGÊNCIA: DESCOBRIR CATEGORIA PELO TÍTULO ---
+  // --- 🧠 INTELIGÊNCIA: DESCOBRIR MÚLTIPLAS CATEGORIAS PELO TÍTULO ---
   const predictCategory = async (titleToSearch: string) => {
     if (!titleToSearch) return;
     setIsPredicting(true);
     try {
-      // API pública do ML que descobre a categoria baseada na escrita
-      const res = await fetch(`https://api.mercadolibre.com/sites/MLB/domain_discovery/search?limit=1&q=${encodeURIComponent(titleToSearch)}`);
+      // Pede as 8 melhores categorias pro ML
+      const res = await fetch(`https://api.mercadolibre.com/sites/MLB/domain_discovery/search?limit=8&q=${encodeURIComponent(titleToSearch)}`);
       const data = await res.json();
       
       if (data && data.length > 0) {
+        setSuggestedCategories(data);
         setPublishForm(prev => ({
           ...prev,
           category: data[0].category_id,
           categoryName: data[0].category_name
         }));
+        setManualCategory(false);
       } else {
-        setPublishForm(prev => ({ ...prev, categoryName: "Não encontrada. Tente um título mais claro." }));
+        setSuggestedCategories([]);
+        setManualCategory(true);
+        setPublishForm(prev => ({ ...prev, category: '', categoryName: '' }));
       }
     } catch (e) {
       console.error(e);
-      setPublishForm(prev => ({ ...prev, categoryName: "Erro ao buscar. Digite manualmente." }));
+      setSuggestedCategories([]);
+      setManualCategory(true);
     } finally {
       setIsPredicting(false);
     }
@@ -303,13 +312,16 @@ function App() {
       price: suggestedPrice,
       type: 'gold_special', 
       category: '', 
-      categoryName: 'Buscando melhor categoria...',
+      categoryName: 'Buscando...',
       gender: 'Masculino',
       brand: 'Genérica',
       model: groupName
     });
+    
+    setSuggestedCategories([]);
+    setManualCategory(false);
 
-    // Puxa a categoria na hora que abre a tela!
+    // Puxa a categoria na hora que abre a tela
     predictCategory(defaultTitle);
   };
 
@@ -326,9 +338,8 @@ function App() {
       if (!publishingProduct.info.image) throw new Error("O fornecedor não cadastrou foto neste produto.");
       const numericPrice = parseFloat(publishForm.price.replace(',', '.'));
       if (numericPrice < 10) throw new Error("O preço no ML deve ser maior que R$ 10.");
-      if (!publishForm.category) throw new Error("Aguarde a categoria ser carregada ou digite um código válido.");
+      if (!publishForm.category) throw new Error("Selecione ou digite uma categoria válida.");
 
-      // PACOTE BLINDADO
       const payload = {
         title: publishForm.title,
         category_id: publishForm.category,
@@ -365,7 +376,6 @@ function App() {
       const data = await res.json();
 
       if (data.error || res.status !== 200) {
-        // Formata a mensagem de erro do ML para ficar fácil de ler
         const errorMsg = data.cause && data.cause.length > 0 
           ? data.cause.map((c:any) => c.message).join(' | ') 
           : (data.message || data.error);
@@ -521,6 +531,7 @@ function App() {
               </div>
             </div>
             
+            {/* BOTÃO CONECTAR MERCADO LIVRE */}
             {userView === 'stock' && (
               <button 
                 onClick={mlConnected ? undefined : handleConnectML} 
@@ -584,7 +595,7 @@ function App() {
                
                <form onSubmit={handlePublishML} className="space-y-4">
                  
-                 {/* INTELIGÊNCIA: TÍTULO E CATEGORIA */}
+                 {/* INTELIGÊNCIA: TÍTULO E ATUALIZAR CATEGORIA */}
                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 space-y-3">
                     <div>
                         <label className="text-xs font-bold text-blue-800 mb-1 block uppercase">Título do Anúncio (ML)*</label>
@@ -599,27 +610,62 @@ function App() {
                            <button 
                               type="button" 
                               onClick={() => predictCategory(publishForm.title)}
-                              className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg flex items-center justify-center"
-                              title="Redescobrir Categoria"
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg flex items-center justify-center whitespace-nowrap text-xs font-bold gap-1 transition-colors"
+                              title="Buscar melhores categorias pro título"
                            >
-                              <Wand2 size={18} />
+                              <RefreshCw size={14} className={isPredicting ? "animate-spin" : ""} /> Atualizar
                            </button>
                         </div>
                     </div>
 
+                    {/* SELECT DE CATEGORIAS */}
                     <div>
-                        <label className="text-xs font-bold text-blue-800 mb-1 block uppercase">Categoria Reconhecida Pelo ML</label>
-                        <div className="flex items-center gap-2">
-                           <input 
-                              value={publishForm.category} 
-                              onChange={e => setPublishForm({...publishForm, category: e.target.value})} 
-                              className="w-28 border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 outline-none font-mono font-bold text-blue-700 bg-white" 
-                              required 
-                           />
-                           <div className="flex-1 text-[10px] text-blue-600 leading-tight">
-                              {isPredicting ? "Analisando título..." : publishForm.categoryName}
-                           </div>
-                        </div>
+                        <label className="text-xs font-bold text-blue-800 mb-1 flex items-center gap-1 uppercase">
+                          <ListFilter size={14} /> Escolha a Categoria Oficial
+                        </label>
+                        
+                        {manualCategory ? (
+                            <div className="flex gap-2 items-center">
+                                <input 
+                                  value={publishForm.category} 
+                                  onChange={e => setPublishForm({...publishForm, category: e.target.value, categoryName: 'Manual'})} 
+                                  className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 outline-none font-mono uppercase bg-white" 
+                                  placeholder="Ex: MLB109027"
+                                  required 
+                                />
+                                <button type="button" onClick={() => setManualCategory(false)} className="text-xs text-blue-600 underline whitespace-nowrap">Ver Sugestões</button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-1">
+                                <select 
+                                    value={publishForm.category}
+                                    onChange={e => {
+                                        if (e.target.value === 'MANUAL') {
+                                            setManualCategory(true);
+                                            setPublishForm(prev => ({...prev, category: '', categoryName: ''}));
+                                        } else {
+                                            const cat = suggestedCategories.find(c => c.category_id === e.target.value);
+                                            setPublishForm(prev => ({...prev, category: e.target.value, categoryName: cat?.category_name || ''}));
+                                        }
+                                    }}
+                                    className={`w-full border border-blue-200 rounded-lg p-2 text-sm outline-none bg-white ${isPredicting ? 'text-slate-400' : 'text-slate-800'}`}
+                                    disabled={isPredicting}
+                                >
+                                    {isPredicting ? (
+                                        <option value="">Analisando o título...</option>
+                                    ) : suggestedCategories.length === 0 ? (
+                                        <option value="">Nenhuma categoria encontrada.</option>
+                                    ) : (
+                                        suggestedCategories.map((cat, idx) => (
+                                            <option key={idx} value={cat.category_id}>
+                                                {cat.category_name}
+                                            </option>
+                                        ))
+                                    )}
+                                    <option value="MANUAL" className="font-bold text-blue-600">✍️ Digitar código manualmente...</option>
+                                </select>
+                            </div>
+                        )}
                     </div>
                  </div>
                  
