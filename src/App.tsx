@@ -16,8 +16,10 @@ import {
 } from 'firebase/firestore';
 import {
   getAuth,
-  signInAnonymously,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut
 } from 'firebase/auth';
 import {
   Bell,
@@ -174,11 +176,51 @@ function App() {
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  // --- ESTADOS DE LOGIN / AUTENTICAÇÃO ---
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      if (isRegistering) {
+        const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        // Cria a pastinha do revendedor no banco de dados
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          email: authEmail,
+          role: 'revendedor',
+          createdAt: serverTimestamp()
+        });
+        setSelectedRole('user');
+        playSound('success');
+      } else {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+        setSelectedRole('user');
+        playSound('success');
+      }
+    } catch (err: any) {
+      setAuthError('Erro: ' + (err.message.includes('invalid-credential') ? 'E-mail ou senha incorretos.' : err.message));
+      playSound('error');
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setSelectedRole(null);
+    setUserView('stock');
+    setAdminView('menu');
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (u) setUser(u);
-      else signInAnonymously(auth).catch((e) => console.error(e));
+      setUser(u);
+    });
+    if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
+    return () => unsubscribe();
+  }, []);
     });
     if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
     return () => unsubscribe();
@@ -298,9 +340,44 @@ function App() {
   if (!selectedRole) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="bg-slate-900 p-8 rounded-2xl shadow-2xl border border-slate-800 max-w-md w-full">
-          <div className="flex flex-col items-center mb-8"><div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-inner border border-slate-700"><RefreshCw className="w-8 h-8 text-blue-500" /></div><h1 className="text-2xl font-bold text-white">Sistema ERP Flash</h1><p className="text-slate-400 text-sm mt-2">Controle de Estoque Avançado</p></div>
-          <div className="flex flex-col gap-4 w-full"><button onClick={() => { const s = prompt("Senha ADM:"); if (s === "1234") setSelectedRole('admin'); else alert("Erro!"); }} className="w-full py-4 px-6 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold shadow-lg flex items-center justify-center gap-3 border border-slate-700"><Package size={20} /> <span>Sou Fornecedor (Painel)</span></button><button onClick={() => setSelectedRole('user')} className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg flex items-center justify-center gap-3"><Smartphone size={20} /> <span>Sou Revendedor (Alertas)</span></button></div>
+        <div className="bg-slate-900 p-8 rounded-3xl shadow-2xl border border-slate-800 max-w-md w-full animate-in fade-in zoom-in duration-300">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4 shadow-inner border border-slate-700">
+              <RefreshCw className="w-8 h-8 text-blue-500" />
+            </div>
+            <h1 className="text-2xl font-black text-white tracking-tight">DropFast</h1>
+            <p className="text-slate-400 text-sm mt-1">Área Exclusiva para Revendedores</p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            {authError && <div className="bg-red-900/30 border border-red-500/50 text-red-300 text-sm p-3 rounded-xl text-center font-medium">{authError}</div>}
+            
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">E-mail de Acesso</label>
+              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" placeholder="seu@email.com" />
+            </div>
+            
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Senha (Mínimo 6 dígitos)</label>
+              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" placeholder="••••••" />
+            </div>
+
+            <button type="submit" className="w-full py-4 mt-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2">
+              {isRegistering ? 'Criar Minha Conta Agora' : 'Entrar no Sistema'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button type="button" onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} className="text-sm text-slate-400 hover:text-white transition-colors">
+              {isRegistering ? 'Já tenho uma conta. Fazer Login.' : 'Não tem conta? Cadastre-se grátis.'}
+            </button>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-slate-800/50 text-center">
+            <button type="button" onClick={() => { const s = prompt("Senha ADM (Fornecedor):"); if (s === "1234") setSelectedRole('admin'); else alert("Acesso negado!"); }} className="text-[10px] text-slate-600 hover:text-slate-400 flex items-center justify-center gap-1.5 mx-auto font-bold uppercase tracking-wider transition-colors">
+              <Package size={14} /> Acesso Restrito (Fornecedor)
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -319,7 +396,7 @@ function App() {
               </div>
               <div className="flex items-center gap-2">
                 {userView === 'stock' && (<button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>)}
-                <button onClick={() => setSelectedRole(null)} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
+                <button onClick={handleLogout} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
               </div>
             </div>
           </div>
@@ -362,7 +439,7 @@ function App() {
             <div><h1 className="font-bold text-white md:block">Painel ERP</h1></div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
-            <button onClick={() => setSelectedRole(null)} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> <span className="hidden md:inline">Sair</span></button>
+          <button onClick={handleLogout} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> <span className="hidden md:inline">Sair</span></button>
           </div>
         </div>
       </header>
