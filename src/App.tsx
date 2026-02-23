@@ -7,6 +7,7 @@ import {
   updateDoc,
   addDoc,
   deleteDoc,
+  setDoc,
   serverTimestamp,
   query,
   orderBy,
@@ -22,38 +23,11 @@ import {
   signOut
 } from 'firebase/auth';
 import {
-  Bell,
-  Package,
-  RefreshCw,
-  Trash2,
-  Plus,
-  Smartphone,
-  LogOut,
-  ScanBarcode,
-  Image as ImageIcon,
-  Search,
-  X,
-  Save,
-  Check,
-  Layers,
-  Pencil,
-  Zap,
-  AlertCircle,
-  Camera,
-  StopCircle,
-  ChevronLeft,
-  ClipboardList,
-  ArrowRight,
-  TrendingUp,
-  TrendingDown,
-  ChevronDown,
-  ChevronUp,
-  ShoppingCart,
-  MessageCircle,
-  Minus,
-  Truck,
-  FileText,
-  ShoppingBag
+  Bell, Package, RefreshCw, Trash2, Plus, Smartphone, LogOut,
+  ScanBarcode, Image as ImageIcon, Search, X, Save, Check,
+  Layers, Pencil, Zap, AlertCircle, Camera, StopCircle,
+  ChevronLeft, ClipboardList, ChevronDown, ChevronUp,
+  ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -150,6 +124,12 @@ function App() {
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
+  // --- ESTADOS DE LOGIN / AUTENTICAÇÃO ---
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authError, setAuthError] = useState('');
+
   // Estados Admin
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
@@ -176,19 +156,14 @@ function App() {
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
-  // --- ESTADOS DE LOGIN / AUTENTICAÇÃO ---
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [authError, setAuthError] = useState('');
 
+  // --- FUNÇÕES DE LOGIN ---
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     try {
       if (isRegistering) {
         const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-        // Cria a pastinha do revendedor no banco de dados
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           email: authEmail,
           role: 'revendedor',
@@ -217,10 +192,6 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-    });
-    if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
-    return () => unsubscribe();
-  }, []);
     });
     if ("Notification" in window && Notification.permission === "granted") setPermissionGranted(true);
     return () => unsubscribe();
@@ -282,7 +253,6 @@ function App() {
       setFilteredProducts(filtered);
     }
   }, [searchTerm, products]);
-
   // --- CÂMERA E FUNÇÕES DE SCANNER ---
   const startCamera = () => {
     if (scannerRef.current?.isScanning) return;
@@ -328,6 +298,7 @@ function App() {
   const handleRemoveFromCart = (productId: string) => setCart(prev => prev.filter(item => item.product.id !== productId));
   const handleUpdateCartQty = (productId: string, delta: number) => { setCart(prev => { return prev.map(item => { if (item.product.id === productId) { const newQty = item.quantity + delta; if (newQty <= 0) return item; if (newQty > item.product.quantity) { alert("Estoque insuficiente!"); return item; } return { ...item, quantity: newQty }; } return item; }); }); };
   const generateWhatsAppMessage = () => { if (!customerName) return alert("Digite o nome do cliente!"); if (cart.length === 0) return alert("Carrinho vazio!"); const now = new Date(); const orderId = Math.floor(Math.random() * 900000) + 100000; let message = `🛒 *PEDIDO:* ${orderId}\n\n🗓️ *DATA* ${now.toLocaleDateString('pt-BR')}\n⌚ *HORA:* ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n🫱🏻‍🫲🏼 *CLIENTE: ${customerName.toUpperCase()}*\n\n`; let totalPedido = 0; cart.forEach(item => { const displaySku = item.product.sku || `${item.product.name} ${item.product.color} ${item.product.size}`; const price = item.product.price || 0; const subtotal = price * item.quantity; totalPedido += subtotal; message += `${displaySku} --- ${item.quantity}x (${formatCurrency(price)})\n`; message += `-\n`; }); message += `\n💰 *TOTAL: ${formatCurrency(totalPedido)}*`; window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank'); };
+  
   const groupProducts = (items: Product[]) => { const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; items.forEach(product => { const key = product.name; if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; groups[key].items.push(product); groups[key].total += product.quantity; }); Object.values(groups).forEach(group => group.items.sort((a, b) => (a.size > b.size ? 1 : -1))); return groups; };
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   const formatDate = (timestamp: any) => { if (!timestamp) return '...'; const date = timestamp.toDate(); return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date); };
@@ -396,7 +367,7 @@ function App() {
               </div>
               <div className="flex items-center gap-2">
                 {userView === 'stock' && (<button onClick={() => setUserView('cart')} className="relative bg-blue-800 hover:bg-blue-900 p-2 rounded-lg transition-colors"><ShoppingCart size={20} />{cart.length > 0 && (<span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.length}</span>)}</button>)}
-                <button onClick={handleLogout} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1"><LogOut size={16} /></button>
+                <button onClick={handleLogout} className="text-xs bg-blue-700 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-blue-800 transition-colors"><LogOut size={16} /></button>
               </div>
             </div>
           </div>
@@ -439,7 +410,7 @@ function App() {
             <div><h1 className="font-bold text-white md:block">Painel ERP</h1></div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
-          <button onClick={handleLogout} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> <span className="hidden md:inline">Sair</span></button>
+            <button onClick={handleLogout} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-slate-700"><LogOut size={16} /> <span className="hidden md:inline">Sair</span></button>
           </div>
         </div>
       </header>
@@ -618,46 +589,6 @@ function App() {
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
               <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-lg px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR'}</button></div>
-            </div>
-          </div>
-        )}
-
-        {/* --- POPUP DE ENTRADA RÁPIDA --- */}
-        {showQuickEntry && (
-          <div className="fixed inset-0 bg-black z-50 flex flex-col">
-            <div className="flex-1 relative bg-black overflow-hidden">
-              <div id="reader" className="w-full h-full object-cover" style={{ display: isScanning ? 'block' : 'none' }}></div>
-              {!isScanning && !cameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-4 z-10 bg-slate-900">
-                  <button onClick={startCamera} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 rounded-full font-bold text-xl shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center gap-3 animate-pulse"><Camera size={32} /> TOCAR PARA LIGAR CÂMERA</button>
-                  {scanError && <p className="text-red-400 text-sm font-bold mt-4 bg-red-900/20 p-2 rounded">{scanError}</p>}
-                  <p className="text-slate-500 text-sm">Necessário permissão do navegador</p>
-                </div>
-              )}
-              {cameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black z-20"><RefreshCw className="animate-spin text-blue-500 mb-2" size={48} /><p>Iniciando câmera...</p></div>
-              )}
-              {isScanning && (
-                <>
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"><div className="w-64 h-64 border-2 border-white/50 rounded-lg relative"><div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div><div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div><div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div><div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div><div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500/80 shadow-[0_0_10px_rgba(255,0,0,0.8)]"></div></div></div>
-                  <button onClick={stopCamera} className="absolute top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-full z-50 font-bold shadow-lg flex items-center gap-2"><StopCircle size={20} /> PARAR</button>
-                </>
-              )}
-              {!isScanning && !cameraLoading && (<button onClick={() => setShowQuickEntry(false)} className="absolute top-4 right-4 bg-slate-800 text-white p-2 rounded-full z-50"><X size={24} /></button>)}
-              {lastScannedFeedback && (
-                <div className={`absolute top-20 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 pointer-events-none z-50 ${lastScannedFeedback.type === 'success' ? 'bg-green-600/90 text-white' : lastScannedFeedback.type === 'magic' ? 'bg-purple-600/90 text-white' : 'bg-red-600/90 text-white'}`}>
-                  {lastScannedFeedback.type === 'success' ? <Check size={24} /> : lastScannedFeedback.type === 'magic' ? <Zap size={24}/> : <AlertCircle size={24} />}
-                  {lastScannedFeedback.msg}
-                </div>
-              )}
-            </div>
-            <div className="bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.5)] flex flex-col max-h-[40vh]">
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl"><div className="flex flex-col"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ITENS BIPADOS</span><span className="text-xl font-black text-slate-800">{scannedItems.reduce((a, b) => a + b.count, 0)} UNIDADES</span></div><button onClick={handleCommitQuickEntry} disabled={scannedItems.length === 0 || isSavingBatch} className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${scannedItems.length === 0 ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white hover:scale-105'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Check size={20} />} SALVAR</button></div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-                {scannedItems.map((item) => (<div key={item.product.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between animate-in slide-in-from-bottom-2"><div className="flex items-center gap-3 overflow-hidden"><div className="w-10 h-10 bg-slate-100 rounded-lg shrink-0 overflow-hidden">{item.product.image ? <img src={item.product.image} className="w-full h-full object-cover" /> : <ImageIcon className="p-2 text-slate-300"/>}</div><div className="min-w-0"><div className="font-bold text-slate-800 text-sm truncate w-32">{item.product.name}</div><div className="text-xs text-slate-500 font-mono flex gap-1"><span className="bg-slate-100 px-1 rounded">{item.product.size}</span><span className="uppercase">{item.product.color}</span></div></div></div><div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1"><button onClick={() => handleUpdateScannedQty(item.product.id, -1)} className="w-8 h-8 bg-white rounded shadow-sm flex items-center justify-center text-slate-600 font-bold active:scale-90 transition-transform"><Minus size={14}/></button><span className="w-6 text-center font-bold text-slate-800">{item.count}</span><button onClick={() => handleUpdateScannedQty(item.product.id, 1)} className="w-8 h-8 bg-blue-600 text-white rounded shadow-sm flex items-center justify-center font-bold active:scale-90 transition-transform"><Plus size={14}/></button></div><button onClick={() => handleRemoveScannedItem(item.product.id)} className="text-red-400 p-2"><Trash2 size={16}/></button></div>))}
-                {scannedItems.length === 0 && (<div className="text-center py-4 text-slate-400 text-sm">Clique em LIGAR CÂMERA ou digite abaixo.</div>)}
-              </div>
-              <div className="p-2 bg-white border-t border-slate-100 pb-6"><form onSubmit={handleQuickScanSubmit}><input value={quickScanInput} onChange={e => setQuickScanInput(e.target.value)} placeholder="Digite o código do Produto ou Pedido (PED-...)" className="w-full bg-slate-100 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></form></div>
             </div>
           </div>
         )}
