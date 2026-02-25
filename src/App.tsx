@@ -81,7 +81,7 @@ export default function App() {
   const [globalLoading, setGlobalLoading] = useState(true);
   
   // --- MOTOR MULTI-TENANT E PREVIEW ---
-  const urlParams = new URLSearchParams(window.location.search);
+  const urlParams = newSearchParams(window.location.search);
   const previewTenantId = urlParams.get('preview'); 
   const vitrineLinkId = urlParams.get('vitrine');
   
@@ -128,7 +128,12 @@ export default function App() {
   const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
   
   const prevProductsRef = useRef<Product[]>([]);
+  
+  // ========================================================================
+  // CORREÇÃO CRÍTICA: FUNÇÃO DE EXPANDIR O CATÁLOGO
+  // ========================================================================
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
@@ -139,7 +144,7 @@ export default function App() {
   // Estados Admin - Produtos
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
-  const [baseDescription, setBaseDescription] = useState(''); // NOVO: Descrição do produto para UpSeller
+  const [baseDescription, setBaseDescription] = useState('');
   const [baseImage, setBaseImage] = useState('');
   const [basePrice, setBasePrice] = useState('');
   const [colors, setColors] = useState<string[]>([]);
@@ -373,46 +378,90 @@ export default function App() {
   const groupedAdminProducts = groupProducts(filteredProducts);
 
   // ==========================================
-  // EXPORTAÇÃO UPSELLER (O CÓDIGO DA MÁQUINA)
+  // EXPORTAÇÃO UPSELLER COM ESTRUTURA EXATA DO CLIENTE
   // ==========================================
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
-      // Cria a linha de cabeçalho exata para o UpSeller
-      let csvContent = "\uFEFF"; // BOM para o Excel ler acentos UTF-8
-      csvContent += "Nome do Produto,SKU Pai,Descrição do Produto,Nome da Variação 1,Opção da Variação 1,Nome da Variação 2,Opção da Variação 2,SKU da Variação,Preço,Estoque,Peso (kg),Comprimento (cm),Largura (cm),Altura (cm),URL da Imagem\n";
+      let csvContent = "\uFEFF"; 
+      
+      // Cabeçalho Exato da Planilha do UpSeller (Não alterar para não quebrar a importação)
+      const headerRow = [
+        `"SPU*\\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
+        `"SKU*\\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
+        `"Título*\\n(Obrigatório, 1-500 caracteres)"`,
+        `"Apelido do Produto\\n(1-500 caracteres)"`,
+        `"Usar apelido como título da NFe"`,
+        `"Variantes1*\\n(Obrigatório, 1-14 caracteres)"`,
+        `"Valor da Variante1*\\n(Obrigatório, 1-30 caracteres)"`,
+        `"Variantes2\\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante2\\n(limite 1-30 caracteres)"`,
+        `"Variantes3\\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante3\\n(limite 1-30 caracteres)"`,
+        `"Variantes4\\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante4\\n(limite 1-30 caracteres)"`,
+        `"Variantes5\\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante5\\n(limite 1-30 caracteres)"`,
+        `"Preço de varejo\\n(limite 0-999999999)"`,
+        `"Custo de Compra\\n(limite 0-999999999)"`,
+        `"Quantidade\\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)"`,
+        `"N° do Estante\\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)"`,
+        `"Código de Barras\\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)"`,
+        `"Apelido de SKU\\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）"`,
+        `"Imagem"`,
+        `"Peso (g)\\n(limite 1-999999)"`,
+        `"Comprimento (cm)\\n(limite 1-999999)"`,
+        `"Largura (cm)\\n(limite 1-999999)"`,
+        `"Altura (cm)\\n(limite 1-999999)"`,
+        `"NCM\\n(limite 8 dígitos)"`,
+        `"CEST\\n(limite 7 dígitos)"`,
+        `"Unidade\\n(Selecionar UN/KG/Par)"`,
+        `"Origem\\n(Selecionar 0/1/2/3/4/5/6/7/8)"`,
+        `"Link do Fornecedor"`
+      ].join(',');
 
-      // Formata os dados
+      csvContent += headerRow + "\n";
+
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
-          const desc = p.description ? p.description.replace(/"/g, '""') : ''; // Evita quebra de aspas
-          const img = p.image || '';
+          const tituloCompleto = p.description ? `${p.name} - ${p.description}` : p.name;
           
           const row = [
-              `"${p.name}"`,          // Nome
-              `"${skuPai}"`,          // SKU Pai
-              `"${desc}"`,            // Descrição (Agora cadastrável)
-              `"Cor"`,                // Variação 1 Fixa
-              `"${p.color}"`,         // Opção 1
-              `"Tamanho"`,            // Variação 2 Fixa
-              `"${p.size}"`,          // Opção 2
-              `"${p.sku}"`,           // SKU Filho
-              `${p.price}`,           // Preço
-              `200`,                  // Estoque fixo pedido
-              `0.8`,                  // Peso fixo pedido
-              `33`,                   // Comprimento
-              `12`,                   // Largura
-              `19`,                   // Altura
-              `"${img}"`              // URL Foto
+              `"${skuPai}"`,           // SPU*
+              `"${p.sku || ''}"`,      // SKU*
+              `"${tituloCompleto}"`,   // Título* (Juntei com a descrição para não perder)
+              `""`,                    // Apelido do Produto
+              `"N"`,                   // Usar apelido NFe
+              `"Cor"`,                 // Variantes1*
+              `"${p.color || ''}"`,    // Valor da Variante1*
+              `"Tamanho"`,             // Variantes2
+              `"${p.size || ''}"`,     // Valor da Variante2
+              `""`,`""`,               // Var3, Val3
+              `""`,`""`,               // Var4, Val4
+              `""`,`""`,               // Var5, Val5
+              `${p.price || 0}`,       // Preço de varejo
+              `${p.price || 0}`,       // Custo de Compra
+              `200`,                   // Quantidade
+              `""`,                    // Estante
+              `"${p.barcode || ''}"`,  // Código de Barras
+              `""`,                    // Apelido de SKU
+              `"${p.image || ''}"`,    // Imagem
+              `800`,                   // Peso (g)
+              `33`,                    // Comprimento (cm)
+              `12`,                    // Largura (cm)
+              `19`,                    // Altura (cm)
+              `""`,                    // NCM
+              `""`,                    // CEST
+              `"UN"`,                  // Unidade
+              `"0"`,                   // Origem
+              `""`                     // Link do Fornecedor
           ].join(',');
-          
           csvContent += row + "\n";
       });
 
-      // Baixa o arquivo
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `UpSeller_Importacao_${groupName.replace(/\s+/g, '_')}.csv`);
+      link.setAttribute("download", `UpSeller_${groupName.replace(/\s+/g, '_')}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -452,8 +501,6 @@ export default function App() {
           setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!");
       } catch (error) { console.error(error); } finally { setIsSavingBatch(false); }
   };
-  
-  useEffect(() => { if (isSuperAdminMode) { const unsub = onSnapshot(query(collection(db, TENANTS_COLLECTION), orderBy('createdAt', 'desc')), (snap) => { setSaasTenants(snap.docs.map(d => ({id: d.id, ...d.data()} as Tenant))); }); return () => unsub(); } }, [isSuperAdminMode]);
 
   // --- FUNÇÕES DE TICKETS ---
   const handleOpenTicket = async (e: React.FormEvent) => { 
@@ -985,7 +1032,7 @@ export default function App() {
                 </div>
             )}
 
-            {/* --- VIEW: CATÁLOGO --- */}
+            {/* --- VIEW: CATÁLOGO COM EXPORTAÇÃO UPSELLER --- */}
             {userView === 'catalog' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-24 md:pb-6">
                  <div className="relative">
@@ -1102,7 +1149,468 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TELA DE ESTOQUE E GERAÇÃO DE GRADE --- */}
+        {/* --- TELA: INTELIGÊNCIA PREDITIVA (DASHBOARD IA) --- */}
+        {adminView === 'predictive' && predictiveData && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between">
+                    <div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div>
+                    <div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Análise dos Últimos 30 Dias</div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2">
+                            <AlertTriangle className="text-red-500" size={20} />
+                            <h3 className="font-bold text-red-500">Fila de Produção Urgente</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim (menos de 15 dias) que estão vendendo rápido.</p>
+                            {predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
+                                        <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span>
+                                        <span className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded">Fura em {Math.ceil(p.daysRemaining)} dias</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-900 rounded-2xl border border-emerald-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-emerald-500/10 border-b border-emerald-900/50 flex items-center gap-2">
+                            <TrendingUp className="text-emerald-500" size={20} />
+                            <h3 className="font-bold text-emerald-500">Campeões de Venda</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Os modelos com mais saídas nos últimos 30 dias.</p>
+                            {predictiveData.topSellers.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Sem dados recentes.</p> : predictiveData.topSellers.map((p, idx) => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-emerald-900/30 flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-emerald-500 font-black text-lg">#{idx + 1}</span>
+                                        <div>
+                                            <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
+                                            <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-emerald-400 font-black">{p.exits30d} saídas</span>
+                                        <span className="text-[10px] text-slate-500">{(p.velocityPerDay).toFixed(1)} un/dia</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-900 rounded-2xl border border-blue-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-blue-500/10 border-b border-blue-900/50 flex items-center gap-2">
+                            <TrendingDown className="text-blue-500" size={20} />
+                            <h3 className="font-bold text-blue-500">Estoque Encalhado</h3>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Produtos com muito estoque (mais de 10) e ZERO vendas em 30 dias. Faça uma promoção!</p>
+                            {predictiveData.deadStock.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Estoque girando bem.</p> : predictiveData.deadStock.map(p => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-blue-900/30 flex justify-between items-center">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-white">{String(p.name)}</h4>
+                                        <span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-blue-400 font-black">{Number(p.quantity)} un</span>
+                                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">Capital Travado</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* --- TELA: JORNADA DE ALUNOS (ADMIN ACADEMY) --- */}
+        {adminView === 'academy' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-5 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><GraduationCap className="text-red-500" size={24}/><h2 className="text-xl font-black text-white">Criar Nova Aula</h2></div>
+                 </div>
+                 <form onSubmit={handleSaveAcademy} className="p-5 space-y-5">
+                    
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-3 block">1. Organização do Módulo</label>
+                        <div className="flex gap-4 mb-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="seasonMode" checked={academySeasonMode === 'existing'} onChange={() => setAcademySeasonMode('existing')} className="accent-red-500" />
+                                <span className="text-sm font-bold">Módulo Existente</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="seasonMode" checked={academySeasonMode === 'new'} onChange={() => {setAcademySeasonMode('new'); setAcademySeason('');}} className="accent-red-500" />
+                                <span className="text-sm font-bold">Criar Novo Módulo</span>
+                            </label>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                {academySeasonMode === 'existing' ? (
+                                    <select value={academySeason} onChange={e => setAcademySeason(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-red-500 outline-none">
+                                        <option value="">-- Selecione o Módulo --</option>
+                                        {availableSeasons.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                ) : (
+                                    <input value={academyNewSeason} onChange={e => setAcademyNewSeason(e.target.value)} required placeholder="Ex: Módulo 1: Primeiros Passos" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                                )}
+                            </div>
+                            <div>
+                                <input type="number" value={academyEpisode} onChange={e => setAcademyEpisode(e.target.value)} required min="1" placeholder="Número da Aula (Ordem)" title="Número do Episódio (Ordem)" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título do Vídeo*</label>
+                            <input value={academyTitle} onChange={e => setAcademyTitle(e.target.value)} required placeholder="Ex: Como anunciar no Mercado Livre" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do YouTube*</label>
+                            <input value={academyYoutube} onChange={e => setAcademyYoutube(e.target.value)} required placeholder="https://youtube.com/watch?v=..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Descrição da Aula</label>
+                        <textarea value={academyDesc} onChange={e => setAcademyDesc(e.target.value)} rows={3} placeholder="Explique sobre o que é o vídeo..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none"></textarea>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Capa do Vídeo / Banner (Opcional)</label>
+                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setAcademyBanner)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-red-500/20 file:text-red-400 hover:file:bg-red-500/30 cursor-pointer" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Materiais Complementares (Opcional)</label>
+                            <input value={academyLinks} onChange={e => setAcademyLinks(e.target.value)} placeholder="Link do Google Drive, PDF, etc..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-red-500 outline-none" />
+                        </div>
+                    </div>
+                    
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02] mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar Aula
+                    </button>
+                 </form>
+              </div>
+
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-5 border-b border-slate-800 bg-slate-800/50">
+                    <h2 className="text-lg font-bold text-white">Catálogo de Aulas Publicadas</h2>
+                 </div>
+                 <div className="p-5 space-y-6">
+                     {academySeasons.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhuma aula cadastrada.</p> : academySeasons.map((season, idx) => (
+                         <div key={idx}>
+                             <h3 className="font-black text-white text-lg mb-3 pb-2 border-b border-slate-800 flex items-center gap-2">
+                                 <GraduationCap className="text-red-500" size={20}/> {season.name}
+                             </h3>
+                             <div className="space-y-3 pl-2 border-l-2 border-slate-800">
+                                 {season.episodes.map(ep => (
+                                     <div key={ep.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors ml-2">
+                                         <div className="flex items-center gap-4">
+                                            {ep.bannerUrl ? (
+                                                <div className="w-24 h-16 bg-slate-800 rounded-lg overflow-hidden shrink-0"><img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover"/></div>
+                                            ) : (
+                                                <div className="w-24 h-16 bg-slate-800 rounded-lg shrink-0 flex items-center justify-center"><Film className="text-slate-500"/></div>
+                                            )}
+                                            <div>
+                                                <span className="text-[10px] text-red-500 font-black uppercase tracking-wider block mb-1">Aula {ep.episode}</span>
+                                                <h4 className="font-bold text-white text-sm">{ep.title}</h4>
+                                            </div>
+                                         </div>
+                                         <button onClick={() => handleDeleteAcademy(ep.id)} className="bg-red-500/10 text-red-400 p-3 rounded-lg hover:bg-red-500/20 transition-colors shrink-0"><Trash2 size={18}/></button>
+                                     </div>
+                                 ))}
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- TELA DE CLIENTES (ADMIN) --- */}
+        {adminView === 'customers' && (
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
+                <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><Users className="text-indigo-400" size={24}/><h2 className="text-xl font-black text-white">Revendedores Cadastrados</h2></div>
+                    <div className="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded font-bold text-sm">Total: {usersList.length}</div>
+                </div>
+                <div className="p-5 space-y-3">
+                    {usersList.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum cliente cadastrado.</p> : usersList.map(u => (
+                        <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 font-black text-lg uppercase">
+                                    {u.name ? String(u.name).substring(0,2) : 'CL'}
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">{u.name || 'Sem Nome'}</h3>
+                                    <p className="text-sm text-slate-500">{u.email}</p>
+                                </div>
+                            </div>
+                            <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg flex items-center gap-3 min-w-[200px] justify-between">
+                                <span className="text-xs text-slate-400 font-bold uppercase flex items-center gap-1"><Wallet size={14}/> Crédito Atual</span>
+                                <span className="text-lg font-black text-green-400">{formatCurrency(u.creditBalance || 0)}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
+        {/* --- TELA DE TICKETS / CHAMADOS (ADMIN) --- */}
+        {adminView === 'tickets' && (
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
+                <div className="p-5 border-b border-slate-800 bg-slate-800/30">
+                    <div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div>
+                    <p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p>
+                </div>
+                <div className="p-5 space-y-4">
+                    {allTickets.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum chamado aberto no momento.</p> : allTickets.map(ticket => (
+                        <div key={ticket.id} className="bg-slate-950 border border-slate-800 p-5 rounded-xl flex flex-col gap-4">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${ticket.type === 'devolucao' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>{ticket.type}</span>
+                                        <span className="text-xs text-slate-500 font-mono">{formatDate(ticket.createdAt)}</span>
+                                        {ticket.status === 'pendente' && <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-black px-2 py-0.5 rounded uppercase animate-pulse border border-yellow-500/30">Novo</span>}
+                                        {ticket.status === 'aguardando_devolucao' && <span className="bg-orange-500/20 text-orange-400 text-[10px] font-black px-2 py-0.5 rounded uppercase border border-orange-500/30 flex items-center gap-1"><Clock size={10}/> Esperando Peça</span>}
+                                        {ticket.status === 'aceito' && <span className="text-emerald-500 text-[10px] font-black uppercase"><Check size={12} className="inline"/> Autorizado</span>}
+                                        {ticket.status === 'concluido' && <span className="text-blue-500 text-[10px] font-black uppercase">Finalizado</span>}
+                                        {ticket.status === 'recusado' && <span className="text-red-500 text-[10px] font-black uppercase">Recusado</span>}
+                                    </div>
+                                    <h3 className="font-bold text-white text-lg">{ticket.userName}</h3>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-right">
+                                    <span className="block text-[10px] text-slate-400 uppercase font-bold">Valor Ref.</span>
+                                    <span className="font-black text-green-400">{formatCurrency(ticket.productValue)}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                    <span className="block text-xs text-slate-500 uppercase font-bold mb-1">Dados da Solicitação</span>
+                                    <span className="font-medium text-white whitespace-pre-wrap leading-relaxed block">{ticket.productInfo}</span>
+                                </div>
+                                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                    <span className="block text-xs text-slate-500 uppercase font-bold mb-1">Motivo / Defeito</span>
+                                    <span className="font-medium text-slate-300 text-sm leading-relaxed block">{ticket.reason}</span>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 flex flex-wrap gap-2">
+                                {ticket.status === 'pendente' && ticket.type === 'troca' && (
+                                    <>
+                                        <button onClick={() => handleAdminTicketAction(ticket, 'aceitar_troca')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Aceitar Troca</button>
+                                        <button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar</button>
+                                    </>
+                                )}
+                                
+                                {ticket.status === 'pendente' && ticket.type === 'devolucao' && (
+                                    <>
+                                        <button onClick={() => handleAdminTicketAction(ticket, 'aceitar_devolucao')} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Clock size={16}/> Autorizar (Aguardar Peça)</button>
+                                        <button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar (Sem Defeito)</button>
+                                    </>
+                                )}
+
+                                {ticket.status === 'aguardando_devolucao' && ticket.type === 'devolucao' && (
+                                    <button onClick={() => handleAdminTicketAction(ticket, 'recebido_gerar_credito')} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/50 animate-bounce"><Wallet size={18}/> Produto Entregue - Gerar Crédito (R$ {ticket.productValue.toFixed(2)})</button>
+                                )}
+
+                                {ticket.status === 'aceito' && ticket.type === 'troca' && (
+                                    <button onClick={() => handlePrintTicket(ticket)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Printer size={16}/> Imprimir Via de Troca</button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
+        {/* --- TELA DE VITRINES PÚBLICAS (ADMIN) --- */}
+        {adminView === 'showcases' && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                {!editingShowcase ? (
+                    <>
+                        <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-xl">
+                            <div className="flex items-center gap-2"><Store className="text-emerald-400" /><h2 className="text-lg font-bold text-white">Vitrines Digitais</h2></div>
+                            <button onClick={() => setEditingShowcase({ config: { showPrice: true, priceMarkup: 0 }, models: [] })} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Plus size={16}/> Nova Vitrine</button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {showcases.length === 0 ? (
+                                <p className="text-slate-500 p-4 col-span-2 text-center">Nenhuma vitrine criada. Crie uma para divulgar seu catálogo.</p>
+                            ) : showcases.map(showcase => (
+                                <div key={showcase.id} className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col gap-4">
+                                    <div>
+                                        <h3 className="font-bold text-xl text-white flex items-center gap-2">{showcase.name}</h3>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            {showcase.config.showPrice 
+                                                ? `Mostra Preço ${showcase.config.priceMarkup > 0 ? `(+${showcase.config.priceMarkup}%)` : '(Original)'}` 
+                                                : 'Preço Oculto'} 
+                                            • {showcase.models.length} Modelos
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => copyShowcaseLink(showcase.linkId)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-blue-400 py-2 rounded-lg font-bold flex items-center justify-center gap-2 text-sm"><Copy size={16}/> Copiar Link</button>
+                                        <button onClick={() => setEditingShowcase(showcase)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-emerald-400 py-2 rounded-lg font-bold flex items-center justify-center gap-2 text-sm"><Pencil size={16}/> Editar</button>
+                                        <button onClick={() => handleDeleteShowcase(showcase.id)} className="bg-slate-800 hover:bg-slate-700 text-red-400 p-2 rounded-lg"><Trash2 size={16}/></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                ) : (
+                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                         <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-white">{editingShowcase.id ? 'Editar Vitrine' : 'Nova Vitrine'}</h2>
+                            <button onClick={() => setEditingShowcase(null)} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={20}/></button>
+                         </div>
+                         <div className="p-4 md:p-6 space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                <div className="md:col-span-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Catálogo/Vitrine</label>
+                                    <input value={editingShowcase.name || ''} onChange={e => setEditingShowcase({...editingShowcase, name: e.target.value})} placeholder="Ex: Catálogo Inverno Varejo" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none" />
+                                </div>
+                                <div className="flex items-center">
+                                    <label className="flex items-center gap-3 cursor-pointer text-sm font-bold text-white">
+                                        <input type="checkbox" checked={editingShowcase.config?.showPrice} onChange={e => setEditingShowcase({...editingShowcase, config: {...editingShowcase.config!, showPrice: e.target.checked}})} className="w-5 h-5 accent-emerald-500 rounded" />
+                                        Exibir Preços
+                                    </label>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><Percent size={14}/> Acréscimo no Preço (%)</label>
+                                    <input type="number" disabled={!editingShowcase.config?.showPrice} value={editingShowcase.config?.priceMarkup || 0} onChange={e => setEditingShowcase({...editingShowcase, config: {...editingShowcase.config!, priceMarkup: parseFloat(e.target.value) || 0}})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none disabled:opacity-50" />
+                                </div>
+                            </div>
+                            <div>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-white text-lg">Selecionar Produtos</h3>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={selectAllModelsForShowcase} className="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded hover:text-white">Marcar Todos</button>
+                                        <button type="button" onClick={clearAllModelsForShowcase} className="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded hover:text-white">Desmarcar Todos</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[40vh] overflow-y-auto pr-2">
+                                    {Object.entries(groupedAdminProducts).map(([name, group]) => {
+                                        const isSelected = (editingShowcase.models || []).includes(name);
+                                        return (
+                                            <div key={name} onClick={() => toggleModelInShowcase(name)} className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex flex-col gap-2 ${isSelected ? 'border-emerald-500 bg-emerald-500/10' : 'border-slate-800 bg-slate-950 hover:border-slate-700'}`}>
+                                                <div className="w-full aspect-square bg-slate-900 rounded overflow-hidden">
+                                                    {group.info.image ? <img src={group.info.image} loading="lazy" className="w-full h-full object-cover" /> : <ImageIcon className="m-auto mt-4 text-slate-600"/>}
+                                                </div>
+                                                <span className="text-sm font-bold text-white line-clamp-1">{name}</span>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                            <button onClick={handleSaveShowcase} disabled={isSavingBatch} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                                {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Vitrine Pública
+                            </button>
+                         </div>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* --- TELA DE AVISOS (ADMIN) --- */}
+        {adminView === 'notices' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
+                 </div>
+                 <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo de Publicação</label>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Aviso Normal</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Banner com Imagem</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título Importante*</label>
+                        <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
+                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none"></textarea>
+                    </div>
+                    {noticeType === 'banner' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
+                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setNoticeImage)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 cursor-pointer" />
+                            {noticeImage && (<div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700"><img src={noticeImage} className="h-32 object-cover rounded shadow-md" /></div>)}
+                        </div>
+                    )}
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Megaphone size={20} />} Publicar no Dashboard
+                    </button>
+                 </form>
+              </div>
+
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {notices.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum aviso ativo.</p> : notices.map(notice => (
+                         <div key={notice.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
+                             <div>
+                                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${notice.type === 'banner' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>{notice.type}</span><h3 className="font-bold text-white text-sm">{notice.title}</h3></div>
+                                 <p className="text-xs text-slate-500">{formatDate(notice.createdAt)}</p>
+                             </div>
+                             <button onClick={() => handleDeleteNotice(notice.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
+        {adminView === 'links' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div></div>
+                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label><input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino*</label><input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none"><option value="MessageCircle">WhatsApp</option><option value="ImageIcon">Fotos/Drive</option><option value="Globe">Site</option><option value="Link2">Link Padrão</option></select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        </div>
+                    </div>
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
+                 </form>
+              </div>
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {quickLinks.map(link => (
+                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center"><div className="flex items-center gap-4"><div className="bg-slate-800 p-3 rounded-lg text-slate-300">{renderDynamicIcon(link.icon, 20)}</div><div><div className="flex items-center gap-2"><h3 className="font-bold text-white text-sm">{link.title}</h3><span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span></div><p className="text-xs text-blue-400 truncate max-w-[200px]">{link.url}</p></div></div><button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button></div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- ESTOQUE DO ADMIN --- */}
         {adminView === 'stock' && (
           <>
             <div className="bg-slate-900 p-3 md:p-4 rounded-2xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
@@ -1154,6 +1662,7 @@ export default function App() {
           </>
         )}
 
+        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
         {adminView === 'add' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
@@ -1163,13 +1672,7 @@ export default function App() {
                 <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                 <div><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                 <div><label className="text-sm text-slate-400 block mb-1">Foto Principal</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setBaseImage)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{baseImage && (<div className="mt-2 w-16 h-16 rounded overflow-hidden border border-slate-700"><img src={baseImage} className="w-full h-full object-cover" /></div>)}</div>
-                
-                {/* NOVO CAMPO DESCRIÇÃO PARA UPSELLER */}
-                <div className="md:col-span-2">
-                    <label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label>
-                    <textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material, conforto e estilo..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea>
-                </div>
-
+                <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material, conforto e estilo..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
               </div></div>
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
@@ -1189,10 +1692,7 @@ export default function App() {
               <form onSubmit={handleSaveGroupEdit} className="space-y-4">
                 <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Nome do Modelo</label><input value={editingGroup.name} onChange={e => setEditingGroup({...editingGroup, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
                 <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
-                
-                {/* CAMPO DESCRIÇÃO UPSELLER NO MODAL */}
                 <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição (UpSeller)</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
-
                 <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nova Foto do Modelo</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingGroup({...editingGroup, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{editingGroup.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingGroup.image} className="w-full h-full object-cover" /></div>)}</div>
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
@@ -1203,9 +1703,34 @@ export default function App() {
           </div>
         )}
 
-        {/* --- DEMAIS TELAS DO ADMIN FICAM AQUI... (TICKETS, IA, ETC ESTÃO NO CÓDIGO GERAL) --- */}
-        {/* PARA ECONOMIZAR ESPAÇO NA VISUALIZAÇÃO, OMITI A REPETIÇÃO DAS MESMAS FUNÇÕES DO ADMIN */}
-        
+        {editingProduct && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
+            <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
+              <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-4">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2"><Pencil size={20} className="text-blue-400"/> Editar Variação</h2>
+                  <button type="button" onClick={handleDeleteProductFromModal} className="bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-3 py-2 rounded-lg transition-colors text-xs font-bold flex items-center gap-1"><Trash2 size={14} /> Excluir Variação</button>
+              </div>
+              <form onSubmit={handleSaveEdit} className="space-y-4">
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Produto</label><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">SKU</label><input value={editingProduct.sku || ''} onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
+                   <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cód. Barras</label><input value={editingProduct.barcode || ''} onChange={e => setEditingProduct({...editingProduct, barcode: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Preço (R$)</label><input value={editingProduct.price || ''} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
+                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cor</label><input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tamanho</label><input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                </div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Foto Exclusiva</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingProduct({...editingProduct, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{editingProduct.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingProduct.image} className="w-full h-full object-cover" /></div>)}</div>
+                <div className="flex gap-3 pt-6 border-t border-slate-800">
+                   <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
+                   <button type="submit" className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors"><Save size={18}/> Salvar Edição</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   );
