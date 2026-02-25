@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, updateDoc, addDoc, deleteDoc, setDoc, getDoc,
-  serverTimestamp, query, orderBy, onSnapshot, writeBatch, limit, increment, where, getDocs, arrayUnion, arrayRemove
+  serverTimestamp, query, onSnapshot, writeBatch, where, getDocs, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
@@ -32,6 +32,23 @@ const playSound = (type: 'success' | 'error' | 'alert' | 'magic') => { try { con
 const formatCurrency = (value: any) => { const num = Number(value); if (isNaN(num)) return 'R$ 0,00'; return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num); };
 const processImageUrl = (url: string) => { if (!url) return ''; const match = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/); return match && match[1] ? `https://drive.google.com/uc?export=view&id=${match[1]}` : url; };
 const getYoutubeId = (url: string) => { if (!url) return null; const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&]{11})/); return match ? match[1] : null; };
+
+// Blindagem de Datas (Evita Crash de Tela Branca se a data for nula no Firebase)
+const formatDate = (timestamp: any) => {
+    if (!timestamp) return '...';
+    if (typeof timestamp.toMillis === 'function') {
+        return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(timestamp.toMillis());
+    }
+    return '...';
+};
+
+// Ordenação Segura (Substitui o orderBy do Firebase que causa sumiço de dados sem Index)
+const sortByDateDesc = (a: any, b: any, fieldName: string) => {
+    const tA = a[fieldName]?.toMillis ? a[fieldName].toMillis() : 0;
+    const tB = b[fieldName]?.toMillis ? b[fieldName].toMillis() : 0;
+    return tB - tA;
+};
+
 const renderDynamicIcon = (iconName: string, size = 24, className = "") => {
   switch (iconName) {
     case 'MessageCircle': return <MessageCircle size={size} className={className} />;
@@ -68,7 +85,6 @@ type Product = { id: string; sku?: string; barcode?: string; image?: string; nam
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
 type ScannedItem = { product: Product; count: number; };
 type HistoryItem = { id: string; productId: string; productName: string; sku: string; image: string; type: 'entry' | 'exit' | 'correction'; amount: number; previousQty: number; newQty: number; timestamp: any; };
-type CartItem = { product: Product; quantity: number; };
 type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 'pending' | 'received'; items: { productId: string; sku: string; name: string; quantity: number }[]; totalItems: number; createdAt: any; receivedAt?: any; };
 type Notice = { id: string; type: 'text' | 'banner'; title: string; content?: string; imageUrl?: string; createdAt: any; };
 type QuickLink = { id: string; title: string; subtitle: string; icon: string; url: string; order: number; createdAt?: any; };
@@ -84,6 +100,7 @@ export default function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const previewTenantId = urlParams.get('preview'); 
   const vitrineLinkId = urlParams.get('vitrine');
+  const isVitrineMode = !!vitrineLinkId;
   
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [isSuperAdminMode, setIsSuperAdminMode] = useState(false);
@@ -98,7 +115,6 @@ export default function App() {
   const getCol = (name: string) => `saas_tenants/${currentTenant?.id}/${name}`;
 
   // --- ESTADOS DO SISTEMA ---
-  const [isVitrineMode] = useState(!!vitrineLinkId);
   const [publicVitrine, setPublicVitrine] = useState<Showcase | null>(null);
 
   const [user, setUser] = useState<any>(null);
@@ -124,11 +140,10 @@ export default function App() {
   const [purchaseStep, setPurchaseStep] = useState<'select' | 'review'>('select');
   const [userView, setUserView] = useState<'dashboard' | 'catalog' | 'cart' | 'orders' | 'support' | 'academy'>('dashboard');
   
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
-  
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  
+  // Função que faz o botão Expandir o Catálogo funcionar perfeitamente
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
   const [authName, setAuthName] = useState('');
@@ -186,10 +201,6 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
-  const [lastScannedFeedback, setLastScannedFeedback] = useState<{type: 'success' | 'error' | 'magic', msg: string} | null>(null);
-
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
   // ========================================================================
   // 1. LEITOR DE DOMÍNIOS E MODO PREVIEW
@@ -226,15 +237,14 @@ export default function App() {
   }, [currentDomain, previewTenantId]);
 
   // ========================================================================
-  // 2. BUSCA DE DADOS ISOLADA (Usando getCol)
+  // 2. BUSCA DE DADOS BLINDADA (Isolada e Imune a Erros de Index do Firebase)
   // ========================================================================
   useEffect(() => {
     if (!currentTenant) return;
 
-    const q = query(collection(db, getCol('products')), orderBy('updatedAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items: Product[] = [];
-      snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() } as Product); });
+    const unsubProducts = onSnapshot(collection(db, getCol('products')), (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+      items.sort((a, b) => sortByDateDesc(a, b, 'updatedAt'));
       
       if (!loading && selectedRole === 'user' && !isVitrineMode) {
         const previousProducts = prevProductsRef.current;
@@ -251,17 +261,29 @@ export default function App() {
     });
 
     if (!isVitrineMode) {
-        const unsubNotices = onSnapshot(query(collection(db, getCol('notices')), orderBy('createdAt', 'desc')), (snap) => setNotices(snap.docs.map(d => ({id: d.id, ...d.data()} as Notice))));
-        const unsubLinks = onSnapshot(query(collection(db, getCol('quickLinks')), orderBy('order', 'asc')), (snap) => setQuickLinks(snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink))));
-        const unsubShowcases = onSnapshot(query(collection(db, getCol('showcases'))), (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase))));
+        const unsubNotices = onSnapshot(collection(db, getCol('notices')), (snap) => {
+            const items = snap.docs.map(d => ({id: d.id, ...d.data()} as Notice));
+            items.sort((a, b) => sortByDateDesc(a, b, 'createdAt'));
+            setNotices(items);
+        });
+        
+        const unsubLinks = onSnapshot(collection(db, getCol('quickLinks')), (snap) => {
+            const items = snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink));
+            items.sort((a, b) => a.order - b.order);
+            setQuickLinks(items);
+        });
+        
+        const unsubShowcases = onSnapshot(collection(db, getCol('showcases')), (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase))));
+        
         const unsubAcademy = onSnapshot(collection(db, getCol('academy')), (snap) => setLessons(snap.docs.map(d => ({id: d.id, ...d.data()} as AcademyLesson))));
-        return () => { unsubscribe(); unsubNotices(); unsubLinks(); unsubShowcases(); unsubAcademy(); };
+        
+        return () => { unsubProducts(); unsubNotices(); unsubLinks(); unsubShowcases(); unsubAcademy(); };
     } else {
-        const unsubShowcases = onSnapshot(query(collection(db, getCol('showcases'))), (snap) => {
+        const unsubShowcases = onSnapshot(collection(db, getCol('showcases')), (snap) => {
             const allVitrines = snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase));
             setPublicVitrine(allVitrines.find(v => v.linkId === vitrineLinkId) || null);
         });
-        return () => { unsubscribe(); unsubShowcases(); };
+        return () => { unsubProducts(); unsubShowcases(); };
     }
   }, [currentTenant, loading, isVitrineMode, vitrineLinkId]);
 
@@ -273,7 +295,8 @@ export default function App() {
          
          const unsubMyTickets = onSnapshot(collection(db, getCol('tickets')), (snap) => {
              const items = snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket));
-             const myItems = items.filter(t => t.userId === user.uid).sort((a,b) => b.createdAt - a.createdAt);
+             items.sort((a, b) => sortByDateDesc(a, b, 'createdAt'));
+             const myItems = items.filter(t => t.userId === user.uid);
              setMyTickets(myItems);
          });
 
@@ -283,16 +306,42 @@ export default function App() {
 
   useEffect(() => {
     if (selectedRole === 'admin' && currentTenant) {
-      const unsubHist = onSnapshot(query(collection(db, getCol('history')), orderBy('timestamp', 'desc'), limit(300)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
-      const unsubPurch = onSnapshot(query(collection(db, getCol('purchases')), orderBy('createdAt', 'desc')), (snap) => setPurchases(snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder))));
+      const unsubHist = onSnapshot(collection(db, getCol('history')), (snap) => {
+          const items = snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem));
+          items.sort((a, b) => sortByDateDesc(a, b, 'timestamp'));
+          setHistory(items.slice(0, 300));
+      });
+      
+      const unsubPurch = onSnapshot(collection(db, getCol('purchases')), (snap) => {
+          const items = snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder));
+          items.sort((a, b) => sortByDateDesc(a, b, 'createdAt'));
+          setPurchases(items);
+      });
+      
       const unsubUsers = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', currentTenant.id)), (snap) => {
           setUsersList(snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile)).filter(u => u.role === 'revendedor'));
       });
-      const unsubAllTickets = onSnapshot(query(collection(db, getCol('tickets')), orderBy('createdAt', 'desc')), (snap) => setAllTickets(snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket))));
+      
+      const unsubAllTickets = onSnapshot(collection(db, getCol('tickets')), (snap) => {
+          const items = snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket));
+          items.sort((a, b) => sortByDateDesc(a, b, 'createdAt'));
+          setAllTickets(items);
+      });
 
       return () => { unsubHist(); unsubPurch(); unsubUsers(); unsubAllTickets(); };
     }
   }, [selectedRole, currentTenant]);
+
+  useEffect(() => {
+    if (isSuperAdminMode) {
+      const unsub = onSnapshot(collection(db, TENANTS_COLLECTION), (snap) => { 
+        const items = snap.docs.map(d => ({id: d.id, ...d.data()} as Tenant));
+        items.sort((a, b) => sortByDateDesc(a, b, 'createdAt'));
+        setSaasTenants(items); 
+      }); 
+      return () => unsub(); 
+    } 
+  }, [isSuperAdminMode]);
 
   useEffect(() => {
     if (searchTerm.trim() === '') { setFilteredProducts(products); } 
@@ -319,7 +368,7 @@ export default function App() {
       
       history.forEach(h => {
           if (h.type === 'exit') {
-              const date = h.timestamp?.toDate ? h.timestamp.toDate() : new Date();
+              const date = h.timestamp?.toMillis ? new Date(h.timestamp.toMillis()) : new Date();
               if (date >= thirtyDaysAgo) exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount;
           }
       });
@@ -383,50 +432,20 @@ export default function App() {
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
       let csvContent = "\uFEFF"; 
       
-      const headerRow = [
-        `"SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
-        `"SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
-        `"Título*\n(Obrigatório, 1-500 caracteres)"`,
-        `"Apelido do Produto\n(1-500 caracteres)"`,
-        `"Usar apelido como título da NFe"`,
-        `"Variantes1*\n(Obrigatório, 1-14 caracteres)"`,
-        `"Valor da Variante1*\n(Obrigatório, 1-30 caracteres)"`,
-        `"Variantes2\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante2\n(limite 1-30 caracteres)"`,
-        `"Variantes3\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante3\n(limite 1-30 caracteres)"`,
-        `"Variantes4\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante4\n(limite 1-30 caracteres)"`,
-        `"Variantes5\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante5\n(limite 1-30 caracteres)"`,
-        `"Preço de varejo\n(limite 0-999999999)"`,
-        `"Custo de Compra\n(limite 0-999999999)"`,
-        `"Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)"`,
-        `"N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)"`,
-        `"Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)"`,
-        `"Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）"`,
-        `"Imagem"`,
-        `"Peso (g)\n(limite 1-999999)"`,
-        `"Comprimento (cm)\n(limite 1-999999)"`,
-        `"Largura (cm)\n(limite 1-999999)"`,
-        `"Altura (cm)\n(limite 1-999999)"`,
-        `"NCM\n(limite 8 dígitos)"`,
-        `"CEST\n(limite 7 dígitos)"`,
-        `"Unidade\n(Selecionar UN/KG/Par)"`,
-        `"Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)"`,
-        `"Link do Fornecedor"`
-      ].join(',');
+      const headerRow = `"SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)","SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)","Título*\n(Obrigatório, 1-500 caracteres)","Apelido do Produto\n(1-500 caracteres)","Usar apelido como título da NFe","Variantes1*\n(Obrigatório, 1-14 caracteres)","Valor da Variante1*\n(Obrigatório, 1-30 caracteres)","Variantes2\n(limite 1-14 caracteres)","Valor da Variante2\n(limite 1-30 caracteres)","Variantes3\n(limite 1-14 caracteres)","Valor da Variante3\n(limite 1-30 caracteres)","Variantes4\n(limite 1-14 caracteres)","Valor da Variante4\n(limite 1-30 caracteres)","Variantes5\n(limite 1-14 caracteres)","Valor da Variante5\n(limite 1-30 caracteres)","Preço de varejo\n(limite 0-999999999)","Custo de Compra\n(limite 0-999999999)","Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)","N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)","Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)","Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）","Imagem","Peso (g)\n(limite 1-999999)","Comprimento (cm)\n(limite 1-999999)","Largura (cm)\n(limite 1-999999)","Altura (cm)\n(limite 1-999999)","NCM\n(limite 8 dígitos)","CEST\n(limite 7 dígitos)","Unidade\n(Selecionar UN/KG/Par)","Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)","Link do Fornecedor"`;
 
       csvContent += headerRow + "\n";
 
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
-          const tituloCompleto = p.description ? `${p.name} - ${p.description}` : p.name;
+          const desc = p.description || '';
+          const tituloCompleto = desc ? `${p.name} - ${desc}` : p.name;
+          const safeTitulo = tituloCompleto.replace(/"/g, '""'); // Escapa aspas para o Excel
           
           const row = [
               `"${skuPai}"`,
               `"${p.sku || ''}"`,
-              `"${tituloCompleto.replace(/"/g, '""')}"`, 
+              `"${safeTitulo}"`, 
               `""`,
               `"N"`,
               `"Cor"`,
@@ -1080,7 +1099,7 @@ export default function App() {
                                            </div>
                                            {/* BOTÃO MÁGICO DO UPSELLER */}
                                            <button onClick={(e) => { e.stopPropagation(); handleExportToUpSeller(name, group); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md mt-auto">
-                                               <Download size={16}/> Exportar para UpSeller
+                                               <Download size={16}/> Exportar UpSeller
                                            </button>
                                        </div>
                                    )}
@@ -1632,7 +1651,7 @@ export default function App() {
                     <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cor</label><input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
                     <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tamanho</label><input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
                 </div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Foto Exclusiva</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingProduct({...editingProduct, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{editingProduct.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingProduct.image} className="w-full h-full object-cover" /></div>)}</div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Foto Exclusiva (Opcional)</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingProduct({...editingProduct, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{editingProduct.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingProduct.image} className="w-full h-full object-cover" /></div>)}</div>
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
                    <button type="submit" className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors"><Save size={18}/> Salvar Edição</button>
