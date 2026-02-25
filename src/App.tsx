@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
-  getFirestore, collection, doc, updateDoc, addDoc, deleteDoc, setDoc,
+  getFirestore, collection, doc, updateDoc, addDoc, deleteDoc, setDoc, getDoc,
   serverTimestamp, query, orderBy, onSnapshot, writeBatch, limit, increment, where, getDocs, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import {
@@ -16,7 +16,7 @@ import {
   LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
   Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
   TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
-  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket
+  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink
 } from 'lucide-react';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -80,7 +80,11 @@ type AcademyLesson = { id: string; season: string; episode: number; title: strin
 export default function App() {
   const [globalLoading, setGlobalLoading] = useState(true);
   
-  // --- MOTOR MULTI-TENANT ---
+  // --- MOTOR MULTI-TENANT E PREVIEW ---
+  const urlParams = new URLSearchParams(window.location.search);
+  const previewTenantId = urlParams.get('preview'); // NOVO: Lê se estamos no modo preview
+  const vitrineLinkId = urlParams.get('vitrine');
+  
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [isSuperAdminMode, setIsSuperAdminMode] = useState(false);
   const [saasTenants, setSaasTenants] = useState<Tenant[]>([]);
@@ -94,8 +98,6 @@ export default function App() {
   const getCol = (name: string) => `saas_tenants/${currentTenant?.id}/${name}`;
 
   // --- ESTADOS DO SISTEMA ---
-  const urlParams = new URLSearchParams(window.location.search);
-  const vitrineLinkId = urlParams.get('vitrine');
   const [isVitrineMode] = useState(!!vitrineLinkId);
   const [publicVitrine, setPublicVitrine] = useState<Showcase | null>(null);
 
@@ -136,6 +138,7 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
 
+  // Estados Admin - Produtos
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
   const [baseImage, setBaseImage] = useState('');
@@ -189,16 +192,26 @@ export default function App() {
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
   // ========================================================================
-  // 1. LEITOR DE DOMÍNIOS (ROTEAMENTO MULTI-TENANT)
+  // 1. LEITOR DE DOMÍNIOS E MODO PREVIEW
   // ========================================================================
   useEffect(() => {
     const fetchTenant = async () => {
-      // Para facilitar os testes locais, consideramos localhost como Super Admin ou força um ID padrão
-      if (currentDomain === 'localhost') {
-         // setIsSuperAdminMode(true); // Descomente para testar a tela do Super Admin
-         // setGlobalLoading(false); return;
+      // 1. Verifica se estamos acessando via Link de Preview (?preview=ID)
+      if (previewTenantId) {
+        const docRef = doc(db, TENANTS_COLLECTION, previewTenantId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant);
+          setIsSuperAdminMode(false);
+        } else {
+          alert("Erro no Preview: Empresa não encontrada.");
+          setIsSuperAdminMode(true);
+        }
+        setGlobalLoading(false);
+        return;
       }
 
+      // 2. Se não tem preview, busca a empresa pelo domínio
       const q = query(collection(db, TENANTS_COLLECTION), where("domain", "==", currentDomain));
       const querySnapshot = await getDocs(q);
       
@@ -207,16 +220,16 @@ export default function App() {
         setCurrentTenant(tenantData);
         setIsSuperAdminMode(false);
       } else {
-        // Se o domínio não estiver cadastrado, cai no Painel Super Admin
+        // Se o domínio não está cadastrado, cai na tela do Super Admin
         setIsSuperAdminMode(true);
       }
       setGlobalLoading(false);
     };
     fetchTenant();
-  }, [currentDomain]);
+  }, [currentDomain, previewTenantId]);
 
   // ========================================================================
-  // 2. BUSCA DE DADOS ISOLADA (Usando getCol para pegar só da empresa atual)
+  // 2. BUSCA DE DADOS ISOLADA (Usando getCol)
   // ========================================================================
   useEffect(() => {
     if (!currentTenant) return;
@@ -275,7 +288,6 @@ export default function App() {
     if (selectedRole === 'admin' && currentTenant) {
       const unsubHist = onSnapshot(query(collection(db, getCol('history')), orderBy('timestamp', 'desc'), limit(300)), (snap) => setHistory(snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem))));
       const unsubPurch = onSnapshot(query(collection(db, getCol('purchases')), orderBy('createdAt', 'desc')), (snap) => setPurchases(snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder))));
-      // Filtra usuários vinculados a esta empresa
       const unsubUsers = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', currentTenant.id)), (snap) => {
           setUsersList(snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile)).filter(u => u.role === 'revendedor'));
       });
@@ -392,6 +404,7 @@ export default function App() {
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { const file = e.target.files?.[0]; if (file) { if(file.size > 800000) { alert("Imagem muito grande. Máx 800KB."); return; } const reader = new FileReader(); reader.onloadend = () => { setter(reader.result as string); }; reader.readAsDataURL(file); } };
 
+  // --- FUNÇÕES DE SAAS (SUPER ADMIN) ---
   const handleCreateTenant = async (e: React.FormEvent) => {
       e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true);
       try {
@@ -400,9 +413,10 @@ export default function App() {
           setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!");
       } catch (error) { console.error(error); } finally { setIsSavingBatch(false); }
   };
+  
   useEffect(() => { if (isSuperAdminMode) { const unsub = onSnapshot(query(collection(db, TENANTS_COLLECTION), orderBy('createdAt', 'desc')), (snap) => { setSaasTenants(snap.docs.map(d => ({id: d.id, ...d.data()} as Tenant))); }); return () => unsub(); } }, [isSuperAdminMode]);
 
-  // Funções Escopadas (Usando getCol)
+  // --- FUNÇÕES DE TICKETS ---
   const handleOpenTicket = async (e: React.FormEvent) => { 
       e.preventDefault(); 
       if(!currentTenant || !user || !userProfile) return; 
@@ -437,7 +451,7 @@ export default function App() {
   const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, getCol('tickets'), ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>DADOS:</strong><br/> ${ticket.productInfo.replace(/\n/g, '<br/>')}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
   
-  const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return alert('Preencha os campos.'); setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
+  const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir?')) await deleteDoc(doc(db, getCol('academy'), id)); };
   const toggleLessonCompletion = async (lessonId: string) => { if (!user) return; const isCompleted = userProfile?.completedLessons?.includes(lessonId); try { await updateDoc(doc(db, 'users', user.uid), { completedLessons: isCompleted ? arrayRemove(lessonId) : arrayUnion(lessonId) }); } catch (e) { console.error(e); } };
   const academyProgress = Math.round(((userProfile?.completedLessons?.length || 0) / (lessons.length || 1)) * 100);
@@ -447,7 +461,7 @@ export default function App() {
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
   const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
-  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
+  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
   const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
   const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
@@ -512,14 +526,18 @@ export default function App() {
                                       <div className="absolute left-0 top-0 bottom-0 w-2" style={{ backgroundColor: tenant.primaryColor }}></div>
                                       <div className="pl-2 flex justify-between items-start">
                                           <div>
-                                              <h3 className="font-bold text-lg text-white">{tenant.name}</h3>
+                                              <h3 className="font-bold text-lg text-white uppercase">{tenant.name}</h3>
                                               <a href={`https://${tenant.domain}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline flex items-center gap-1 mt-1"><Globe size={12}/> {tenant.domain}</a>
                                           </div>
                                           {tenant.logoUrl ? (<img src={tenant.logoUrl} className="w-10 h-10 rounded bg-white object-contain p-1" />) : (<div className="w-10 h-10 rounded bg-slate-800 flex items-center justify-center"><Store size={16} className="text-slate-500"/></div>)}
                                       </div>
                                       <div className="pl-2 mt-2 pt-3 border-t border-slate-800 flex justify-between items-center">
-                                          <span className="text-[10px] text-slate-500 font-mono">ID: {tenant.id.substring(0,8)}</span>
-                                          <button className="text-[10px] bg-red-500/10 text-red-500 px-2 py-1 rounded hover:bg-red-500/20 font-bold">Suspender</button>
+                                          <span className="text-[10px] text-slate-500 font-mono flex-1">ID: {tenant.id.substring(0,8)}</span>
+                                          <div className="flex gap-2">
+                                              {/* BOTÃO DE PREVIEW AQUI */}
+                                              <a href={`/?preview=${tenant.id}`} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded hover:bg-blue-500/20 font-bold flex items-center gap-1 transition-colors"><LayoutGrid size={12}/> Ver Painel</a>
+                                              <button className="text-[10px] bg-red-500/10 text-red-500 px-3 py-1.5 rounded hover:bg-red-500/20 font-bold transition-colors">Suspender</button>
+                                          </div>
                                       </div>
                                   </div>
                               ))}
@@ -626,6 +644,9 @@ export default function App() {
   if (!selectedRole && !isVitrineMode) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans relative overflow-hidden">
+        {previewTenantId && (
+            <div className="absolute top-4 left-4 bg-yellow-500 text-black font-black text-xs px-3 py-1 rounded shadow-lg uppercase z-50 animate-pulse">Modo Preview</div>
+        )}
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
 
@@ -1138,6 +1159,19 @@ export default function App() {
                  </div>
               </div>
             )}
+
+            {userView === 'orders' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in h-[60vh] flex items-center justify-center">
+                <div className="p-10 text-center max-w-sm mx-auto">
+                    <div className="w-24 h-24 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Truck size={40} />
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-800 mb-2">Função em Breve!</h2>
+                    <p className="text-slate-500 mb-6">Estamos construindo um histórico completo para você acompanhar o status de todos os seus pedidos de forma automática.</p>
+                    <button onClick={() => setUserView('catalog')} className="text-white font-bold py-3 px-6 rounded-xl transition-colors w-full" style={{backgroundColor: brandColor}}>Voltar para o Catálogo</button>
+                </div>
+              </div>
+            )}
             
           </div>
         </main>
@@ -1153,7 +1187,7 @@ export default function App() {
   }
 
   // ==========================================
-  // RENDERIZAÇÃO: ADMIN (FORNECEDOR)
+  // RENDERIZAÇÃO: ADMIN DO INQUILINO (FORNECEDOR)
   // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
@@ -1164,6 +1198,7 @@ export default function App() {
             <div><h1 className="font-black text-white text-xl">Fornecedor PRO</h1></div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
+            <button onClick={() => window.open(`/?preview=${currentTenant?.id}`, '_blank')} className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-blue-500/20 transition-colors mr-2"><ExternalLink size={16} /> <span className="hidden md:inline font-bold">Testar Vitrine</span></button>
             <button onClick={handleLogout} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-red-500 hover:text-white transition-colors"><LogOut size={16} /> <span className="hidden md:inline font-bold">Sair</span></button>
           </div>
         </div>
@@ -1568,7 +1603,95 @@ export default function App() {
             </div>
         )}
 
-        {/* --- ESTOQUE DO ADMIN --- */}
+        {/* --- TELA DE AVISOS (ADMIN) --- */}
+        {adminView === 'notices' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
+                 </div>
+                 <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo de Publicação</label>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Aviso Normal</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
+                                <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-amber-500" />
+                                <span className="font-bold text-sm">Banner com Imagem</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título Importante*</label>
+                        <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
+                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none"></textarea>
+                    </div>
+                    {noticeType === 'banner' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
+                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setNoticeImage)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 cursor-pointer" />
+                            {noticeImage && (<div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700"><img src={noticeImage} className="h-32 object-cover rounded shadow-md" /></div>)}
+                        </div>
+                    )}
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
+                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Megaphone size={20} />} Publicar no Dashboard
+                    </button>
+                 </form>
+              </div>
+
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {notices.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum aviso ativo.</p> : notices.map(notice => (
+                         <div key={notice.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
+                             <div>
+                                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${notice.type === 'banner' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>{notice.type}</span><h3 className="font-bold text-white text-sm">{notice.title}</h3></div>
+                                 <p className="text-xs text-slate-500">{formatDate(notice.createdAt)}</p>
+                             </div>
+                             <button onClick={() => handleDeleteNotice(notice.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
+        {adminView === 'links' && (
+           <div className="space-y-6">
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div></div>
+                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label><input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino*</label><input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none"><option value="MessageCircle">WhatsApp</option><option value="ImageIcon">Fotos/Drive</option><option value="Globe">Site</option><option value="Link2">Link Padrão</option></select></div>
+                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
+                        </div>
+                    </div>
+                    <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
+                 </form>
+              </div>
+              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
+                 <div className="p-4 space-y-3">
+                     {quickLinks.map(link => (
+                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center"><div className="flex items-center gap-4"><div className="bg-slate-800 p-3 rounded-lg text-slate-300">{renderDynamicIcon(link.icon, 20)}</div><div><div className="flex items-center gap-2"><h3 className="font-bold text-white text-sm">{link.title}</h3><span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span></div><p className="text-xs text-blue-400 truncate max-w-[200px]">{link.url}</p></div></div><button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button></div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* --- ESTOQUE DO ADMIN COM FOTO MELHORADA E EDIÇÃO AVANÇADA --- */}
         {adminView === 'stock' && (
           <>
             <div className="bg-slate-900 p-3 md:p-4 rounded-2xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
@@ -1632,7 +1755,7 @@ export default function App() {
           </>
         )}
 
-        {/* --- TELA DE GERAÇÃO DE GRADE E MODAIS DE EDIÇÃO FICAM AQUI (Igual a versão anterior) --- */}
+        {/* --- TELA DE GERAÇÃO DE GRADE --- */}
         {adminView === 'add' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden relative animate-in slide-in-from-right">
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
@@ -1654,7 +1777,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- MODAIS DE EDIÇÃO --- */}
+        {/* --- MODAIS DE EDIÇÃO ADMIN --- */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -1667,13 +1790,31 @@ export default function App() {
                      <Trash2 size={16} /> <span className="hidden md:inline">Excluir Tudo</span>
                  </button>
               </div>
+              
               <form onSubmit={handleSaveGroupEdit} className="space-y-4">
-                <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Nome do Modelo</label><input value={editingGroup.name} onChange={e => setEditingGroup({...editingGroup, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
-                <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nova Foto do Modelo</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingGroup({...editingGroup, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" /></div>
+                <div>
+                   <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Nome do Modelo</label>
+                   <input value={editingGroup.name} onChange={e => setEditingGroup({...editingGroup, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required />
+                </div>
+                <div>
+                   <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label>
+                   <input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nova Foto do Modelo (Opcional)</label>
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingGroup({...editingGroup, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />
+                    {editingGroup.image && (
+                        <div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700">
+                            <img src={editingGroup.image} className="w-full h-full object-cover" />
+                        </div>
+                    )}
+                </div>
+
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
-                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
+                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">
+                      {isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar 
+                   </button>
                 </div>
               </form>
             </div>
@@ -1685,23 +1826,54 @@ export default function App() {
             <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
               <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-4">
                   <h2 className="text-xl font-bold text-white flex items-center gap-2"><Pencil size={20} className="text-blue-400"/> Editar Variação</h2>
-                  <button type="button" onClick={handleDeleteProductFromModal} className="bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-3 py-2 rounded-lg transition-colors text-xs font-bold flex items-center gap-1"><Trash2 size={14} /> Excluir Variação</button>
+                  <button type="button" onClick={handleDeleteProductFromModal} className="bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-3 py-2 rounded-lg transition-colors text-xs font-bold flex items-center gap-1">
+                      <Trash2 size={14} /> Excluir Variação
+                  </button>
               </div>
               <form onSubmit={handleSaveEdit} className="space-y-4">
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Produto</label><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                <div>
+                   <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Produto</label>
+                   <input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required />
+                </div>
                 <div className="grid grid-cols-2 gap-4">
-                   <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">SKU</label><input value={editingProduct.sku || ''} onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
-                   <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cód. Barras</label><input value={editingProduct.barcode || ''} onChange={e => setEditingProduct({...editingProduct, barcode: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
+                   <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">SKU</label>
+                      <input value={editingProduct.sku || ''} onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" />
+                   </div>
+                   <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Código de Barras</label>
+                      <input value={editingProduct.barcode || ''} onChange={e => setEditingProduct({...editingProduct, barcode: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" />
+                   </div>
                 </div>
+                
                 <div className="grid grid-cols-3 gap-4">
-                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Preço (R$)</label><input value={editingProduct.price || ''} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
-                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cor</label><input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
-                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tamanho</label><input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                    <div className="col-span-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Preço (R$)</label>
+                        <input value={editingProduct.price || ''} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required />
+                    </div>
+                    <div className="col-span-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cor</label>
+                        <input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required />
+                    </div>
+                    <div className="col-span-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tamanho</label>
+                        <input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required />
+                    </div>
                 </div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Foto Exclusiva</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingProduct({...editingProduct, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" /></div>
+                
+                <div>
+                   <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Foto Exclusiva (Opcional)</label>
+                   <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingProduct({...editingProduct, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />
+                   {editingProduct.image && (
+                       <div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700">
+                           <img src={editingProduct.image} className="w-full h-full object-cover" />
+                       </div>
+                   )}
+                </div>
+
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
-                   <button type="submit" className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors"><Save size={18}/> Salvar</button>
+                   <button type="submit" className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors"><Save size={18}/> Salvar Edição</button>
                 </div>
               </form>
             </div>
