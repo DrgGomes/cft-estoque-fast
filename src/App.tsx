@@ -81,7 +81,7 @@ export default function App() {
   const [globalLoading, setGlobalLoading] = useState(true);
   
   // --- MOTOR MULTI-TENANT E PREVIEW ---
-  const urlParams = newSearchParams(window.location.search);
+  const urlParams = new URLSearchParams(window.location.search);
   const previewTenantId = urlParams.get('preview'); 
   const vitrineLinkId = urlParams.get('vitrine');
   
@@ -128,10 +128,6 @@ export default function App() {
   const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
   
   const prevProductsRef = useRef<Product[]>([]);
-  
-  // ========================================================================
-  // CORREÇÃO CRÍTICA: FUNÇÃO DE EXPANDIR O CATÁLOGO
-  // ========================================================================
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
@@ -144,7 +140,7 @@ export default function App() {
   // Estados Admin - Produtos
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
-  const [baseDescription, setBaseDescription] = useState('');
+  const [baseDescription, setBaseDescription] = useState(''); 
   const [baseImage, setBaseImage] = useState('');
   const [basePrice, setBasePrice] = useState('');
   const [colors, setColors] = useState<string[]>([]);
@@ -190,7 +186,11 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [quickScanInput, setQuickScanInput] = useState('');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
-  
+  const [lastScannedFeedback, setLastScannedFeedback] = useState<{type: 'success' | 'error' | 'magic', msg: string} | null>(null);
+
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+
   // ========================================================================
   // 1. LEITOR DE DOMÍNIOS E MODO PREVIEW
   // ========================================================================
@@ -383,38 +383,37 @@ export default function App() {
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
       let csvContent = "\uFEFF"; 
       
-      // Cabeçalho Exato da Planilha do UpSeller (Não alterar para não quebrar a importação)
       const headerRow = [
-        `"SPU*\\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
-        `"SKU*\\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
-        `"Título*\\n(Obrigatório, 1-500 caracteres)"`,
-        `"Apelido do Produto\\n(1-500 caracteres)"`,
+        `"SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
+        `"SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)"`,
+        `"Título*\n(Obrigatório, 1-500 caracteres)"`,
+        `"Apelido do Produto\n(1-500 caracteres)"`,
         `"Usar apelido como título da NFe"`,
-        `"Variantes1*\\n(Obrigatório, 1-14 caracteres)"`,
-        `"Valor da Variante1*\\n(Obrigatório, 1-30 caracteres)"`,
-        `"Variantes2\\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante2\\n(limite 1-30 caracteres)"`,
-        `"Variantes3\\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante3\\n(limite 1-30 caracteres)"`,
-        `"Variantes4\\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante4\\n(limite 1-30 caracteres)"`,
-        `"Variantes5\\n(limite 1-14 caracteres)"`,
-        `"Valor da Variante5\\n(limite 1-30 caracteres)"`,
-        `"Preço de varejo\\n(limite 0-999999999)"`,
-        `"Custo de Compra\\n(limite 0-999999999)"`,
-        `"Quantidade\\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)"`,
-        `"N° do Estante\\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)"`,
-        `"Código de Barras\\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)"`,
-        `"Apelido de SKU\\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）"`,
+        `"Variantes1*\n(Obrigatório, 1-14 caracteres)"`,
+        `"Valor da Variante1*\n(Obrigatório, 1-30 caracteres)"`,
+        `"Variantes2\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante2\n(limite 1-30 caracteres)"`,
+        `"Variantes3\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante3\n(limite 1-30 caracteres)"`,
+        `"Variantes4\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante4\n(limite 1-30 caracteres)"`,
+        `"Variantes5\n(limite 1-14 caracteres)"`,
+        `"Valor da Variante5\n(limite 1-30 caracteres)"`,
+        `"Preço de varejo\n(limite 0-999999999)"`,
+        `"Custo de Compra\n(limite 0-999999999)"`,
+        `"Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)"`,
+        `"N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)"`,
+        `"Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)"`,
+        `"Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）"`,
         `"Imagem"`,
-        `"Peso (g)\\n(limite 1-999999)"`,
-        `"Comprimento (cm)\\n(limite 1-999999)"`,
-        `"Largura (cm)\\n(limite 1-999999)"`,
-        `"Altura (cm)\\n(limite 1-999999)"`,
-        `"NCM\\n(limite 8 dígitos)"`,
-        `"CEST\\n(limite 7 dígitos)"`,
-        `"Unidade\\n(Selecionar UN/KG/Par)"`,
-        `"Origem\\n(Selecionar 0/1/2/3/4/5/6/7/8)"`,
+        `"Peso (g)\n(limite 1-999999)"`,
+        `"Comprimento (cm)\n(limite 1-999999)"`,
+        `"Largura (cm)\n(limite 1-999999)"`,
+        `"Altura (cm)\n(limite 1-999999)"`,
+        `"NCM\n(limite 8 dígitos)"`,
+        `"CEST\n(limite 7 dígitos)"`,
+        `"Unidade\n(Selecionar UN/KG/Par)"`,
+        `"Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)"`,
         `"Link do Fornecedor"`
       ].join(',');
 
@@ -425,34 +424,34 @@ export default function App() {
           const tituloCompleto = p.description ? `${p.name} - ${p.description}` : p.name;
           
           const row = [
-              `"${skuPai}"`,           // SPU*
-              `"${p.sku || ''}"`,      // SKU*
-              `"${tituloCompleto}"`,   // Título* (Juntei com a descrição para não perder)
-              `""`,                    // Apelido do Produto
-              `"N"`,                   // Usar apelido NFe
-              `"Cor"`,                 // Variantes1*
-              `"${p.color || ''}"`,    // Valor da Variante1*
-              `"Tamanho"`,             // Variantes2
-              `"${p.size || ''}"`,     // Valor da Variante2
-              `""`,`""`,               // Var3, Val3
-              `""`,`""`,               // Var4, Val4
-              `""`,`""`,               // Var5, Val5
-              `${p.price || 0}`,       // Preço de varejo
-              `${p.price || 0}`,       // Custo de Compra
-              `200`,                   // Quantidade
-              `""`,                    // Estante
-              `"${p.barcode || ''}"`,  // Código de Barras
-              `""`,                    // Apelido de SKU
-              `"${p.image || ''}"`,    // Imagem
-              `800`,                   // Peso (g)
-              `33`,                    // Comprimento (cm)
-              `12`,                    // Largura (cm)
-              `19`,                    // Altura (cm)
-              `""`,                    // NCM
-              `""`,                    // CEST
-              `"UN"`,                  // Unidade
-              `"0"`,                   // Origem
-              `""`                     // Link do Fornecedor
+              `"${skuPai}"`,
+              `"${p.sku || ''}"`,
+              `"${tituloCompleto.replace(/"/g, '""')}"`, 
+              `""`,
+              `"N"`,
+              `"Cor"`,
+              `"${p.color || ''}"`,
+              `"Tamanho"`,
+              `"${p.size || ''}"`,
+              `""`,`""`,
+              `""`,`""`,
+              `""`,`""`,
+              `${p.price || 0}`,
+              `${p.price || 0}`,
+              `200`,
+              `""`,
+              `"${p.barcode || ''}"`,
+              `""`,
+              `"${p.image || ''}"`,
+              `800`,
+              `33`,
+              `12`,
+              `19`,
+              `""`,
+              `""`,
+              `"UN"`,
+              `"0"`,
+              `""`
           ].join(',');
           csvContent += row + "\n";
       });
@@ -1520,94 +1519,6 @@ export default function App() {
                     </div>
                 )}
             </div>
-        )}
-
-        {/* --- TELA DE AVISOS (ADMIN) --- */}
-        {adminView === 'notices' && (
-           <div className="space-y-6">
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center">
-                    <div className="flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
-                 </div>
-                 <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo de Publicação</label>
-                        <div className="flex gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
-                                <input type="radio" name="noticeType" checked={noticeType === 'text'} onChange={() => setNoticeType('text')} className="accent-amber-500" />
-                                <span className="font-bold text-sm">Aviso Normal</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1">
-                                <input type="radio" name="noticeType" checked={noticeType === 'banner'} onChange={() => setNoticeType('banner')} className="accent-amber-500" />
-                                <span className="font-bold text-sm">Banner com Imagem</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título Importante*</label>
-                        <input value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} required placeholder="Ex: Novo Catálogo de Inverno!" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Texto do Aviso {noticeType === 'banner' && '(Aparecerá quando clicado)'}</label>
-                        <textarea value={noticeContent} onChange={e => setNoticeContent(e.target.value)} rows={4} placeholder="Digite a mensagem detalhada..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-amber-500 outline-none"></textarea>
-                    </div>
-                    {noticeType === 'banner' && (
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Escolha a Foto do Banner (Máx 800KB)</label>
-                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setNoticeImage)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 cursor-pointer" />
-                            {noticeImage && (<div className="mt-4 p-2 bg-slate-800 rounded-lg border border-slate-700"><img src={noticeImage} className="h-32 object-cover rounded shadow-md" /></div>)}
-                        </div>
-                    )}
-                    <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">
-                        {isSavingBatch ? <RefreshCw className="animate-spin" /> : <Megaphone size={20} />} Publicar no Dashboard
-                    </button>
-                 </form>
-              </div>
-
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
-                 <div className="p-4 space-y-3">
-                     {notices.length === 0 ? <p className="text-slate-500 text-center py-4">Nenhum aviso ativo.</p> : notices.map(notice => (
-                         <div key={notice.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
-                             <div>
-                                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${notice.type === 'banner' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>{notice.type}</span><h3 className="font-bold text-white text-sm">{notice.title}</h3></div>
-                                 <p className="text-xs text-slate-500">{formatDate(notice.createdAt)}</p>
-                             </div>
-                             <button onClick={() => handleDeleteNotice(notice.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button>
-                         </div>
-                     ))}
-                 </div>
-              </div>
-           </div>
-        )}
-
-        {/* --- TELA DE BOTÕES RÁPIDOS (ADMIN) --- */}
-        {adminView === 'links' && (
-           <div className="space-y-6">
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden animate-in slide-in-from-right">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div></div>
-                 <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Botão*</label><input value={linkTitle} onChange={e => setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={e => setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link de Destino*</label><input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={e => setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none"><option value="MessageCircle">WhatsApp</option><option value="ImageIcon">Fotos/Drive</option><option value="Globe">Site</option><option value="Link2">Link Padrão</option></select></div>
-                            <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={e => setLinkOrder(e.target.value)} required min="1" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:border-cyan-500 outline-none" /></div>
-                        </div>
-                    </div>
-                    <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
-                 </form>
-              </div>
-              <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
-                 <div className="p-4 space-y-3">
-                     {quickLinks.map(link => (
-                         <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center"><div className="flex items-center gap-4"><div className="bg-slate-800 p-3 rounded-lg text-slate-300">{renderDynamicIcon(link.icon, 20)}</div><div><div className="flex items-center gap-2"><h3 className="font-bold text-white text-sm">{link.title}</h3><span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Ordem: {link.order}</span></div><p className="text-xs text-blue-400 truncate max-w-[200px]">{link.url}</p></div></div><button onClick={() => handleDeleteLink(link.id)} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20"><Trash2 size={16}/></button></div>
-                     ))}
-                 </div>
-              </div>
-           </div>
         )}
 
         {/* --- ESTOQUE DO ADMIN --- */}
