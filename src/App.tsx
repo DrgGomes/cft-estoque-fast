@@ -299,7 +299,7 @@ export default function App() {
   }, [academySeason, academySeasonMode, lessons, adminView]);
 
   // ==========================================
-  // EXPORTAÇÃO UPSELLER (MAPEAMENTO 100% CORRIGIDO)
+  // EXPORTAÇÃO UPSELLER (FOTOS SEPARADAS POR "|")
   // ==========================================
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
       const headerRow = [
@@ -340,35 +340,38 @@ export default function App() {
 
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
-          const safeTitulo = (p.name || '').replace(/"/g, '""'); 
+          const safeTitulo = p.name || ''; 
+          
+          // MUDANÇA AQUI: Troca a vírgula (,) pela barra reta (|) para que o UpSeller leia todas as fotos
+          const finalImages = p.image ? p.image.replace(/,/g, '|') : '';
           
           rows.push([
-              skuPai,                 // 0: SPU
-              p.sku || '',            // 1: SKU
-              safeTitulo,             // 2: Título (APENAS O NOME DO PRODUTO)
-              '',                     // 3: Apelido
-              'N',                    // 4: NFe
-              'Cor',                  // 5: Var 1
-              p.color || '',          // 6: Valor 1
-              'Tamanho',              // 7: Var 2
-              p.size || '',           // 8: Valor 2
-              '', '', '', '', '', '', // 9 a 14
-              189.90,                 // 15: Preço varejo
-              p.price || 0,           // 16: Custo
-              500,                    // 17: Quantidade
-              '',                     // 18: Estante
-              p.barcode || '',        // 19: Código de Barras
-              '',                     // 20: Apelido de SKU
-              p.image || '',          // 21: Imagem (Recebe os links do ImgBB separados por vírgula)
-              p.weight || 800,        // 22: Peso
-              p.length || 33,         // 23: Comp
-              p.width || 12,          // 24: Larg
-              p.height || 19,         // 25: Alt
-              p.ncm || '',            // 26: NCM
-              p.cest || '',           // 27: CEST
-              'UN',                   // 28: Unidade
-              0,                      // 29: Origem
-              ''                      // 30: Link Fornecedor
+              skuPai,                 
+              p.sku || '',            
+              safeTitulo,             
+              '',                     
+              'N',                    
+              'Cor',                  
+              p.color || '',          
+              'Tamanho',              
+              p.size || '',           
+              '', '', '', '', '', '', 
+              189.90,                 
+              p.price || 0,           
+              500,                    
+              '',                     
+              p.barcode || '',        
+              '',                     
+              finalImages,            // Imagens separadas por "|" para o UpSeller
+              p.weight || 800,        
+              p.length || 33,         
+              p.width || 12,          
+              p.height || 19,         
+              p.ncm || '',            
+              p.cest || '',           
+              'UN',                   
+              0,                      
+              ''                      
           ]);
       });
 
@@ -446,7 +449,7 @@ export default function App() {
   const handleSaveBatch = async () => { 
       if (!baseName || !baseSku || generatedRows.length === 0) return; setIsSavingBatch(true); 
       const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; 
-      const cleanImages = parseImages(baseImage); // Limpa e prepara os links das fotos
+      const cleanImages = parseImages(baseImage); 
 
       try { 
           const batch = writeBatch(db); 
@@ -642,47 +645,13 @@ export default function App() {
 
         <main className={`flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 text-slate-800`}>
           <header className={`bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100`}>
-            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'App & Integrações' : userView === 'academy' ? 'Treinamentos' : 'Central de Resoluções'}</h2></div></div>
+            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'Integrações' : 'Resoluções'}</h2></div></div>
             <button onClick={handleLogout} className={`md:hidden text-xs p-3 rounded-xl text-red-500 bg-slate-100`}><LogOut size={20} /></button>
           </header>
 
           <div className={`p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full pb-24 md:pb-6`}>
-            {userView === 'dashboard' && (
-              <div className="space-y-6 animate-in fade-in zoom-in duration-300">
-                {quickLinks.length > 0 && (
-                  <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {quickLinks.map(link => (
-                      <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition flex items-center gap-4" style={{ '--tw-border-opacity': '1' } as any} onMouseOver={(e) => e.currentTarget.style.borderColor = brandColor} onMouseOut={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}>
-                        <div className="w-14 h-14 bg-slate-100 text-slate-700 rounded-xl flex items-center justify-center transition" style={{ color: brandColor, backgroundColor: `${brandColor}15` }}>{renderDynamicIcon(link.icon, 28)}</div>
-                        <div><h4 className="font-bold text-slate-800 text-lg transition-colors">{link.title}</h4><p className="text-sm text-slate-500 mt-1">{link.subtitle}</p></div>
-                      </a>
-                    ))}
-                  </section>
-                )}
-                <section className="space-y-4">
-                  <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Megaphone className="text-orange-500"/> Mural de Avisos Importantes</h3>
-                  {notices.length === 0 ? (
-                      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center"><Bell size={48} className="mx-auto text-slate-300 mb-4" /><p className="text-slate-500 font-medium">Nenhum aviso no momento.</p></div>
-                  ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {notices.map(notice => (
-                           <div onClick={() => setSelectedNotice(notice)} key={notice.id} className="bg-slate-200 hover:bg-slate-300 cursor-pointer rounded-2xl shadow-sm border border-slate-300 overflow-hidden relative transition-colors group">
-                              {notice.type === 'banner' && notice.imageUrl && (<div className="w-full h-40 bg-slate-300"><img src={notice.imageUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /></div>)}
-                              <div className="p-5"><div className="flex items-center gap-2 mb-2">{notice.type === 'banner' ? <ImageIcon style={{color:brandColor}} size={18}/> : <Bell className="text-orange-600" size={18}/>}<h4 className="font-black text-lg text-slate-800 line-clamp-1">{notice.title}</h4></div>{notice.content && (<p className="text-slate-500 text-sm line-clamp-2 mt-1">{notice.content}</p>)}<div className="mt-4 flex items-center justify-between"><p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(notice.createdAt)}</p><span className="text-xs font-bold group-hover:underline flex items-center gap-1" style={{color: brandColor}}>Ver mais <MousePointerClick size={12}/></span></div></div>
-                           </div>
-                        ))}
-                      </div>
-                  )}
-                </section>
-              </div>
-            )}
-
             {userView === 'integrations' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-                        <div className="w-16 h-16 bg-orange-500/10 rounded-2xl flex items-center justify-center shrink-0"><Store className="text-orange-500" size={32}/></div>
-                        <div><h2 className="text-xl font-black text-slate-800">Sincronização Shopee</h2><p className="text-slate-500 text-sm">Conecte sua loja e publique produtos do nosso catálogo com apenas um clique.</p></div>
-                    </div>
                     <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center max-w-2xl mx-auto">
                         <img src="https://logospng.org/download/shopee/logo-shopee-icon-1024.png" className="w-24 h-24 mx-auto mb-6 object-contain" alt="Shopee Logo" />
                         {userProfile?.shopeeConnected ? (
@@ -696,7 +665,7 @@ export default function App() {
 
             {userView === 'catalog' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-24 md:pb-6">
-                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo, cor ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
+                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
                  <div>
                    {Object.keys(groupedProducts).length === 0 ? (<p className="text-center text-slate-400 py-10">Nenhum produto encontrado.</p>) : (
                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
@@ -708,12 +677,10 @@ export default function App() {
                                        {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
                                        {group.info.image && group.info.image.split(',').length > 1 && <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] font-black px-2 py-1 rounded backdrop-blur-sm shadow-lg">+{group.info.image.split(',').length - 1} fotos</div>}
                                    </div>
-                                   
                                    <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
                                        <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{String(name)}</h3></div>
                                        <div className="mt-3 flex items-center justify-between"><span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span><div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? {backgroundColor: brandColor} : {}}>{expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div></div>
                                    </div>
-
                                    {expandedGroups[name] && (
                                        <div className="bg-slate-50 border-t border-slate-100 p-3 max-h-80 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2 flex flex-col justify-between">
                                            <div>
@@ -738,7 +705,6 @@ export default function App() {
             
             {userView === 'support' && <div className="text-center py-20 font-bold text-slate-500">Central de Suporte Operante. (Oculto nesta visualização para poupar espaço)</div>}
             {userView === 'academy' && <div className="text-center py-20 font-bold text-slate-500">Academy Operante. (Oculto nesta visualização para poupar espaço)</div>}
-            
           </div>
         </main>
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
@@ -832,7 +798,6 @@ export default function App() {
             <div className="p-4 md:p-6 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2"><Layers size={24} className="text-green-500" /> Gerador de Variações</h2></div>
             <div className="p-4 md:p-6 space-y-6 md:space-y-8">
               
-              {/* AREA 1: PRODUTO PAI E FOTOS */}
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50">
                 <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Package size={16} className="text-blue-400" /> 1. Produto Pai</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -840,7 +805,6 @@ export default function App() {
                     <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full md:w-1/2 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     
-                    {/* SOLUÇÃO CUSTO ZERO: TEXTAREA PARA VÁRIOS LINKS */}
                     <div className="md:col-span-2">
                         <label className="text-sm text-slate-400 block mb-1 font-bold text-blue-400">Links das Fotos (Cole todos os links do ImgBB de uma vez)</label>
                         <textarea 
@@ -863,7 +827,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* AREA 2: LOGÍSTICA */}
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50">
                   <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Box size={16} className="text-orange-400" /> Logística e Fiscal (UpSeller)</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -876,7 +839,6 @@ export default function App() {
                   </div>
               </div>
 
-              {/* AREA 3: GRADE */}
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
               <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-xl px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR VARIAÇÕES'}</button></div>
