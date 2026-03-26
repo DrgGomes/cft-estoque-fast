@@ -5,7 +5,28 @@ import { Product } from '../types';
 
 export default function Fornecedor() {
   const ctx = useContext(AppContext);
-  const { currentTenant, adminView, setAdminView, handleLogout, adminStockStats, searchTerm, setSearchTerm, adminStockFilter, setAdminStockFilter, filteredAdminList, setAdminViewingGroupName, adminViewingGroupName, groupedAdminProducts, handleUpdateQuantity, editingProduct, setEditingProduct, handleDeleteProductFromModal, handleSaveEdit, openGroupEdit, editingGroup, setEditingGroup, handleDeleteGroup, handleSaveGroupEdit, baseName, setBaseName, baseSku, setBaseSku, basePrice, setBasePrice, baseImage, setBaseImage, baseDescription, setBaseDescription, baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, tempColor, setTempColor, addColor, colors, removeColor, tempSize, setTempSize, addSize, sizes, removeSize, generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch, predictiveData, history, usersList, allTickets, handleAdminTicketAction, handlePrintTicket, academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, availableSeasons, academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube, academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, handleSaveAcademy, academySeasons, handleDeleteAcademy, noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, handleSaveNotice, notices, handleDeleteNotice, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase } = ctx;
+  const { 
+    currentTenant, adminView, setAdminView, handleLogout, adminStockStats, searchTerm, setSearchTerm, 
+    adminStockFilter, setAdminStockFilter, filteredAdminList, setAdminViewingGroupName, adminViewingGroupName, 
+    groupedAdminProducts, handleUpdateQuantity, editingProduct, setEditingProduct, handleDeleteProductFromModal, 
+    handleSaveEdit, openGroupEdit, editingGroup, setEditingGroup, handleDeleteGroup, handleSaveGroupEdit, 
+    baseName, setBaseName, baseSku, setBaseSku, basePrice, setBasePrice, baseImage, setBaseImage, 
+    baseDescription, setBaseDescription, baseMaterial, setBaseMaterial, baseSole, setBaseSole, 
+    baseFastening, setBaseFastening, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, 
+    setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, tempColor, 
+    setTempColor, addColor, colors, removeColor, tempSize, setTempSize, addSize, sizes, removeSize, 
+    generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch, predictiveData, history, usersList, 
+    allTickets, handleAdminTicketAction, handlePrintTicket, academySeasonMode, setAcademySeasonMode, 
+    academySeason, setAcademySeason, availableSeasons, academyNewSeason, setAcademyNewSeason, 
+    academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube, 
+    academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, 
+    handleSaveAcademy, academySeasons, handleDeleteAcademy, noticeType, setNoticeType, noticeTitle, 
+    setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, handleSaveNotice, 
+    notices, handleDeleteNotice, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, 
+    setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, 
+    handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, 
+    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase 
+  } = ctx; // <-- AQUI É ONDE PUXAMOS OS CANOS DA CAIXA D'ÁGUA!
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
@@ -180,7 +201,7 @@ export default function Fornecedor() {
           </div>
         )}
 
-        {/* MODAIS ADMIN */}
+        {/* MODAL EDIÇÃO GRUPO */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -195,6 +216,7 @@ export default function Fornecedor() {
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
                 </div>
+
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-purple-400 uppercase mb-2 block flex items-center gap-1"><Tag size={14}/> Atributos (Ficha Técnica)</label>
                     <div className="grid grid-cols-3 gap-2">
@@ -203,18 +225,35 @@ export default function Fornecedor() {
                         <div><label className="text-[10px] text-slate-500 uppercase">Ajuste</label><input value={editingGroup.fastening} onChange={e => setEditingGroup({...editingGroup, fastening: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-xs"/></div>
                     </div>
                 </div>
+
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">Links das Fotos (Pode colar vários do ImgBB)</label>
-                    <textarea value={editingGroup.image.replace(/,/g, '\n')} onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} rows={4} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" />
-                    {editingGroup.image && (<div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">{editingGroup.image.split(',').map((url: string, i: number) => (<img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />))}</div>)}
+                    <textarea 
+                        value={editingGroup.image.replace(/,/g, '\n')} 
+                        onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} 
+                        rows={4} 
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" 
+                    />
+                    {editingGroup.image && (
+                        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">
+                            {editingGroup.image.split(',').map((url: string, i: number) => (
+                                <img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />
+                            ))}
+                        </div>
+                    )}
                 </div>
+                
                 <div className="grid grid-cols-4 gap-2">
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Peso(g)</label><input type="number" value={editingGroup.weight} onChange={e => setEditingGroup({...editingGroup, weight: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">C(cm)</label><input type="number" value={editingGroup.length} onChange={e => setEditingGroup({...editingGroup, length: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">L(cm)</label><input type="number" value={editingGroup.width} onChange={e => setEditingGroup({...editingGroup, width: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">A(cm)</label><input type="number" value={editingGroup.height} onChange={e => setEditingGroup({...editingGroup, height: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                 </div>
-                <div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div></div>
+                <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
+                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
+                </div>
+                
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
                    <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
@@ -224,26 +263,29 @@ export default function Fornecedor() {
           </div>
         )}
 
+        {/* INTELIGÊNCIA ARTIFICIAL */}
         {adminView === 'predictive' && predictiveData && (
             <div className="space-y-6 animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between"><div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div><div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Últimos 30 Dias</div></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden"><div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div><div className="p-4 space-y-3"><p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>{predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (<div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>))}</div></div>
+                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden"><div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div><div className="p-4 space-y-3"><p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>{predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map((p:any) => (<div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>))}</div></div>
                 </div>
             </div>
         )}
 
+        {/* RELATÓRIOS */}
         {adminView === 'history' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><ClipboardList className="text-purple-400" size={24}/><h2 className="text-xl font-black text-white">Relatório de Estoque</h2></div></div>
                 <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
-                    {history.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum movimento registrado.</p> : history.map(item => (
+                    {history.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum movimento registrado.</p> : history.map((item:any) => (
                         <div key={item.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center font-black ${item.type === 'entry' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>{item.type === 'entry' ? '+' : '-'}{item.amount}</div><div><h3 className="font-bold text-white text-sm">{item.productName}</h3><p className="text-xs text-slate-500">SKU: {item.sku || 'N/A'}</p></div></div><div className="text-right"><span className="block text-xs text-slate-400">{formatDate(item.timestamp)}</span><span className="text-[10px] font-mono text-slate-600">Saldo: {item.newQty}</span></div></div>
                     ))}
                 </div>
             </div>
         )}
 
+        {/* CLIENTES */}
         {adminView === 'customers' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><Users className="text-indigo-400" size={24}/><h2 className="text-xl font-black text-white">Revendedores Cadastrados</h2></div><div className="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded font-bold text-sm">Total: {usersList.length}</div></div>
@@ -255,6 +297,7 @@ export default function Fornecedor() {
             </div>
         )}
 
+        {/* TICKETS ADMIN */}
         {adminView === 'tickets' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
