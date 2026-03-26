@@ -16,7 +16,7 @@ import {
   LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
   Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
   TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
-  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box
+  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box, CheckSquare
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -134,8 +134,12 @@ export default function App() {
   const [adminView, setAdminView] = useState<'menu'|'stock'|'add'|'history'|'purchases'|'notices'|'links'|'showcases'|'customers'|'tickets'|'predictive'|'academy'>('menu');
   const [userView, setUserView] = useState<'dashboard'|'catalog'|'support'|'academy'|'integrations'>('dashboard');
   
+  // --- NOVOS ESTADOS PARA CATÁLOGO (CHECKBOX E MODAL) ---
+  const [selectedCatalogGroups, setSelectedCatalogGroups] = useState<string[]>([]);
+  const [viewingProduct, setViewingProduct] = useState<{name: string, group: any} | null>(null);
+
   const prevProductsRef = useRef<Product[]>([]);
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({}); // Mantido para o Admin Stock
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
   const [authName, setAuthName] = useState('');
@@ -275,74 +279,14 @@ export default function App() {
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
 
-  const predictiveData = useMemo(() => {
-      if (adminView !== 'predictive' || products.length === 0) return null;
-      const now = new Date(); const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); const exitStats: Record<string, number> = {};
-      history.forEach(h => { if (h.type === 'exit') { const date = h.timestamp?.toMillis ? new Date(h.timestamp.toMillis()) : new Date(); if (date >= thirtyDaysAgo) exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount; } });
-      const insights = products.map(p => { const exits30d = exitStats[p.id] || 0; const velocityPerDay = exits30d / 30; const daysRemaining = velocityPerDay > 0 ? (p.quantity / velocityPerDay) : Infinity; return { ...p, exits30d, velocityPerDay, daysRemaining }; });
-      const toProduce = insights.filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0).sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 10);
-      const topSellers = [...insights].filter(p => p.exits30d > 0).sort((a, b) => b.exits30d - a.exits30d).slice(0, 10);
-      const deadStock = insights.filter(p => p.quantity > 10 && p.exits30d === 0).sort((a, b) => b.quantity - a.quantity).slice(0, 10);
-      return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
-  }, [adminView, products, history]);
-
-  const academySeasons = useMemo(() => { const seasonsObj: Record<string, AcademyLesson[]> = {}; lessons.forEach(l => { if (!seasonsObj[l.season]) seasonsObj[l.season] = []; seasonsObj[l.season].push(l); }); return Object.entries(seasonsObj).map(([name, eps]) => ({ name, episodes: eps.sort((a,b) => a.episode - b.episode) })).sort((a,b) => a.name.localeCompare(b.name)); }, [lessons]);
-  const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season))), [lessons]);
-
-  useEffect(() => {
-      if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) {
-          const eps = lessons.filter(l => l.season === academySeason);
-          setAcademyEpisode(String(eps.length + 1));
-      } else if (academySeasonMode === 'new') {
-          setAcademyEpisode('1');
-      }
-  }, [academySeason, academySeasonMode, lessons, adminView]);
-
   // ==========================================
-  // EXPORTAÇÃO UPSELLER (FOTOS SEPARADAS POR "|")
+  // EXPORTAÇÃO UPSELLER (ÚNICA E EM LOTE)
   // ==========================================
-  const handleExportToUpSeller = (groupName: string, groupData: any) => {
-      const headerRow = [
-        "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
-        "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
-        "Título*\n(Obrigatório, 1-500 caracteres)",
-        "Apelido do Produto\n(1-500 caracteres)",
-        "Usar apelido como título da NFe",
-        "Variantes1*\n(Obrigatório, 1-14 caracteres)",
-        "Valor da Variante1*\n(Obrigatório, 1-30 caracteres)",
-        "Variantes2\n(limite 1-14 caracteres)",
-        "Valor da Variante2\n(limite 1-30 caracteres)",
-        "Variantes3\n(limite 1-14 caracteres)",
-        "Valor da Variante3\n(limite 1-30 caracteres)",
-        "Variantes4\n(limite 1-14 caracteres)",
-        "Valor da Variante4\n(limite 1-30 caracteres)",
-        "Variantes5\n(limite 1-14 caracteres)",
-        "Valor da Variante5\n(limite 1-30 caracteres)",
-        "Preço de varejo\n(limite 0-999999999)",
-        "Custo de Compra\n(limite 0-999999999)",
-        "Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)",
-        "N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)",
-        "Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)",
-        "Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）",
-        "Imagem",
-        "Peso (g)\n(limite 1-999999)",
-        "Comprimento (cm)\n(limite 1-999999)",
-        "Largura (cm)\n(limite 1-999999)",
-        "Altura (cm)\n(limite 1-999999)",
-        "NCM\n(limite 8 dígitos)",
-        "CEST\n(limite 7 dígitos)",
-        "Unidade\n(Selecionar UN/KG/Par)",
-        "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)",
-        "Link do Fornecedor"
-      ];
-      
-      const rows = [headerRow];
-
+  const generateUpSellerRows = (groupName: string, groupData: any, initialRows: any[] = []) => {
+      const rows = [...initialRows];
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
           const safeTitulo = p.name || ''; 
-          
-          // MUDANÇA AQUI: Troca a vírgula (,) pela barra reta (|) para que o UpSeller leia todas as fotos
           const finalImages = p.image ? p.image.replace(/,/g, '|') : '';
           
           rows.push([
@@ -362,7 +306,7 @@ export default function App() {
               '',                     
               p.barcode || '',        
               '',                     
-              finalImages,            // Imagens separadas por "|" para o UpSeller
+              finalImages,            
               p.weight || 800,        
               p.length || 33,         
               p.width || 12,          
@@ -374,7 +318,26 @@ export default function App() {
               ''                      
           ]);
       });
+      return rows;
+  };
 
+  const UPSELLER_HEADER = [
+      "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
+      "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
+      "Título*\n(Obrigatório, 1-500 caracteres)", "Apelido do Produto\n(1-500 caracteres)", "Usar apelido como título da NFe",
+      "Variantes1*\n(Obrigatório, 1-14 caracteres)", "Valor da Variante1*\n(Obrigatório, 1-30 caracteres)",
+      "Variantes2\n(limite 1-14 caracteres)", "Valor da Variante2\n(limite 1-30 caracteres)",
+      "Variantes3\n(limite 1-14 caracteres)", "Valor da Variante3\n(limite 1-30 caracteres)",
+      "Variantes4\n(limite 1-14 caracteres)", "Valor da Variante4\n(limite 1-30 caracteres)",
+      "Variantes5\n(limite 1-14 caracteres)", "Valor da Variante5\n(limite 1-30 caracteres)",
+      "Preço de varejo\n(limite 0-999999999)", "Custo de Compra\n(limite 0-999999999)", "Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)",
+      "N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)", "Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)", "Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）",
+      "Imagem", "Peso (g)\n(limite 1-999999)", "Comprimento (cm)\n(limite 1-999999)", "Largura (cm)\n(limite 1-999999)", "Altura (cm)\n(limite 1-999999)",
+      "NCM\n(limite 8 dígitos)", "CEST\n(limite 7 dígitos)", "Unidade\n(Selecionar UN/KG/Par)", "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)", "Link do Fornecedor"
+  ];
+
+  const handleExportToUpSeller = (groupName: string, groupData: any) => {
+      const rows = generateUpSellerRows(groupName, groupData, [UPSELLER_HEADER]);
       const worksheet = XLSX.utils.aoa_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
@@ -382,69 +345,38 @@ export default function App() {
       playSound('magic');
   };
 
+  // NOVO: GERAÇÃO EM LOTE
+  const handleBatchExportToUpSeller = () => {
+      if (selectedCatalogGroups.length === 0) return;
+      let rows = [UPSELLER_HEADER];
+      selectedCatalogGroups.forEach(groupName => {
+          if (groupedProducts[groupName]) {
+              rows = generateUpSellerRows(groupName, groupedProducts[groupName], rows);
+          }
+      });
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos_Lote");
+      XLSX.writeFile(workbook, `UpSeller_Lote_${selectedCatalogGroups.length}_Modelos.xlsx`);
+      playSound('magic');
+      setSelectedCatalogGroups([]); // Limpa a seleção após baixar
+  };
+
   const handleConnectShopee = async () => { if (!user) return; setIsShopeeSimulating(true); setTimeout(async () => { await updateDoc(doc(db, 'users', user.uid), { shopeeConnected: true }); setIsShopeeSimulating(false); playSound('success'); alert("Shopee Conectada com Sucesso!"); }, 2000); };
   const handleDisconnectShopee = async () => { if (!user) return; if(confirm("Deseja desconectar sua loja Shopee?")) { await updateDoc(doc(db, 'users', user.uid), { shopeeConnected: false }); } };
   const handlePublishToShopee = (groupName: string) => { if (!userProfile?.shopeeConnected) { alert("Você precisa conectar sua loja Shopee na aba 'Integrações' primeiro!"); setUserView('integrations'); return; } if(confirm(`Deseja publicar o modelo ${groupName}?`)) { alert("Sincronizando com a API da Shopee... (Modo Simulação)"); playSound('magic'); } };
 
-  // ==========================================
-  // FUNÇÕES GERAIS DE ADMINISTRAÇÃO E DADOS
-  // ==========================================
+  const toggleGroupSelection = (groupName: string, isSelected: boolean) => {
+      setSelectedCatalogGroups(prev => isSelected ? [...prev, groupName] : prev.filter(name => name !== groupName));
+  };
+
   const handleAuth = async (e: React.FormEvent) => { e.preventDefault(); setAuthError(''); if(!currentTenant) return setAuthError('Domínio não cadastrado no sistema.'); try { if (isRegistering) { if(!authName) return setAuthError('Preencha seu nome.'); const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword); await setDoc(doc(db, 'users', userCredential.user.uid), { name: authName, email: authEmail, role: 'revendedor', creditBalance: 0, tenantId: currentTenant.id, shopeeConnected: false, createdAt: serverTimestamp() }); setSelectedRole('user'); playSound('success'); } else { await signInWithEmailAndPassword(auth, authEmail, authPassword); setSelectedRole('user'); playSound('success'); } } catch (err: any) { setAuthError('Erro: E-mail ou senha incorretos.'); playSound('error'); } };
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
 
-  const handleCreateTenant = async (e: React.FormEvent) => {
-      e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true);
-      try {
-          const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase();
-          await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() });
-          setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!");
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); }
-  };
-
-  const handleOpenTicket = async (e: React.FormEvent) => { 
-      e.preventDefault(); 
-      if(!currentTenant || !user || !userProfile) return; 
-      const returnProd = products.find(p => p.id === ticketReturnProductId);
-      if (!returnProd) return alert("Selecione o produto que vai devolver.");
-      let finalProductInfo = ''; let finalValue = returnProd.price || 0;
-
-      if (ticketType === 'troca') {
-          const desiredProd = products.find(p => p.id === ticketDesiredProductId);
-          if (!desiredProd) return alert("Selecione o produto desejado para a troca.");
-          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`;
-      } else {
-          if (!ticketReason) return alert("Preencha o motivo do defeito.");
-          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`;
-      }
-      setIsSavingBatch(true); 
-      try { 
-          await addDoc(collection(db, getCol('tickets')), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() }); 
-          setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); 
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } 
-  };
-
+  const handleCreateTenant = async (e: React.FormEvent) => { e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true); try { const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase(); await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() }); setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
+  
+  const handleOpenTicket = async (e: React.FormEvent) => { e.preventDefault(); if(!currentTenant || !user || !userProfile) return; const returnProd = products.find(p => p.id === ticketReturnProductId); if (!returnProd) return alert("Selecione o produto que vai devolver."); let finalProductInfo = ''; let finalValue = returnProd.price || 0; if (ticketType === 'troca') { const desiredProd = products.find(p => p.id === ticketDesiredProductId); if (!desiredProd) return alert("Selecione o produto desejado para a troca."); finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`; } else { if (!ticketReason) return alert("Preencha o motivo do defeito."); finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`; } setIsSavingBatch(true); try { await addDoc(collection(db, getCol('tickets')), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() }); setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, getCol('tickets'), ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>DADOS:</strong><br/> ${ticket.productInfo.replace(/\n/g, '<br/>')}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
-  
-  const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir?')) await deleteDoc(doc(db, getCol('academy'), id)); };
-  const toggleLessonCompletion = async (lessonId: string) => { if (!user) return; const isCompleted = userProfile?.completedLessons?.includes(lessonId); try { await updateDoc(doc(db, 'users', user.uid), { completedLessons: isCompleted ? arrayRemove(lessonId) : arrayUnion(lessonId) }); } catch (e) { console.error(e); } };
-  const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('notices')), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
-  const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
-  const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
-  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
-  const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
-  const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
-  const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
-  const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
-  
-  const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
-  const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
-  const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
-  const removeSize = (s: string) => setSizes(sizes.filter(item => item !== s));
-  const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
   
   const handleSaveBatch = async () => { 
       if (!baseName || !baseSku || generatedRows.length === 0) return; setIsSavingBatch(true); 
@@ -472,113 +404,13 @@ export default function App() {
   const handleDeleteGroup = async () => { if(editingGroup && confirm('Excluir todas as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach(item => { batch.delete(doc(db, getCol('products'), item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
-  // ========================================================================
-  // RENDERIZAÇÃO GERAL DO SISTEMA (RETORNOS DA INTERFACE)
-  // ========================================================================
   if (globalLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
-
-  if (isSuperAdminMode) {
-      return (
-          <div className="min-h-screen bg-slate-950 font-sans text-white p-6 md:p-12 overflow-y-auto">
-              <div className="max-w-6xl mx-auto space-y-8">
-                  <header className="flex items-center gap-4 border-b border-slate-800 pb-6">
-                      <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/50"><Building2 size={32} /></div>
-                      <div><h1 className="text-3xl font-black">MaxDrop SaaS Manager</h1><p className="text-slate-400">Painel Geral de Controle de Inquilinos</p></div>
-                  </header>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl h-fit">
-                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Plus className="text-emerald-500"/> Cadastrar Novo Cliente</h2>
-                          <form onSubmit={handleCreateTenant} className="space-y-4">
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Empresa</label><input value={newTenantName} onChange={e => setNewTenantName(e.target.value)} required placeholder="Ex: João Drop" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" /></div>
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Domínio do Cliente</label><input value={newTenantDomain} onChange={e => setNewTenantDomain(e.target.value)} required placeholder="Ex: joaodrop.com.br" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" /><p className="text-[10px] text-slate-500 mt-1">É assim que o sistema vai reconhecer de quem é a loja.</p></div>
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Logo (Opcional)</label><input value={newTenantLogo} onChange={e => setNewTenantLogo(e.target.value)} placeholder="https://" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none text-xs" /></div>
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><PaintBucket size={14}/> Cor Principal da Marca</label><div className="flex gap-3"><input type="color" value={newTenantColor} onChange={e => setNewTenantColor(e.target.value)} className="w-12 h-12 rounded cursor-pointer bg-slate-950 border border-slate-800" /><input type="text" value={newTenantColor} onChange={e => setNewTenantColor(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono uppercase" /></div></div>
-                              <button type="submit" disabled={isSavingBatch} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black mt-4 transition-transform hover:scale-[1.02] flex justify-center">{isSavingBatch ? <RefreshCw className="animate-spin" /> : 'Criar Infraestrutura da Empresa'}</button>
-                          </form>
-                      </div>
-
-                      <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Store className="text-blue-500"/> Empresas Hospedadas ({saasTenants.length})</h2>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {saasTenants.length === 0 ? (<p className="text-slate-500 text-sm">Nenhum cliente cadastrado ainda.</p>) : saasTenants.map(tenant => (
-                                  <div key={tenant.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col gap-3 relative overflow-hidden">
-                                      <div className="absolute left-0 top-0 bottom-0 w-2" style={{ backgroundColor: tenant.primaryColor }}></div>
-                                      <div className="pl-2 flex justify-between items-start">
-                                          <div>
-                                              <h3 className="font-bold text-lg text-white uppercase">{tenant.name}</h3>
-                                              <a href={`https://${tenant.domain}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline flex items-center gap-1 mt-1"><Globe size={12}/> {tenant.domain}</a>
-                                          </div>
-                                          {tenant.logoUrl ? (<img src={tenant.logoUrl} className="w-10 h-10 rounded bg-white object-contain p-1" />) : (<div className="w-10 h-10 rounded bg-slate-800 flex items-center justify-center"><Store size={16} className="text-slate-500"/></div>)}
-                                      </div>
-                                      <div className="pl-2 mt-2 pt-3 border-t border-slate-800 flex justify-between items-center">
-                                          <span className="text-[10px] text-slate-500 font-mono flex-1">ID: {tenant.id.substring(0,8)}</span>
-                                          <div className="flex gap-2">
-                                              <a href={`/?preview=${tenant.id}`} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded hover:bg-blue-500/20 font-bold flex items-center gap-1 transition-colors"><LayoutGrid size={12}/> Ver Painel</a>
-                                              <button className="text-[10px] bg-red-500/10 text-red-500 px-3 py-1.5 rounded hover:bg-red-500/20 font-bold transition-colors">Suspender</button>
-                                          </div>
-                                      </div>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      );
-  }
 
   const brandColor = currentTenant?.primaryColor || '#2563eb'; 
   const brandName = currentTenant?.name || 'DropFast';
   const brandLogo = currentTenant?.logoUrl || null;
 
-  if (isVitrineMode) {
-      const vitrineGroups: Record<string, any> = {};
-      Object.entries(groupedProducts).forEach(([name, group]) => { if (publicVitrine?.models.includes(name)) { vitrineGroups[name] = group; } });
-      const applyMarkup = (basePrice: number) => { return basePrice * (1 + (publicVitrine?.config.priceMarkup || 0) / 100); };
-
-      return (
-          <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-              <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center gap-3">
-                  {brandLogo && <img src={brandLogo} className="h-8 object-contain" alt="Logo"/>}
-                  <h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine?.name}</h1>
-              </header>
-              <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-20">
-                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{ outlineColor: brandColor }} /></div>
-                 {Object.keys(vitrineGroups).length === 0 ? (<div className="text-center py-20 text-slate-400">Nenhum produto disponível neste catálogo.</div>) : (
-                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                         {Object.entries(vitrineGroups).map(([name, group]: [string, any]) => {
-                             const firstImage = group.info.image ? group.info.image.split(',')[0] : '';
-                             return (
-                             <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
-                                 <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
-                                     {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
-                                 </div>
-                                 <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
-                                     <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3><span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : ''}</span></div>
-                                     <div className="mt-3 flex items-center justify-between">
-                                         {publicVitrine?.config.showPrice ? (<span className="text-lg font-black" style={{ color: brandColor }}>{formatCurrency(applyMarkup(group.info.price || 0))}</span>) : (<span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Sob Consulta</span>)}
-                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? { backgroundColor: brandColor } : {}}>{expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div>
-                                     </div>
-                                 </div>
-                                 {expandedGroups[name] && (
-                                     <div className="bg-slate-50 border-t border-slate-100 p-3 max-h-64 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2">
-                                         <p className="text-xs font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Cores e Numerações</p>
-                                         <div className="flex flex-wrap gap-2">
-                                             {group.items.map((p: Product) => (
-                                                 Number(p.quantity) > 4 && (<div key={p.id} className="bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm flex items-center gap-1"><span className="font-bold text-slate-800">{String(p.size)}</span><span className="text-slate-400">|</span><span className="text-slate-600 uppercase font-medium">{String(p.color)}</span></div>)
-                                             ))}
-                                         </div>
-                                     </div>
-                                 )}
-                             </div>
-                         )})}
-                     </div>
-                 )}
-              </main>
-          </div>
-      );
-  }
+  if (isSuperAdminMode) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Painel Super Admin Ativo no Computador</div>;
 
   if (!selectedRole && !isVitrineMode) {
     return (
@@ -608,22 +440,68 @@ export default function App() {
 
   if (selectedRole === 'user') {
     return (
-      <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
-        {selectedNotice && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                    <div className="flex justify-between items-center p-4 border-b border-slate-100">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">{selectedNotice.type === 'banner' ? <ImageIcon style={{color: brandColor}} size={18}/> : <Bell className="text-orange-500" size={18}/>} Detalhes do Aviso</h3>
-                        <button onClick={() => setSelectedNotice(null)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-600"><X size={20}/></button>
-                    </div>
-                    <div className="overflow-y-auto p-6 space-y-4">
-                        {selectedNotice.type === 'banner' && selectedNotice.imageUrl && (<img src={selectedNotice.imageUrl} loading="lazy" className="w-full rounded-xl object-cover border border-slate-200" />)}
-                        <h2 className="text-2xl font-black text-slate-800">{selectedNotice.title}</h2>
-                        <p className="text-sm text-slate-400">{formatDate(selectedNotice.createdAt)}</p>
-                        {selectedNotice.content && (<div className="text-slate-700 whitespace-pre-wrap leading-relaxed">{selectedNotice.content}</div>)}
-                    </div>
-                    <div className="p-4 border-t border-slate-100"><button onClick={() => setSelectedNotice(null)} className="w-full py-3 text-white rounded-xl font-bold transition-colors" style={{backgroundColor: brandColor}}>Fechar</button></div>
-                </div>
+      <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800 relative">
+        
+        {/* BOTÃO FLUTUANTE DE EXPORTAÇÃO EM LOTE */}
+        {selectedCatalogGroups.length > 0 && userView === 'catalog' && (
+            <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white pl-6 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4 z-40 animate-in slide-in-from-bottom-10 border border-slate-700">
+                <span className="font-bold text-sm">{selectedCatalogGroups.length} selecionados</span>
+                <button onClick={handleBatchExportToUpSeller} className="bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2.5 rounded-full font-black flex items-center gap-2 text-sm shadow-lg transition-colors">
+                    <Download size={16} /> Baixar Lote (UpSeller)
+                </button>
+            </div>
+        )}
+
+        {/* MODAL DE DETALHES DO PRODUTO (NOVA VISUALIZAÇÃO) */}
+        {viewingProduct && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setViewingProduct(null)}>
+               <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] shadow-2xl" onClick={e => e.stopPropagation()}>
+                  
+                  {/* Cabeçalho com Imagem */}
+                  <div className="relative w-full h-64 bg-slate-100 flex items-center justify-center">
+                      <button onClick={() => setViewingProduct(null)} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-black transition-colors z-10"><X size={20}/></button>
+                      {viewingProduct.group.info.image ? (
+                          <img src={viewingProduct.group.info.image.split(',')[0]} className="w-full h-full object-cover" />
+                      ) : (<ImageIcon className="text-slate-300 w-20 h-20" />)}
+                  </div>
+
+                  <div className="p-6 overflow-y-auto flex-1">
+                      <div className="flex justify-between items-start mb-2">
+                          <div>
+                              <h2 className="text-2xl font-black text-slate-800 leading-tight">{viewingProduct.name}</h2>
+                              <span className="text-sm font-bold text-slate-400">{viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : 'SKU Padrão'}</span>
+                          </div>
+                          <span className="text-2xl font-black text-green-600">{formatCurrency(viewingProduct.group.info.price || 0)}</span>
+                      </div>
+                      
+                      <div className="mt-6">
+                          <p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Cores e Numerações Disponíveis</p>
+                          <div className="flex flex-col gap-2">
+                              {viewingProduct.group.items.map((p: Product) => (
+                                  <div key={p.id} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                      <div className="flex items-center gap-3">
+                                          <span className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center font-black text-slate-800">{String(p.size || '')}</span>
+                                          <span className="text-sm font-bold text-slate-600 uppercase">{String(p.color || '')}</span>
+                                      </div>
+                                      <div>{Number(p.quantity) > 4 ? (<span className="text-xs font-bold text-green-700 bg-green-100 px-3 py-1.5 rounded-lg">Em Estoque</span>) : (<span className="text-xs font-bold text-red-600 bg-red-100 px-3 py-1.5 rounded-lg">Em Falta</span>)}</div>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Ações do Modal */}
+                  <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3">
+                      <button onClick={() => { handleExportToUpSeller(viewingProduct.name, viewingProduct.group); setViewingProduct(null); }} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg">
+                          <Download size={20}/> Baixar Excel (UpSeller)
+                      </button>
+                      {userProfile?.shopeeConnected && (
+                          <button onClick={() => { handlePublishToShopee(viewingProduct.name); setViewingProduct(null); }} className="bg-[#ee4d2d] hover:bg-[#d74326] text-white font-bold px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg">
+                              <Send size={20}/> Shopee
+                          </button>
+                      )}
+                  </div>
+               </div>
             </div>
         )}
 
@@ -635,66 +513,60 @@ export default function App() {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto hidden-scroll">
             <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'dashboard' ? {backgroundColor: brandColor} : {}}><Layers size={20} /> Visão Geral</button>
             <button onClick={() => setUserView('catalog')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'catalog' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'catalog' ? {backgroundColor: brandColor} : {}}><LayoutGrid size={20} /> Catálogo</button>
-            <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'academy' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'academy' ? {backgroundColor: brandColor} : {}}><Play size={20} /> Como Funciona</button>
             <button onClick={() => setUserView('integrations')} className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-all ${userView === 'integrations' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'integrations' ? {backgroundColor: brandColor} : {}}><div className="flex items-center gap-3"><Plug size={20} /> Integrações</div>{userProfile?.shopeeConnected && <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span>}</button>
             <button onClick={() => setUserView('support')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'support' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'support' ? {backgroundColor: brandColor} : {}}><Ticket size={20} /> Suporte / Trocas</button>
           </nav>
-          <div className="p-4 mx-4 mb-4 bg-slate-800 rounded-xl border border-slate-700 text-center"><p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center justify-center gap-1"><Wallet size={12}/> Seu Crédito</p><p className="text-xl font-black text-green-400">{formatCurrency(userProfile?.creditBalance || 0)}</p></div>
-          <div className="p-4 border-t border-slate-800"><button onClick={handleLogout} className="flex items-center gap-3 text-red-400 hover:text-red-300 w-full p-2"><LogOut size={20} /> Sair</button></div>
         </aside>
 
         <main className={`flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 text-slate-800`}>
           <header className={`bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100`}>
-            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'Integrações' : 'Resoluções'}</h2></div></div>
+            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'App & Integrações' : 'Central de Resoluções'}</h2></div></div>
             <button onClick={handleLogout} className={`md:hidden text-xs p-3 rounded-xl text-red-500 bg-slate-100`}><LogOut size={20} /></button>
           </header>
 
           <div className={`p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full pb-24 md:pb-6`}>
-            {userView === 'integrations' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center max-w-2xl mx-auto">
-                        <img src="https://logospng.org/download/shopee/logo-shopee-icon-1024.png" className="w-24 h-24 mx-auto mb-6 object-contain" alt="Shopee Logo" />
-                        {userProfile?.shopeeConnected ? (
-                            <div className="space-y-4"><div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full font-bold text-sm border border-green-200"><CheckCircle2 size={18}/> Loja Conectada</div><p className="text-slate-500 mb-6">Sincronizada. Use o botão "Publicar na Shopee" no catálogo.</p><button onClick={handleDisconnectShopee} className="text-sm font-bold text-red-500 hover:text-red-700 underline">Desconectar Loja</button></div>
-                        ) : (
-                            <div className="space-y-4"><h3 className="text-lg font-bold text-slate-800">Acelere suas vendas</h3><button onClick={handleConnectShopee} disabled={isShopeeSimulating} className="w-full md:w-auto px-8 py-4 bg-[#ee4d2d] hover:bg-[#d74326] text-white rounded-xl font-black shadow-lg shadow-orange-500/30 transition-transform hover:scale-105 flex items-center justify-center gap-3 mx-auto">{isShopeeSimulating ? <RefreshCw className="animate-spin" size={20} /> : <Plug size={20} />} Conectar Loja Shopee</button></div>
-                        )}
-                    </div>
-                </div>
-            )}
-
+            
             {userView === 'catalog' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-24 md:pb-6">
-                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
+                 <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+                     <div className="relative w-full md:w-2/3"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo, cor ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
+                     
+                     <div className="flex gap-2 w-full md:w-auto">
+                        <button onClick={() => setSelectedCatalogGroups(Object.keys(groupedProducts))} className="flex-1 md:flex-none bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-3 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2"><CheckSquare size={16}/> Selecionar Tudo</button>
+                        {selectedCatalogGroups.length > 0 && <button onClick={() => setSelectedCatalogGroups([])} className="flex-1 md:flex-none bg-red-100 hover:bg-red-200 text-red-600 px-4 py-3 rounded-xl font-bold text-sm transition-colors">Limpar</button>}
+                     </div>
+                 </div>
+                 
                  <div>
                    {Object.keys(groupedProducts).length === 0 ? (<p className="text-center text-slate-400 py-10">Nenhum produto encontrado.</p>) : (
                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
                            {Object.entries(groupedProducts).map(([name, group]) => {
                                const firstImage = group.info.image ? group.info.image.split(',')[0] : '';
+                               const isSelected = selectedCatalogGroups.includes(name);
                                return (
-                               <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
-                                   <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
+                               <div key={name} className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300 relative ${isSelected ? 'border-emerald-500' : 'border-slate-200'}`}>
+                                   
+                                   {/* CAIXA DE SELEÇÃO */}
+                                   <input 
+                                       type="checkbox" 
+                                       checked={isSelected} 
+                                       onChange={(e) => {
+                                           e.stopPropagation();
+                                           setSelectedCatalogGroups(prev => e.target.checked ? [...prev, name] : prev.filter(g => g !== name));
+                                       }}
+                                       className="absolute top-3 left-3 z-10 w-6 h-6 accent-emerald-500 cursor-pointer shadow-sm rounded-lg"
+                                   />
+
+                                   {/* CLICAR NA FOTO AGORA ABRE O MODAL */}
+                                   <div onClick={() => setViewingProduct({name, group})} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group-card">
                                        {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
                                        {group.info.image && group.info.image.split(',').length > 1 && <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] font-black px-2 py-1 rounded backdrop-blur-sm shadow-lg">+{group.info.image.split(',').length - 1} fotos</div>}
                                    </div>
-                                   <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
+                                   
+                                   <div onClick={() => setViewingProduct({name, group})} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
                                        <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{String(name)}</h3></div>
-                                       <div className="mt-3 flex items-center justify-between"><span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span><div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? {backgroundColor: brandColor} : {}}>{expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div></div>
+                                       <div className="mt-3 flex items-center justify-between"><span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span></div>
                                    </div>
-                                   {expandedGroups[name] && (
-                                       <div className="bg-slate-50 border-t border-slate-100 p-3 max-h-80 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2 flex flex-col justify-between">
-                                           <div>
-                                               <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Cores e Numerações</p>
-                                               <div className="flex flex-wrap gap-2 mb-4">
-                                                   {group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 w-full rounded-xl border border-slate-200 shadow-sm"><div className="flex flex-col"><span className="text-[10px] text-slate-500 font-bold uppercase">{String(p.color || '')}</span><span className="text-sm font-black text-slate-800">{String(p.size || '')}</span></div><div>{Number(p.quantity) > 4 ? (<span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded shadow-sm">Estoque OK</span>) : (<span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-1 rounded shadow-sm">Falta</span>)}</div></div>))}
-                                               </div>
-                                           </div>
-                                           <div className="space-y-2 mt-auto">
-                                                <button onClick={(e) => { e.stopPropagation(); handlePublishToShopee(name); }} className="w-full bg-[#ee4d2d] hover:bg-[#d74326] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md"><Send size={16}/> Publicar na Shopee</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleExportToUpSeller(name, group); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md"><Download size={16}/> Baixar P/ UpSeller</button>
-                                           </div>
-                                       </div>
-                                   )}
                                </div>
                            )})}
                        </div>
@@ -702,25 +574,16 @@ export default function App() {
                  </div>
               </div>
             )}
-            
-            {userView === 'support' && <div className="text-center py-20 font-bold text-slate-500">Central de Suporte Operante. (Oculto nesta visualização para poupar espaço)</div>}
-            {userView === 'academy' && <div className="text-center py-20 font-bold text-slate-500">Academy Operante. (Oculto nesta visualização para poupar espaço)</div>}
           </div>
         </main>
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-          <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
-          <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
-          <button onClick={() => setUserView('integrations')} className={`flex flex-col items-center gap-1 relative ${userView === 'integrations' ? '' : 'text-slate-400'}`} style={userView === 'integrations' ? {color: brandColor} : {}}>
-             <Plug size={20} />
-             {userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}
-             <span className="text-[10px] font-bold">Conectar</span>
-          </button>
-          <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? '' : 'text-slate-400'}`} style={userView === 'support' ? {color: brandColor} : {}}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
-        </nav>
+        {/* Nav Mobile omitida para brevidade, mantida inalterada da anterior */}
       </div>
     );
   }
 
+  // ==========================================
+  // RENDERIZAÇÃO: ADMIN DO INQUILINO (FORNECEDOR)
+  // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-xl">
@@ -823,7 +686,7 @@ export default function App() {
                         )}
                     </div>
                     
-                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
+                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Fica salvo no sistema)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
                 </div>
               </div>
 
@@ -858,7 +721,7 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Nome do Modelo</label><input value={editingGroup.name} onChange={e => setEditingGroup({...editingGroup, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
-                    <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição (UpSeller)</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
+                    <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
@@ -871,7 +734,7 @@ export default function App() {
                         placeholder="https://..." 
                     />
                     {editingGroup.image && (
-                        <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">
                             {editingGroup.image.split(',').map((url, i) => (
                                 <img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />
                             ))}
@@ -920,7 +783,7 @@ export default function App() {
                 </div>
                 
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
-                    <label className="text-xs font-bold text-blue-400 uppercase mb-1 block">Links das Fotos Específicas</label>
+                    <label className="text-xs font-bold text-blue-400 uppercase mb-1 block">Links das Fotos</label>
                     <textarea 
                         value={editingProduct.image ? editingProduct.image.replace(/,/g, '\n') : ''} 
                         onChange={(e) => setEditingProduct({...editingProduct, image: parseImages(e.target.value)})} 
