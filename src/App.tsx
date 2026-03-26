@@ -7,6 +7,7 @@ import {
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
 } from 'firebase/auth';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'; // NOVO: Banco de Imagens
 import {
   Bell, Package, RefreshCw, Trash2, Plus, Smartphone, LogOut,
   ScanBarcode, Image as ImageIcon, Search, X, Save, Check,
@@ -72,6 +73,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app); // NOVO: Conexão com o Banco de Imagens
 
 const TENANTS_COLLECTION = `saas_tenants`;
 
@@ -89,7 +91,6 @@ type SupportTicket = { id: string; userId: string; userName: string; type: 'troc
 type AcademyLesson = { id: string; season: string; episode: number; title: string; description: string; youtubeUrl: string; bannerUrl: string; materialLinks: string; createdAt: any; };
 
 export default function App() {
-  // TODAS AS DECLARAÇÕES DE ESTADO (HOOKS) PRECISAM FICAR AQUI NO TOPO
   const urlParams = new URLSearchParams(window.location.search);
   const previewTenantId = urlParams.get('preview'); 
   const vitrineLinkId = urlParams.get('vitrine');
@@ -159,6 +160,8 @@ export default function App() {
 
   const [generatedRows, setGeneratedRows] = useState<VariationRow[]>([]);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false); // NOVO: Trava o botão enquanto envia foto
+
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, description: string, image: string, price: number, weight: number, length: number, width: number, height: number, ncm: string, cest: string, items: Product[] } | null>(null);
 
@@ -170,48 +173,29 @@ export default function App() {
 
   const [isShopeeSimulating, setIsShopeeSimulating] = useState(false);
 
-  // ========================================================================
-  // EFEITOS (USE EFFECT)
-  // ========================================================================
-  
-  // 1. Auth Listener
+  // EFEITOS
   useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); }); return () => unsubscribe(); }, []);
-
-  // 2. Leitor de Domínio / Preview
+  
   useEffect(() => {
     const fetchTenant = async () => {
       if (previewTenantId) {
         const docRef = doc(db, TENANTS_COLLECTION, previewTenantId);
         const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) { 
-            setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant); 
-            setIsSuperAdminMode(false); 
-        } else { 
-            alert("Erro no Preview: Empresa não encontrada."); 
-            setIsSuperAdminMode(true); 
-        }
-        setGlobalLoading(false); 
-        return;
+        if (docSnap.exists()) { setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant); setIsSuperAdminMode(false); } 
+        else { alert("Erro no Preview: Empresa não encontrada."); setIsSuperAdminMode(true); }
+        setGlobalLoading(false); return;
       }
-
       const q = query(collection(db, TENANTS_COLLECTION), where("domain", "==", currentDomain));
       const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) { 
-          setCurrentTenant({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Tenant); 
-          setIsSuperAdminMode(false); 
-      } else { 
-          setIsSuperAdminMode(true); 
-      }
+      if (!querySnapshot.empty) { setCurrentTenant({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Tenant); setIsSuperAdminMode(false); } 
+      else { setIsSuperAdminMode(true); }
       setGlobalLoading(false);
     };
     fetchTenant();
   }, [currentDomain, previewTenantId]);
 
-  // 3. Busca de Dados Gerais do Inquilino
   useEffect(() => {
     if (!currentTenant) return;
-
     const unsubProducts = onSnapshot(collection(db, getCol('products')), (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
       items.sort((a, b) => sortByDateDesc(a, b, 'updatedAt'));
@@ -230,7 +214,6 @@ export default function App() {
     }
   }, [currentTenant, loading, isVitrineMode, vitrineLinkId]);
 
-  // 4. Perfil do Revendedor logado
   useEffect(() => {
      if (user && selectedRole === 'user' && currentTenant) {
          const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (docSnap) => { if (docSnap.exists()) setUserProfile({ id: docSnap.id, completedLessons: [], shopeeConnected: false, ...docSnap.data() } as UserProfile); });
@@ -239,7 +222,6 @@ export default function App() {
      }
   }, [user, selectedRole, currentTenant]);
 
-  // 5. Dados Logados do Fornecedor (Admin)
   useEffect(() => {
     if (selectedRole === 'admin' && currentTenant) {
       const unsubHist = onSnapshot(collection(db, getCol('history')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem)); items.sort((a, b) => sortByDateDesc(a, b, 'timestamp')); setHistory(items.slice(0, 300)); });
@@ -250,7 +232,6 @@ export default function App() {
     }
   }, [selectedRole, currentTenant]);
 
-  // 6. Dados do Super Admin
   useEffect(() => {
     if (isSuperAdminMode) {
       const unsub = onSnapshot(collection(db, TENANTS_COLLECTION), (snap) => { 
@@ -262,7 +243,6 @@ export default function App() {
     } 
   }, [isSuperAdminMode]);
 
-  // 7. Filtro de Pesquisa e Geração Automática
   useEffect(() => {
     if (searchTerm.trim() === '') { setFilteredProducts(products); } 
     else { const lowerTerm = searchTerm.toLowerCase(); setFilteredProducts(products.filter(p => { const name = String(p.name || '').toLowerCase(); const sku = String(p.sku || '').toLowerCase(); return name.includes(lowerTerm) || sku.includes(lowerTerm); })); }
@@ -270,17 +250,8 @@ export default function App() {
 
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
 
-  useEffect(() => {
-      if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) {
-          const eps = lessons.filter(l => l.season === academySeason);
-          setAcademyEpisode(String(eps.length + 1));
-      } else if (academySeasonMode === 'new') {
-          setAcademyEpisode('1');
-      }
-  }, [academySeason, academySeasonMode, lessons, adminView]);
-
   // ==========================================
-  // FUNÇÕES DE LÓGICA E CÁLCULOS (MEMOS)
+  // LÓGICA DE AGRUPAMENTO (CORRIGIDA: COR > TAMANHO)
   // ==========================================
   const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
@@ -292,30 +263,31 @@ export default function App() {
           if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; 
           groups[key].items.push(product); groups[key].total += Number(product.quantity || 0);
       }); 
-      Object.values(groups).forEach(group => group.items.sort((a, b) => (String(a.size || '') > String(b.size || '') ? 1 : -1))); 
+      
+      // Ordenação Avançada: Cor (Alfabética) -> Tamanho (Numérica/Alfabética)
+      Object.values(groups).forEach(group => {
+          group.items.sort((a, b) => {
+              const colorA = String(a.color || '').toLowerCase();
+              const colorB = String(b.color || '').toLowerCase();
+              if (colorA !== colorB) return colorA.localeCompare(colorB);
+              
+              const numA = parseFloat(a.size);
+              const numB = parseFloat(b.size);
+              if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+              
+              return String(a.size || '').localeCompare(String(b.size || ''));
+          });
+      }); 
       return groups; 
   };
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
 
-  const predictiveData = useMemo(() => {
-      if (adminView !== 'predictive' || products.length === 0) return null;
-      const now = new Date(); const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); const exitStats: Record<string, number> = {};
-      history.forEach(h => { if (h.type === 'exit') { const date = h.timestamp?.toMillis ? new Date(h.timestamp.toMillis()) : new Date(); if (date >= thirtyDaysAgo) exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount; } });
-      const insights = products.map(p => { const exits30d = exitStats[p.id] || 0; const velocityPerDay = exits30d / 30; const daysRemaining = velocityPerDay > 0 ? (p.quantity / velocityPerDay) : Infinity; return { ...p, exits30d, velocityPerDay, daysRemaining }; });
-      const toProduce = insights.filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0).sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 10);
-      const topSellers = [...insights].filter(p => p.exits30d > 0).sort((a, b) => b.exits30d - a.exits30d).slice(0, 10);
-      const deadStock = insights.filter(p => p.quantity > 10 && p.exits30d === 0).sort((a, b) => b.quantity - a.quantity).slice(0, 10);
-      return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
-  }, [adminView, products, history]);
-
-  const academySeasons = useMemo(() => { const seasonsObj: Record<string, AcademyLesson[]> = {}; lessons.forEach(l => { if (!seasonsObj[l.season]) seasonsObj[l.season] = []; seasonsObj[l.season].push(l); }); return Object.entries(seasonsObj).map(([name, eps]) => ({ name, episodes: eps.sort((a,b) => a.episode - b.episode) })).sort((a,b) => a.name.localeCompare(b.name)); }, [lessons]);
-  const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season))), [lessons]);
-
   // ==========================================
-  // EXPORTAÇÃO UPSELLER COM ESTRUTURA EXATA (.xlsx)
+  // EXPORTAÇÃO UPSELLER COM LINKS DE IMAGENS REAIS
   // ==========================================
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
+      let csvContent = "\uFEFF"; 
       const headerRow = [
         "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
         "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
@@ -349,7 +321,6 @@ export default function App() {
         "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)",
         "Link do Fornecedor"
       ];
-
       const rows = [headerRow];
 
       groupData.items.forEach((p: Product) => {
@@ -357,6 +328,9 @@ export default function App() {
           const desc = p.description || '';
           const tituloCompleto = desc ? `${p.name} - ${desc}` : p.name;
           
+          // Tratamento para garantir que a foto é um link real que o UpSeller entenda
+          const imgLink = p.image?.startsWith('http') ? p.image : '';
+
           rows.push([
               skuPai,
               p.sku || '',
@@ -374,7 +348,7 @@ export default function App() {
               '', 
               p.barcode || '', 
               '', 
-              '', // Imagem deixada em branco para o UpSeller
+              imgLink, // Imagem Real Gerada pelo Firebase Storage
               p.weight || 800,
               p.length || 33,
               p.width || 12,
@@ -399,69 +373,34 @@ export default function App() {
   const handlePublishToShopee = (groupName: string) => { if (!userProfile?.shopeeConnected) { alert("Você precisa conectar sua loja Shopee na aba 'Integrações' primeiro!"); setUserView('integrations'); return; } if(confirm(`Deseja publicar o modelo ${groupName}?`)) { alert("Sincronizando com a API da Shopee... (Modo Simulação)"); playSound('magic'); } };
 
   // ==========================================
-  // FUNÇÕES DE AÇÃO (SALVAR, EDITAR, DELETAR)
+  // FUNÇÕES DE AÇÃO E UPLOAD (FIREBASE STORAGE)
   // ==========================================
   const handleAuth = async (e: React.FormEvent) => { e.preventDefault(); setAuthError(''); if(!currentTenant) return setAuthError('Domínio não cadastrado no sistema.'); try { if (isRegistering) { if(!authName) return setAuthError('Preencha seu nome.'); const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword); await setDoc(doc(db, 'users', userCredential.user.uid), { name: authName, email: authEmail, role: 'revendedor', creditBalance: 0, tenantId: currentTenant.id, shopeeConnected: false, createdAt: serverTimestamp() }); setSelectedRole('user'); playSound('success'); } else { await signInWithEmailAndPassword(auth, authEmail, authPassword); setSelectedRole('user'); playSound('success'); } } catch (err: any) { setAuthError('Erro: E-mail ou senha incorretos.'); playSound('error'); } };
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { const file = e.target.files?.[0]; if (file) { if(file.size > 800000) { alert("Imagem muito grande. Máx 800KB."); return; } const reader = new FileReader(); reader.onloadend = () => { setter(reader.result as string); }; reader.readAsDataURL(file); } };
-
-  const handleCreateTenant = async (e: React.FormEvent) => {
-      e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true);
-      try {
-          const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase();
-          await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() });
-          setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!");
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); }
-  };
-
-  const handleOpenTicket = async (e: React.FormEvent) => { 
-      e.preventDefault(); 
-      if(!currentTenant || !user || !userProfile) return; 
+  
+  // UPLOAD DA IMAGEM PARA O FIREBASE STORAGE (URL PÚBLICA)
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { 
+      const file = e.target.files?.[0]; 
+      if (!file) return;
+      if (file.size > 2000000) { alert("Imagem muito grande. O limite é 2MB para não pesar o sistema."); return; } 
       
-      const returnProd = products.find(p => p.id === ticketReturnProductId);
-      if (!returnProd) return alert("Selecione o produto que vai devolver.");
-
-      let finalProductInfo = '';
-      let finalValue = returnProd.price || 0;
-
-      if (ticketType === 'troca') {
-          const desiredProd = products.find(p => p.id === ticketDesiredProductId);
-          if (!desiredProd) return alert("Selecione o produto desejado para a troca.");
-          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`;
-      } else {
-          if (!ticketReason) return alert("Preencha o motivo do defeito.");
-          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`;
+      setIsUploadingImage(true);
+      try {
+          const tenantFolder = currentTenant?.id || 'public';
+          const fileRef = ref(storage, `saas_images/${tenantFolder}/${Date.now()}_${file.name}`);
+          const uploadTask = await uploadBytesResumable(fileRef, file);
+          const downloadURL = await getDownloadURL(uploadTask.ref);
+          setter(downloadURL); // Salva o link real "https://..."
+      } catch (error) {
+          console.error(error);
+          alert("Aviso: Configure as Regras de Storage no Firebase para permitir envio de fotos.");
+      } finally {
+          setIsUploadingImage(false);
       }
-
-      setIsSavingBatch(true); 
-      try { 
-          await addDoc(collection(db, getCol('tickets')), { 
-              userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', 
-              productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, 
-              reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() 
-          }); 
-          setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); 
-          alert("Solicitação enviada!"); playSound('success'); 
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } 
   };
 
-  const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, getCol('tickets'), ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>DADOS:</strong><br/> ${ticket.productInfo.replace(/\n/g, '<br/>')}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
-  
-  const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir?')) await deleteDoc(doc(db, getCol('academy'), id)); };
-  const toggleLessonCompletion = async (lessonId: string) => { if (!user) return; const isCompleted = userProfile?.completedLessons?.includes(lessonId); try { await updateDoc(doc(db, 'users', user.uid), { completedLessons: isCompleted ? arrayRemove(lessonId) : arrayUnion(lessonId) }); } catch (e) { console.error(e); } };
-  const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('notices')), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
-  const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
-  const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
-  const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
-  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
-  const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
-  const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
-  const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
-  const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
-  
+  const handleCreateTenant = async (e: React.FormEvent) => { e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true); try { const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase(); await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() }); setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
+
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
@@ -493,9 +432,8 @@ export default function App() {
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
   // ========================================================================
-  // RENDERIZAÇÃO GERAL DO SISTEMA (RETORNOS)
+  // RENDERIZAÇÃO GERAL DO SISTEMA
   // ========================================================================
-  
   if (globalLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
 
   if (isSuperAdminMode) {
@@ -554,25 +492,18 @@ export default function App() {
   const brandLogo = currentTenant?.logoUrl || null;
 
   if (isVitrineMode) {
-      if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando catálogo...</div>;
-      if (!publicVitrine) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400 flex-col"><Store size={48} className="mb-4 opacity-20"/> Vitrine não encontrada ou indisponível.</div>;
-
       const vitrineGroups: Record<string, any> = {};
-      Object.entries(groupedProducts).forEach(([name, group]) => { if (publicVitrine.models.includes(name)) { vitrineGroups[name] = group; } });
-      const applyMarkup = (basePrice: number) => { return basePrice * (1 + (publicVitrine.config.priceMarkup || 0) / 100); };
+      Object.entries(groupedProducts).forEach(([name, group]) => { if (publicVitrine?.models.includes(name)) { vitrineGroups[name] = group; } });
+      const applyMarkup = (basePrice: number) => { return basePrice * (1 + (publicVitrine?.config.priceMarkup || 0) / 100); };
 
       return (
           <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
               <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center gap-3">
                   {brandLogo && <img src={brandLogo} className="h-8 object-contain" alt="Logo"/>}
-                  <h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine.name}</h1>
+                  <h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine?.name}</h1>
               </header>
               <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-20">
-                 <div className="relative">
-                    <Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" />
-                    <input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{ outlineColor: brandColor }} />
-                 </div>
-                 
+                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{ outlineColor: brandColor }} /></div>
                  {Object.keys(vitrineGroups).length === 0 ? (<div className="text-center py-20 text-slate-400">Nenhum produto disponível neste catálogo.</div>) : (
                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
                          {Object.entries(vitrineGroups).map(([name, group]: [string, any]) => (
@@ -581,15 +512,10 @@ export default function App() {
                                      {group.info.image ? (<img src={group.info.image} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
                                  </div>
                                  <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
-                                     <div>
-                                         <h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3>
-                                         <span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : ''}</span>
-                                     </div>
+                                     <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3><span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : ''}</span></div>
                                      <div className="mt-3 flex items-center justify-between">
-                                         {publicVitrine.config.showPrice ? (<span className="text-lg font-black" style={{ color: brandColor }}>{formatCurrency(applyMarkup(group.info.price || 0))}</span>) : (<span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Sob Consulta</span>)}
-                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? { backgroundColor: brandColor } : {}}>
-                                            {expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                         </div>
+                                         {publicVitrine?.config.showPrice ? (<span className="text-lg font-black" style={{ color: brandColor }}>{formatCurrency(applyMarkup(group.info.price || 0))}</span>) : (<span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Sob Consulta</span>)}
+                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? { backgroundColor: brandColor } : {}}>{expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div>
                                      </div>
                                  </div>
                                  {expandedGroups[name] && (
@@ -597,9 +523,7 @@ export default function App() {
                                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Cores e Numerações</p>
                                          <div className="flex flex-wrap gap-2">
                                              {group.items.map((p: Product) => (
-                                                 Number(p.quantity) > 4 && (
-                                                    <div key={p.id} className="bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm flex items-center gap-1"><span className="font-bold text-slate-800">{String(p.size)}</span><span className="text-slate-400">|</span><span className="text-slate-600 uppercase font-medium">{String(p.color)}</span></div>
-                                                 )
+                                                 Number(p.quantity) > 4 && (<div key={p.id} className="bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm flex items-center gap-1"><span className="font-bold text-slate-800">{String(p.size)}</span><span className="text-slate-400">|</span><span className="text-slate-600 uppercase font-medium">{String(p.color)}</span></div>)
                                              ))}
                                          </div>
                                      </div>
@@ -619,14 +543,12 @@ export default function App() {
         {previewTenantId && (<div className="absolute top-4 left-4 bg-yellow-500 text-black font-black text-xs px-3 py-1 rounded shadow-lg uppercase z-50 animate-pulse">Modo Preview</div>)}
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
-
         <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500">
           <div className="flex flex-col items-center mb-8">
             {brandLogo ? (<img src={brandLogo} alt={brandName} className="h-16 object-contain mb-4" />) : (<div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg text-white" style={{ backgroundColor: brandColor }}><Package className="w-8 h-8" /></div>)}
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">{brandName}</h1>
             <p className="text-slate-500 text-sm mt-1">Área Exclusiva para Revendedores</p>
           </div>
-
           <form onSubmit={handleAuth} className="space-y-4">
             {authError && <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl text-center font-bold">{authError}</div>}
             {isRegistering && (<div className="animate-in slide-in-from-top-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Seu Nome Completo</label><input type="text" value={authName} onChange={e => setAuthName(e.target.value)} required={isRegistering} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="Ex: João da Silva" /></div>)}
@@ -634,9 +556,7 @@ export default function App() {
             <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Senha (Mínimo 6 dígitos)</label><input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="••••••" /></div>
             <button type="submit" className="w-full py-4 mt-2 text-white rounded-xl font-black shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2" style={{ backgroundColor: brandColor }}>{isRegistering ? 'Criar Minha Conta Agora' : 'Entrar no Sistema'}</button>
           </form>
-
           <div className="mt-6 text-center"><button type="button" onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} className="text-sm font-bold transition-colors" style={{ color: brandColor }}>{isRegistering ? 'Já tenho uma conta. Fazer Login.' : 'Não tem conta? Cadastre-se grátis.'}</button></div>
-          <div className="mt-8 pt-6 border-t border-slate-100 text-center"><button type="button" onClick={() => { const s = prompt("Senha ADM da Fábrica:"); if (s === "1234") setSelectedRole('admin'); else alert("Acesso negado!"); }} className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1.5 mx-auto font-bold uppercase tracking-wider transition-colors"><Package size={14} /> Acesso Restrito (Fornecedor)</button></div>
         </div>
       </div>
     );
@@ -645,24 +565,6 @@ export default function App() {
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
-        {selectedNotice && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                    <div className="flex justify-between items-center p-4 border-b border-slate-100">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">{selectedNotice.type === 'banner' ? <ImageIcon style={{color: brandColor}} size={18}/> : <Bell className="text-orange-500" size={18}/>} Detalhes do Aviso</h3>
-                        <button onClick={() => setSelectedNotice(null)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-600"><X size={20}/></button>
-                    </div>
-                    <div className="overflow-y-auto p-6 space-y-4">
-                        {selectedNotice.type === 'banner' && selectedNotice.imageUrl && (<img src={selectedNotice.imageUrl} loading="lazy" className="w-full rounded-xl object-cover border border-slate-200" />)}
-                        <h2 className="text-2xl font-black text-slate-800">{selectedNotice.title}</h2>
-                        <p className="text-sm text-slate-400">{formatDate(selectedNotice.createdAt)}</p>
-                        {selectedNotice.content && (<div className="text-slate-700 whitespace-pre-wrap leading-relaxed">{selectedNotice.content}</div>)}
-                    </div>
-                    <div className="p-4 border-t border-slate-100"><button onClick={() => setSelectedNotice(null)} className="w-full py-3 text-white rounded-xl font-bold transition-colors" style={{backgroundColor: brandColor}}>Fechar</button></div>
-                </div>
-            </div>
-        )}
-
         <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex h-screen sticky top-0">
           <div className="p-6 text-center border-b border-slate-800">
             {brandLogo ? (<img src={brandLogo} className="h-10 mx-auto object-contain mb-2" alt="Logo"/>) : (<h1 className="text-2xl font-black flex items-center justify-center gap-2" style={{ color: brandColor }}><RefreshCw size={24} /> {brandName}</h1>)}
@@ -671,11 +573,7 @@ export default function App() {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto hidden-scroll">
             <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'dashboard' ? {backgroundColor: brandColor} : {}}><Layers size={20} /> Visão Geral</button>
             <button onClick={() => setUserView('catalog')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'catalog' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'catalog' ? {backgroundColor: brandColor} : {}}><LayoutGrid size={20} /> Catálogo</button>
-            <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'academy' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'academy' ? {backgroundColor: brandColor} : {}}><Play size={20} /> Como Funciona</button>
-            <button onClick={() => setUserView('integrations')} className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-all ${userView === 'integrations' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'integrations' ? {backgroundColor: brandColor} : {}}>
-                <div className="flex items-center gap-3"><Plug size={20} /> Integrações</div>
-                {userProfile?.shopeeConnected && <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span>}
-            </button>
+            <button onClick={() => setUserView('integrations')} className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-all ${userView === 'integrations' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'integrations' ? {backgroundColor: brandColor} : {}}><div className="flex items-center gap-3"><Plug size={20} /> Integrações</div>{userProfile?.shopeeConnected && <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span>}</button>
             <button onClick={() => setUserView('support')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'support' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'support' ? {backgroundColor: brandColor} : {}}><Ticket size={20} /> Suporte / Trocas</button>
           </nav>
           <div className="p-4 mx-4 mb-4 bg-slate-800 rounded-xl border border-slate-700 text-center"><p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center justify-center gap-1"><Wallet size={12}/> Seu Crédito</p><p className="text-xl font-black text-green-400">{formatCurrency(userProfile?.creditBalance || 0)}</p></div>
@@ -684,36 +582,19 @@ export default function App() {
 
         <main className={`flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 text-slate-800`}>
           <header className={`bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100`}>
-            <div className="flex items-center gap-3">
-              <div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div>
-              <div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'App & Integrações' : 'Central de Resoluções'}</h2></div>
-            </div>
+            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'Integrações' : 'Resoluções'}</h2></div></div>
             <button onClick={handleLogout} className={`md:hidden text-xs p-3 rounded-xl text-red-500 bg-slate-100`}><LogOut size={20} /></button>
           </header>
 
           <div className={`p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full pb-24 md:pb-6`}>
-            
             {userView === 'integrations' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-                        <div className="w-16 h-16 bg-orange-500/10 rounded-2xl flex items-center justify-center shrink-0"><Store className="text-orange-500" size={32}/></div>
-                        <div><h2 className="text-xl font-black text-slate-800">Sincronização Shopee</h2><p className="text-slate-500 text-sm">Conecte sua loja e publique produtos do nosso catálogo com apenas um clique.</p></div>
-                    </div>
                     <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center max-w-2xl mx-auto">
                         <img src="https://logospng.org/download/shopee/logo-shopee-icon-1024.png" className="w-24 h-24 mx-auto mb-6 object-contain" alt="Shopee Logo" />
                         {userProfile?.shopeeConnected ? (
-                            <div className="space-y-4">
-                                <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full font-bold text-sm border border-green-200"><CheckCircle2 size={18}/> Loja Conectada com Sucesso</div>
-                                <p className="text-slate-500 mb-6">A sua loja na Shopee já está sincronizada com o nosso sistema.</p>
-                                <button onClick={handleDisconnectShopee} className="text-sm font-bold text-red-500 hover:text-red-700 underline">Desconectar Loja</button>
-                            </div>
+                            <div className="space-y-4"><div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full font-bold text-sm border border-green-200"><CheckCircle2 size={18}/> Loja Conectada</div><p className="text-slate-500 mb-6">Sincronizada. Use o botão "Publicar na Shopee" no catálogo.</p><button onClick={handleDisconnectShopee} className="text-sm font-bold text-red-500 hover:text-red-700 underline">Desconectar Loja</button></div>
                         ) : (
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-bold text-slate-800">Pronto para acelerar suas vendas?</h3>
-                                <button onClick={handleConnectShopee} disabled={isShopeeSimulating} className="w-full md:w-auto px-8 py-4 bg-[#ee4d2d] hover:bg-[#d74326] text-white rounded-xl font-black shadow-lg shadow-orange-500/30 transition-transform hover:scale-105 flex items-center justify-center gap-3 mx-auto">
-                                    {isShopeeSimulating ? <RefreshCw className="animate-spin" size={20} /> : <Plug size={20} />} Conectar Loja Shopee Agora
-                                </button>
-                            </div>
+                            <div className="space-y-4"><h3 className="text-lg font-bold text-slate-800">Acelere suas vendas</h3><button onClick={handleConnectShopee} disabled={isShopeeSimulating} className="w-full md:w-auto px-8 py-4 bg-[#ee4d2d] hover:bg-[#d74326] text-white rounded-xl font-black shadow-lg shadow-orange-500/30 transition-transform hover:scale-105 flex items-center justify-center gap-3 mx-auto">{isShopeeSimulating ? <RefreshCw className="animate-spin" size={20} /> : <Plug size={20} />} Conectar Loja Shopee</button></div>
                         )}
                     </div>
                 </div>
@@ -721,52 +602,30 @@ export default function App() {
 
             {userView === 'catalog' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-24 md:pb-6">
-                 <div className="relative">
-                    <Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" />
-                    <input type="text" placeholder="Buscar modelo, cor ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} />
-                 </div>
-                 
+                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
                  <div>
-                   {Object.keys(groupedProducts).length === 0 ? (
-                       <p className="text-center text-slate-400 py-10">Nenhum produto encontrado.</p>
-                   ) : (
+                   {Object.keys(groupedProducts).length === 0 ? (<p className="text-center text-slate-400 py-10">Nenhum produto encontrado.</p>) : (
                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
                            {Object.entries(groupedProducts).map(([name, group]) => (
                                <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
                                    <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
                                        {group.info.image ? (<img src={group.info.image} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
                                    </div>
-                                   
                                    <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
                                        <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{String(name)}</h3></div>
-                                       <div className="mt-3 flex items-center justify-between">
-                                           <span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span>
-                                           <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? {backgroundColor: brandColor} : {}}>
-                                              {expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                           </div>
-                                       </div>
+                                       <div className="mt-3 flex items-center justify-between"><span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span><div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? {backgroundColor: brandColor} : {}}>{expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div></div>
                                    </div>
-
                                    {expandedGroups[name] && (
                                        <div className="bg-slate-50 border-t border-slate-100 p-3 max-h-80 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2 flex flex-col justify-between">
                                            <div>
                                                <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Cores e Numerações</p>
                                                <div className="flex flex-wrap gap-2 mb-4">
-                                                   {group.items.map(p => (
-                                                       <div key={p.id} className="flex items-center justify-between bg-white p-2 w-full rounded-xl border border-slate-200 shadow-sm">
-                                                           <div className="flex flex-col"><span className="text-[10px] text-slate-500 font-bold uppercase">{String(p.color || '')}</span><span className="text-sm font-black text-slate-800">{String(p.size || '')}</span></div>
-                                                           <div>{Number(p.quantity) > 4 ? (<span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded shadow-sm">Em Estoque</span>) : (<span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-1 rounded shadow-sm">Zerado</span>)}</div>
-                                                       </div>
-                                                   ))}
+                                                   {group.items.map(p => (<div key={p.id} className="flex items-center justify-between bg-white p-2 w-full rounded-xl border border-slate-200 shadow-sm"><div className="flex flex-col"><span className="text-[10px] text-slate-500 font-bold uppercase">{String(p.color || '')}</span><span className="text-sm font-black text-slate-800">{String(p.size || '')}</span></div><div>{Number(p.quantity) > 4 ? (<span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded shadow-sm">Estoque OK</span>) : (<span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-1 rounded shadow-sm">Falta</span>)}</div></div>))}
                                                </div>
                                            </div>
                                            <div className="space-y-2 mt-auto">
-                                                <button onClick={(e) => { e.stopPropagation(); handlePublishToShopee(name); }} className="w-full bg-[#ee4d2d] hover:bg-[#d74326] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md">
-                                                    <Send size={16}/> Publicar na Shopee
-                                                </button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleExportToUpSeller(name, group); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md">
-                                                    <Download size={16}/> Baixar P/ UpSeller
-                                                </button>
+                                                <button onClick={(e) => { e.stopPropagation(); handlePublishToShopee(name); }} className="w-full bg-[#ee4d2d] hover:bg-[#d74326] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md"><Send size={16}/> Publicar na Shopee</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleExportToUpSeller(name, group); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md"><Download size={16}/> Baixar P/ UpSeller</button>
                                            </div>
                                        </div>
                                    )}
@@ -782,11 +641,7 @@ export default function App() {
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
           <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
           <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
-          <button onClick={() => setUserView('integrations')} className={`flex flex-col items-center gap-1 relative ${userView === 'integrations' ? '' : 'text-slate-400'}`} style={userView === 'integrations' ? {color: brandColor} : {}}>
-             <Plug size={20} />
-             {userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}
-             <span className="text-[10px] font-bold">Conectar</span>
-          </button>
+          <button onClick={() => setUserView('integrations')} className={`flex flex-col items-center gap-1 relative ${userView === 'integrations' ? '' : 'text-slate-400'}`} style={userView === 'integrations' ? {color: brandColor} : {}}><Plug size={20} />{userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}<span className="text-[10px] font-bold">Conectar</span></button>
           <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? '' : 'text-slate-400'}`} style={userView === 'support' ? {color: brandColor} : {}}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
         </nav>
       </div>
@@ -814,11 +669,8 @@ export default function App() {
         
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 mt-2">
-            <button onClick={() => setAdminView('predictive')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-fuchsia-500"><div className="w-14 h-14 bg-fuchsia-500/10 rounded-full flex items-center justify-center"><BrainCircuit size={28} className="text-fuchsia-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Inteligência IA</h3></div></button>
-            <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
-            <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
-            <button onClick={() => setAdminView('customers')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-indigo-500/10 rounded-full flex items-center justify-center"><Users size={28} className="text-indigo-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Clientes / Wallet</h3></div></button>
-            <button onClick={() => setAdminView('tickets')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 relative"><div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center"><Ticket size={28} className="text-rose-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Chamados</h3></div></button>
+            <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
+            <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
           </div>
         )}
 
@@ -826,7 +678,7 @@ export default function App() {
           <>
             <div className="bg-slate-900 p-3 md:p-4 rounded-2xl flex items-center gap-3 border border-blue-900/30 relative overflow-hidden shadow-lg animate-in slide-in-from-right">
               <div className="absolute right-0 top-0 p-4 opacity-10"><ScanBarcode size={100} /></div>
-              <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-400 font-bold mb-1 flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR PRODUTO NO ESTOQUE</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar por nome, SKU..." className="w-full bg-slate-950 border-2 border-blue-500/30 rounded-xl px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
+              <div className="flex-1 relative z-10"><label className="text-[10px] md:text-xs text-blue-400 font-bold mb-1 flex items-center gap-2"><ScanBarcode size={14}/> BUSCAR PRODUTO</label><input autoFocus value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Filtrar por nome, SKU..." className="w-full bg-slate-950 border-2 border-blue-500/30 rounded-xl px-4 py-3 text-lg text-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none" /></div>
             </div>
             <div className="space-y-3 pb-20 animate-in slide-in-from-bottom-4 mt-6">
               {Object.entries(groupedAdminProducts).length === 0 ? (<div className="text-center text-slate-500 py-10">Nenhum produto encontrado</div>) : Object.entries(groupedAdminProducts).map(([name, group]) => (
@@ -879,8 +731,8 @@ export default function App() {
                     <div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
-                    <div><label className="text-sm text-slate-400 block mb-1">Foto Principal</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setBaseImage)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{baseImage && (<div className="mt-2 w-16 h-16 rounded overflow-hidden border border-slate-700"><img src={baseImage} className="w-full h-full object-cover" /></div>)}</div>
-                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material, conforto e estilo..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
+                    <div><label className="text-sm text-slate-400 block mb-1 flex justify-between">Foto Oficial {isUploadingImage && <span className="text-blue-400 text-[10px] animate-pulse">Enviando p/ Nuvem...</span>}</label><input type="file" accept="image/*" disabled={isUploadingImage} onChange={(e) => handleImageUpload(e, setBaseImage)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer disabled:opacity-50" />{baseImage && (<div className="mt-2 w-16 h-16 rounded overflow-hidden border border-slate-700"><img src={baseImage} className="w-full h-full object-cover" /></div>)}</div>
+                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
                 </div>
               </div>
 
@@ -898,7 +750,7 @@ export default function App() {
 
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
-              <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-xl px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR VARIAÇÕES'}</button></div>
+              <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0 || isUploadingImage} className={`rounded-xl px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 || isUploadingImage ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR VARIAÇÕES'}</button></div>
             </div>
           </div>
         )}
@@ -927,10 +779,10 @@ export default function App() {
                     <div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                 </div>
 
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nova Foto do Modelo</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (val) => setEditingGroup({...editingGroup, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{editingGroup.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingGroup.image} className="w-full h-full object-cover" /></div>)}</div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 flex justify-between">Nova Foto {isUploadingImage && <span className="text-blue-400 animate-pulse">Enviando...</span>}</label><input type="file" accept="image/*" disabled={isUploadingImage} onChange={(e) => handleImageUpload(e, (val) => setEditingGroup({...editingGroup, image: val}))} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer disabled:opacity-50" />{editingGroup.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingGroup.image} className="w-full h-full object-cover" /></div>)}</div>
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
-                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
+                   <button type="submit" disabled={isSavingBatch || isUploadingImage} className={`flex-1 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors ${isSavingBatch || isUploadingImage ? 'bg-slate-700' : 'bg-blue-600 hover:bg-blue-500'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
                 </div>
               </form>
             </div>
