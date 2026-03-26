@@ -89,13 +89,14 @@ type SupportTicket = { id: string; userId: string; userName: string; type: 'troc
 type AcademyLesson = { id: string; season: string; episode: number; title: string; description: string; youtubeUrl: string; bannerUrl: string; materialLinks: string; createdAt: any; };
 
 export default function App() {
+  const [globalLoading, setGlobalLoading] = useState(true);
+  
+  // --- MOTOR MULTI-TENANT E PREVIEW ---
   const urlParams = new URLSearchParams(window.location.search);
   const previewTenantId = urlParams.get('preview'); 
   const vitrineLinkId = urlParams.get('vitrine');
   const isVitrineMode = !!vitrineLinkId;
-  const currentDomain = window.location.hostname;
   
-  const [globalLoading, setGlobalLoading] = useState(true);
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [isSuperAdminMode, setIsSuperAdminMode] = useState(false);
   const [saasTenants, setSaasTenants] = useState<Tenant[]>([]);
@@ -105,8 +106,10 @@ export default function App() {
   const [newTenantLogo, setNewTenantLogo] = useState('');
   const [newTenantColor, setNewTenantColor] = useState('#2563eb');
   
+  const currentDomain = window.location.hostname;
   const getCol = (name: string) => `saas_tenants/${currentTenant?.id}/${name}`;
 
+  // --- ESTADOS DO SISTEMA ---
   const [publicVitrine, setPublicVitrine] = useState<Showcase | null>(null);
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -166,10 +169,13 @@ export default function App() {
   const [linkTitle, setLinkTitle] = useState(''); const [linkSubtitle, setLinkSubtitle] = useState(''); const [linkUrl, setLinkUrl] = useState(''); const [linkIcon, setLinkIcon] = useState('Link2'); const [linkOrder, setLinkOrder] = useState('1');
   const [academySeasonMode, setAcademySeasonMode] = useState<'existing' | 'new'>('existing'); const [academySeason, setAcademySeason] = useState(''); const [academyNewSeason, setAcademyNewSeason] = useState(''); const [academyEpisode, setAcademyEpisode] = useState('1'); const [academyTitle, setAcademyTitle] = useState(''); const [academyDesc, setAcademyDesc] = useState(''); const [academyYoutube, setAcademyYoutube] = useState(''); const [academyBanner, setAcademyBanner] = useState(''); const [academyLinks, setAcademyLinks] = useState(''); const [activeLesson, setActiveLesson] = useState<AcademyLesson | null>(null);
   const [editingShowcase, setEditingShowcase] = useState<Partial<Showcase> | null>(null); const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
-  const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca'); const [ticketReturnProductId, setTicketReturnProductId] = useState(''); const [ticketDesiredProductId, setTicketDesiredProductId] = useState(''); const [ticketReason, setTicketReason] = useState(''); const [ticketValue, setTicketValue] = useState(0);
+  const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca'); const [ticketReturnProductId, setTicketReturnProductId] = useState(''); const [ticketDesiredProductId, setTicketDesiredProductId] = useState(''); const [ticketReason, setTicketReason] = useState('');
 
   const [isShopeeSimulating, setIsShopeeSimulating] = useState(false);
 
+  // ========================================================================
+  // EFEITOS
+  // ========================================================================
   useEffect(() => {
     const fetchTenant = async () => {
       if (previewTenantId) {
@@ -222,7 +228,6 @@ export default function App() {
       const unsubPurch = onSnapshot(collection(db, getCol('purchases')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setPurchases(items); });
       const unsubUsers = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', currentTenant.id)), (snap) => { setUsersList(snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile)).filter(u => u.role === 'revendedor')); });
       const unsubAllTickets = onSnapshot(collection(db, getCol('tickets')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setAllTickets(items); });
-
       return () => { unsubHist(); unsubPurch(); unsubUsers(); unsubAllTickets(); };
     }
   }, [selectedRole, currentTenant]);
@@ -243,6 +248,11 @@ export default function App() {
     else { const lowerTerm = searchTerm.toLowerCase(); setFilteredProducts(products.filter(p => { const name = String(p.name || '').toLowerCase(); const sku = String(p.sku || '').toLowerCase(); return name.includes(lowerTerm) || sku.includes(lowerTerm); })); }
   }, [searchTerm, products]);
 
+  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
+
+  // ==========================================
+  // LÓGICA DE AGRUPAMENTO (COR -> TAMANHO)
+  // ==========================================
   const groupProducts = (items: Product[]) => { 
       const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
       if (!items || !Array.isArray(items)) return groups;
@@ -279,95 +289,34 @@ export default function App() {
   const academySeasons = useMemo(() => { const seasonsObj: Record<string, AcademyLesson[]> = {}; lessons.forEach(l => { if (!seasonsObj[l.season]) seasonsObj[l.season] = []; seasonsObj[l.season].push(l); }); return Object.entries(seasonsObj).map(([name, eps]) => ({ name, episodes: eps.sort((a,b) => a.episode - b.episode) })).sort((a,b) => a.name.localeCompare(b.name)); }, [lessons]);
   const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season))), [lessons]);
 
-  useEffect(() => {
-      if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) {
-          const eps = lessons.filter(l => l.season === academySeason);
-          setAcademyEpisode(String(eps.length + 1));
-      } else if (academySeasonMode === 'new') {
-          setAcademyEpisode('1');
-      }
-  }, [academySeason, academySeasonMode, lessons, adminView]);
-
   // ==========================================
-  // EXPORTAÇÃO UPSELLER COM ESTRUTURA EXATA
+  // EXPORTAÇÃO UPSELLER 
   // ==========================================
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
       let csvContent = "\uFEFF"; 
-      const headerRow = [
-        "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
-        "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
-        "Título*\n(Obrigatório, 1-500 caracteres)",
-        "Apelido do Produto\n(1-500 caracteres)",
-        "Usar apelido como título da NFe",
-        "Variantes1*\n(Obrigatório, 1-14 caracteres)",
-        "Valor da Variante1*\n(Obrigatório, 1-30 caracteres)",
-        "Variantes2\n(limite 1-14 caracteres)",
-        "Valor da Variante2\n(limite 1-30 caracteres)",
-        "Variantes3\n(limite 1-14 caracteres)",
-        "Valor da Variante3\n(limite 1-30 caracteres)",
-        "Variantes4\n(limite 1-14 caracteres)",
-        "Valor da Variante4\n(limite 1-30 caracteres)",
-        "Variantes5\n(limite 1-14 caracteres)",
-        "Valor da Variante5\n(limite 1-30 caracteres)",
-        "Preço de varejo\n(limite 0-999999999)",
-        "Custo de Compra\n(limite 0-999999999)",
-        "Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)",
-        "N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)",
-        "Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)",
-        "Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）",
-        "Imagem",
-        "Peso (g)\n(limite 1-999999)",
-        "Comprimento (cm)\n(limite 1-999999)",
-        "Largura (cm)\n(limite 1-999999)",
-        "Altura (cm)\n(limite 1-999999)",
-        "NCM\n(limite 8 dígitos)",
-        "CEST\n(limite 7 dígitos)",
-        "Unidade\n(Selecionar UN/KG/Par)",
-        "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)",
-        "Link do Fornecedor"
-      ];
-      const rows = [headerRow];
+      const headerRow = `"SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)","SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)","Título*\n(Obrigatório, 1-500 caracteres)","Apelido do Produto\n(1-500 caracteres)","Usar apelido como título da NFe","Variantes1*\n(Obrigatório, 1-14 caracteres)","Valor da Variante1*\n(Obrigatório, 1-30 caracteres)","Variantes2\n(limite 1-14 caracteres)","Valor da Variante2\n(limite 1-30 caracteres)","Variantes3\n(limite 1-14 caracteres)","Valor da Variante3\n(limite 1-30 caracteres)","Variantes4\n(limite 1-14 caracteres)","Valor da Variante4\n(limite 1-30 caracteres)","Variantes5\n(limite 1-14 caracteres)","Valor da Variante5\n(limite 1-30 caracteres)","Preço de varejo\n(limite 0-999999999)","Custo de Compra\n(limite 0-999999999)","Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)","N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)","Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)","Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）","Imagem","Peso (g)\n(limite 1-999999)","Comprimento (cm)\n(limite 1-999999)","Largura (cm)\n(limite 1-999999)","Altura (cm)\n(limite 1-999999)","NCM\n(limite 8 dígitos)","CEST\n(limite 7 dígitos)","Unidade\n(Selecionar UN/KG/Par)","Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)","Link do Fornecedor"`;
+      csvContent += headerRow + "\n";
 
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
           const desc = p.description || '';
           const tituloCompleto = desc ? `${p.name} - ${desc}` : p.name;
+          const safeTitulo = tituloCompleto.replace(/"/g, '""'); 
           
-          rows.push([
-              skuPai,
-              p.sku || '',
-              tituloCompleto,
-              '',
-              'N',
-              'Cor',
-              p.color || '',
-              'Tamanho',
-              p.size || '',
-              '', '', '', '', '', '',
-              189.90, // Preço Varejo (Fixo)
-              p.price || 0, // Custo
-              500, // Qtd Fixa
-              '', 
-              p.barcode || '', 
-              '', 
-              p.image || '', // Agora o cliente só cola o link oficial, que vem direto pra cá!
-              p.weight || 800,
-              p.length || 33,
-              p.width || 12,
-              p.height || 19,
-              p.ncm || '',
-              p.cest || '',
-              'UN',
-              0,
-              ''
-          ]);
+          const row = [ 
+              `"${skuPai}"`, `"${p.sku || ''}"`, `"${safeTitulo}"`, `""`, `"N"`, `"Cor"`, `"${p.color || ''}"`, `"Tamanho"`, `"${p.size || ''}"`, 
+              `""`,`""`, `""`,`""`, `""`,`""`, 
+              `189.90`, `${p.price || 0}`, `500`, `""`, `"${p.barcode || ''}"`, `""`, 
+              `"${p.image || ''}"`, 
+              `${p.weight || 800}`, `${p.length || 33}`, `${p.width || 12}`, `${p.height || 19}`, 
+              `"${p.ncm || ''}"`, `"${p.cest || ''}"`, `"UN"`, `"0"`, `""` 
+          ].join(',');
+          csvContent += row + "\n";
       });
 
-      const worksheet = XLSX.utils.aoa_to_sheet(rows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
-      XLSX.writeFile(workbook, `UpSeller_${groupName.replace(/\s+/g, '_')}.xlsx`);
-      playSound('magic');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.setAttribute("download", `UpSeller_${groupName.replace(/\s+/g, '_')}.csv`);
+      document.body.appendChild(link); link.click(); document.body.removeChild(link); playSound('magic');
   };
 
   const handleConnectShopee = async () => { if (!user) return; setIsShopeeSimulating(true); setTimeout(async () => { await updateDoc(doc(db, 'users', user.uid), { shopeeConnected: true }); setIsShopeeSimulating(false); playSound('success'); alert("Shopee Conectada com Sucesso!"); }, 2000); };
@@ -375,50 +324,21 @@ export default function App() {
   const handlePublishToShopee = (groupName: string) => { if (!userProfile?.shopeeConnected) { alert("Você precisa conectar sua loja Shopee na aba 'Integrações' primeiro!"); setUserView('integrations'); return; } if(confirm(`Deseja publicar o modelo ${groupName}?`)) { alert("Sincronizando com a API da Shopee... (Modo Simulação)"); playSound('magic'); } };
 
   // ==========================================
-  // FUNÇÕES GERAIS DE ADMINISTRAÇÃO E DADOS
+  // FUNÇÕES GERAIS E BANCO DE DADOS
   // ==========================================
+  useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); }); return () => unsubscribe(); }, []);
   const handleAuth = async (e: React.FormEvent) => { e.preventDefault(); setAuthError(''); if(!currentTenant) return setAuthError('Domínio não cadastrado no sistema.'); try { if (isRegistering) { if(!authName) return setAuthError('Preencha seu nome.'); const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword); await setDoc(doc(db, 'users', userCredential.user.uid), { name: authName, email: authEmail, role: 'revendedor', creditBalance: 0, tenantId: currentTenant.id, shopeeConnected: false, createdAt: serverTimestamp() }); setSelectedRole('user'); playSound('success'); } else { await signInWithEmailAndPassword(auth, authEmail, authPassword); setSelectedRole('user'); playSound('success'); } } catch (err: any) { setAuthError('Erro: E-mail ou senha incorretos.'); playSound('error'); } };
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
 
-  const handleCreateTenant = async (e: React.FormEvent) => {
-      e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true);
-      try {
-          const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase();
-          await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() });
-          setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!");
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); }
-  };
-
-  const handleOpenTicket = async (e: React.FormEvent) => { 
-      e.preventDefault(); 
-      if(!currentTenant || !user || !userProfile) return; 
-      const returnProd = products.find(p => p.id === ticketReturnProductId);
-      if (!returnProd) return alert("Selecione o produto que vai devolver.");
-      let finalProductInfo = ''; let finalValue = returnProd.price || 0;
-
-      if (ticketType === 'troca') {
-          const desiredProd = products.find(p => p.id === ticketDesiredProductId);
-          if (!desiredProd) return alert("Selecione o produto desejado para a troca.");
-          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`;
-      } else {
-          if (!ticketReason) return alert("Preencha o motivo do defeito.");
-          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`;
-      }
-      setIsSavingBatch(true); 
-      try { 
-          await addDoc(collection(db, getCol('tickets')), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() }); 
-          setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); 
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } 
-  };
-
+  const handleCreateTenant = async (e: React.FormEvent) => { e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true); try { const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase(); await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() }); setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
+  
+  const handleOpenTicket = async (e: React.FormEvent) => { e.preventDefault(); if(!currentTenant || !user || !userProfile) return; const returnProd = products.find(p => p.id === ticketReturnProductId); if (!returnProd) return alert("Selecione o produto que vai devolver."); let finalProductInfo = ''; let finalValue = returnProd.price || 0; if (ticketType === 'troca') { const desiredProd = products.find(p => p.id === ticketDesiredProductId); if (!desiredProd) return alert("Selecione o produto desejado para a troca."); finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`; } else { if (!ticketReason) return alert("Preencha o motivo do defeito."); finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`; } setIsSavingBatch(true); try { await addDoc(collection(db, getCol('tickets')), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() }); setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, getCol('tickets'), ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>DADOS:</strong><br/> ${ticket.productInfo.replace(/\n/g, '<br/>')}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
   
   const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir?')) await deleteDoc(doc(db, getCol('academy'), id)); };
   const toggleLessonCompletion = async (lessonId: string) => { if (!user) return; const isCompleted = userProfile?.completedLessons?.includes(lessonId); try { await updateDoc(doc(db, 'users', user.uid), { completedLessons: isCompleted ? arrayRemove(lessonId) : arrayUnion(lessonId) }); } catch (e) { console.error(e); } };
-  const academyProgress = Math.round(((userProfile?.completedLessons?.length || 0) / (lessons.length || 1)) * 100);
-
   const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('notices')), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
@@ -430,7 +350,6 @@ export default function App() {
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
   const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
   
-  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
@@ -462,7 +381,7 @@ export default function App() {
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
   // ========================================================================
-  // RENDERIZAÇÃO GERAL DO SISTEMA
+  // RENDERIZAÇÃO GERAL DO SISTEMA (RETORNOS DA INTERFACE)
   // ========================================================================
   if (globalLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
 
@@ -571,6 +490,17 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans relative overflow-hidden">
         {previewTenantId && (<div className="absolute top-4 left-4 bg-yellow-500 text-black font-black text-xs px-3 py-1 rounded shadow-lg uppercase z-50 animate-pulse">Modo Preview</div>)}
+        
+        {/* BOTÃO DISCRETO NO CANTO SUPERIOR DIREITO */}
+        <button
+            type="button"
+            onClick={() => { const s = prompt("Senha ADM da Fábrica:"); if (s === "1234") setSelectedRole('admin'); else alert("Acesso negado!"); }}
+            className="absolute top-4 right-4 z-50 text-slate-300 hover:text-slate-500 p-2 rounded-full transition-colors flex items-center gap-2"
+            title="Acesso Restrito"
+        >
+            <Package size={20} />
+        </button>
+
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
         <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500">
@@ -621,6 +551,7 @@ export default function App() {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto hidden-scroll">
             <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'dashboard' ? {backgroundColor: brandColor} : {}}><Layers size={20} /> Visão Geral</button>
             <button onClick={() => setUserView('catalog')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'catalog' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'catalog' ? {backgroundColor: brandColor} : {}}><LayoutGrid size={20} /> Catálogo</button>
+            <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'academy' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'academy' ? {backgroundColor: brandColor} : {}}><Play size={20} /> Como Funciona</button>
             <button onClick={() => setUserView('integrations')} className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-all ${userView === 'integrations' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'integrations' ? {backgroundColor: brandColor} : {}}><div className="flex items-center gap-3"><Plug size={20} /> Integrações</div>{userProfile?.shopeeConnected && <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span>}</button>
             <button onClick={() => setUserView('support')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'support' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'support' ? {backgroundColor: brandColor} : {}}><Ticket size={20} /> Suporte / Trocas</button>
           </nav>
@@ -630,13 +561,17 @@ export default function App() {
 
         <main className={`flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 text-slate-800`}>
           <header className={`bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100`}>
-            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'Integrações' : 'Resoluções'}</h2></div></div>
+            <div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'integrations' ? 'App & Integrações' : 'Central de Resoluções'}</h2></div></div>
             <button onClick={handleLogout} className={`md:hidden text-xs p-3 rounded-xl text-red-500 bg-slate-100`}><LogOut size={20} /></button>
           </header>
 
           <div className={`p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full pb-24 md:pb-6`}>
             {userView === 'integrations' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                        <div className="w-16 h-16 bg-orange-500/10 rounded-2xl flex items-center justify-center shrink-0"><Store className="text-orange-500" size={32}/></div>
+                        <div><h2 className="text-xl font-black text-slate-800">Sincronização Shopee</h2><p className="text-slate-500 text-sm">Conecte sua loja e publique produtos do nosso catálogo com apenas um clique.</p></div>
+                    </div>
                     <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center max-w-2xl mx-auto">
                         <img src="https://logospng.org/download/shopee/logo-shopee-icon-1024.png" className="w-24 h-24 mx-auto mb-6 object-contain" alt="Shopee Logo" />
                         {userProfile?.shopeeConnected ? (
@@ -784,7 +719,6 @@ export default function App() {
                     <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     
-                    {/* SOLUÇÃO CUSTO ZERO: CAMPO DE URL DE FOTO */}
                     <div>
                         <label className="text-sm text-slate-400 block mb-1">Link da Foto (URL Pública)</label>
                         <input type="text" value={baseImage} onChange={(e) => setBaseImage(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white outline-none focus:border-blue-500" placeholder="https://..." />
@@ -838,10 +772,9 @@ export default function App() {
                     <div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                 </div>
 
-                {/* CAMPO DE FOTO MUDADO PARA LINK */}
                 <div>
                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Nova Foto</label>
-                    <input type="text" value={editingGroup.image} onChange={(e) => setEditingGroup({...editingGroup, image: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none focus:border-blue-500" placeholder="https://..." />
+                    <input type="text" value={editingGroup.image || ''} onChange={(e) => setEditingGroup({...editingGroup, image: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none focus:border-blue-500" placeholder="https://..." />
                     {editingGroup.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingGroup.image} className="w-full h-full object-cover" /></div>)}
                 </div>
                 
@@ -873,9 +806,8 @@ export default function App() {
                     <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tamanho</label><input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
                 </div>
                 
-                {/* CAMPO DE FOTO MUDADO PARA LINK */}
                 <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Foto Específica (Opcional)</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Foto Específica</label>
                     <input type="text" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({...editingProduct, image: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none focus:border-blue-500" placeholder="https://..." />
                     {editingProduct.image && (<div className="mt-2 w-20 h-20 rounded-xl overflow-hidden border border-slate-700"><img src={editingProduct.image} className="w-full h-full object-cover" /></div>)}
                 </div>
