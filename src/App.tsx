@@ -81,7 +81,8 @@ const db = getFirestore(app);
 const TENANTS_COLLECTION = `saas_tenants`;
 
 type Tenant = { id: string; name: string; domain: string; logoUrl: string; primaryColor: string; createdAt?: any; };
-type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; description?: string; color: string; size: string; quantity: number; price: number; weight?: number; length?: number; width?: number; height?: number; ncm?: string; cest?: string; material?: string; sole?: string; fastening?: string; updatedAt?: any; };
+// NOVO: parentSku adicionado para salvar o SPU blindado
+type Product = { id: string; parentSku?: string; sku?: string; barcode?: string; image?: string; name: string; description?: string; color: string; size: string; quantity: number; price: number; weight?: number; length?: number; width?: number; height?: number; ncm?: string; cest?: string; material?: string; sole?: string; fastening?: string; updatedAt?: any; };
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
 type HistoryItem = { id: string; productId: string; productName: string; sku: string; image: string; type: 'entry' | 'exit' | 'correction'; amount: number; previousQty: number; newQty: number; timestamp: any; };
 type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 'pending' | 'received'; items: { productId: string; sku: string; name: string; quantity: number }[]; totalItems: number; createdAt: any; receivedAt?: any; };
@@ -136,7 +137,7 @@ export default function App() {
   
   const [selectedCatalogGroups, setSelectedCatalogGroups] = useState<string[]>([]);
   const [viewingProduct, setViewingProduct] = useState<{name: string, group: any} | null>(null);
-  const [activeModalImage, setActiveModalImage] = useState<string>(''); // NOVO: Controle da Galeria de Fotos
+  const [activeModalImage, setActiveModalImage] = useState<string>('');
 
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -174,7 +175,7 @@ export default function App() {
   const [isSavingBatch, setIsSavingBatch] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   
-  const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, description: string, image: string, price: number, weight: number, length: number, width: number, height: number, ncm: string, cest: string, material: string, sole: string, fastening: string, items: Product[] } | null>(null);
+  const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, parentSku: string, description: string, image: string, price: number, weight: number, length: number, width: number, height: number, ncm: string, cest: string, material: string, sole: string, fastening: string, items: Product[] } | null>(null);
 
   const [noticeType, setNoticeType] = useState<'text' | 'banner'>('text'); const [noticeTitle, setNoticeTitle] = useState(''); const [noticeContent, setNoticeContent] = useState(''); const [noticeImage, setNoticeImage] = useState('');
   const [linkTitle, setLinkTitle] = useState(''); const [linkSubtitle, setLinkSubtitle] = useState(''); const [linkUrl, setLinkUrl] = useState(''); const [linkIcon, setLinkIcon] = useState('Link2'); const [linkOrder, setLinkOrder] = useState('1');
@@ -259,6 +260,9 @@ export default function App() {
 
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
 
+  // ==========================================
+  // LÓGICA DE AGRUPAMENTO (COR -> TAMANHO)
+  // ==========================================
   const groupProducts = (items: Product[]) => { 
       const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
       if (!items || !Array.isArray(items)) return groups;
@@ -304,6 +308,9 @@ export default function App() {
       }
   }, [academySeason, academySeasonMode, lessons, adminView]);
 
+  // ==========================================
+  // EXPORTAÇÃO UPSELLER (COM SPU BLINDADO E FOTOS EM "|")
+  // ==========================================
   const UPSELLER_HEADER = [
       "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
       "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
@@ -323,7 +330,11 @@ export default function App() {
   const generateUpSellerRows = (groupName: string, groupData: any, initialRows: any[] = []) => {
       const rows = [...initialRows];
       groupData.items.forEach((p: Product) => {
-          const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
+          
+          // LÓGICA RETROATIVA DO SPU: Pega o p.parentSku (se foi salvo com a versão nova) 
+          // ou recorta o SKU filho removendo os dois últimos blocos (Cor e Tamanho).
+          const skuPai = p.parentSku || (p.sku ? p.sku.split('-').slice(0, -2).join('-') : 'SKU');
+          
           const safeTitulo = p.name || ''; 
           const finalImages = p.image ? p.image.replace(/,/g, '|') : '';
           
@@ -387,6 +398,7 @@ export default function App() {
       if (!baseName || !baseSku || generatedRows.length === 0) return; setIsSavingBatch(true); 
       const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; 
       const cleanImages = parseImages(baseImage); 
+      const safeParentSku = baseSku.toUpperCase().replace(/\s+/g, '');
 
       try { 
           const batch = writeBatch(db); 
@@ -395,7 +407,7 @@ export default function App() {
               batch.set(docRef, { 
                   name: baseName, description: baseDescription, image: cleanImages, sku: row.sku, barcode: row.barcode, color: row.color, size: row.size, price: priceNumber, quantity: 0, 
                   weight: parseFloat(baseWeight) || 800, length: parseFloat(baseLength) || 33, width: parseFloat(baseWidth) || 12, height: parseFloat(baseHeight) || 19, ncm: baseNcm, cest: baseCest,
-                  material: baseMaterial, sole: baseSole, fastening: baseFastening, 
+                  material: baseMaterial, sole: baseSole, fastening: baseFastening, parentSku: safeParentSku,
                   updatedAt: serverTimestamp() 
               }); 
           }); 
@@ -410,10 +422,37 @@ export default function App() {
   
   const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; try { await updateDoc(doc(db, getCol('products'), editingProduct.id), { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro."); } };
   
-  const openGroupEdit = (groupName: string, groupData: any) => { const info = groupData.info; setEditingGroup({ oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', material: info.material || '', sole: info.sole || '', fastening: info.fastening || '', items: groupData.items }); };
+  const openGroupEdit = (groupName: string, groupData: any) => { 
+      const info = groupData.info; 
+      // Lógica retroativa no Admin: tenta ler parentSku, se não existir, deduz do SKU cortando as ultimas duas partes.
+      const resolvedParentSku = info.parentSku || (info.sku ? info.sku.split('-').slice(0, -2).join('-') : '');
+      
+      setEditingGroup({ 
+          oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', material: info.material || '', sole: info.sole || '', fastening: info.fastening || '', parentSku: resolvedParentSku,
+          items: groupData.items 
+      }); 
+  };
+  
   const handleDeleteGroup = async () => { if(editingGroup && confirm('Excluir todas as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach(item => { batch.delete(doc(db, getCol('products'), item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
-  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, material: editingGroup.material, sole: editingGroup.sole, fastening: editingGroup.fastening, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
+  
+  const handleSaveGroupEdit = async (e: React.FormEvent) => { 
+      e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; 
+      try { 
+          const batch = writeBatch(db); 
+          editingGroup.items.forEach((item) => { 
+              const ref = doc(db, getCol('products'), item.id); 
+              batch.update(ref, { 
+                  name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, material: editingGroup.material, sole: editingGroup.sole, fastening: editingGroup.fastening, parentSku: editingGroup.parentSku.toUpperCase().replace(/\s+/g, ''),
+                  updatedAt: serverTimestamp() 
+              }); 
+          }); 
+          await batch.commit(); setEditingGroup(null); alert("Atualizado!"); 
+      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } 
+  };
 
+  // ========================================================================
+  // RENDERIZAÇÃO GERAL DO SISTEMA (RETORNOS DA INTERFACE)
+  // ========================================================================
   if (globalLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
 
   if (isSuperAdminMode) {
@@ -494,7 +533,7 @@ export default function App() {
                                      {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
                                  </div>
                                  <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
-                                     <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3><span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : ''}</span></div>
+                                     <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3><span className="text-xs font-bold text-slate-400">{group.info.parentSku || (group.info.sku ? String(group.info.sku).split('-')[0] : '')}</span></div>
                                      <div className="mt-3 flex items-center justify-between">
                                          {publicVitrine?.config.showPrice ? (<span className="text-lg font-black" style={{ color: brandColor }}>{formatCurrency(applyMarkup(group.info.price || 0))}</span>) : (<span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Sob Consulta</span>)}
                                      </div>
@@ -505,7 +544,7 @@ export default function App() {
                  )}
               </main>
 
-              {/* MODAL DE DETALHES (VITRINE) */}
+              {/* MODAL DE DETALHES (VITRINE PÚBLICA) */}
               {viewingProduct && (
                   <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setViewingProduct(null)}>
                      <div className="bg-white rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row" onClick={e => e.stopPropagation()}>
@@ -523,7 +562,7 @@ export default function App() {
                         </div>
 
                         <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col max-h-[80vh] overflow-y-auto">
-                            <span className="text-xs font-bold text-slate-400 mb-1">{viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : 'SKU Padrão'}</span>
+                            <span className="text-xs font-bold text-slate-400 mb-1">{viewingProduct.group.info.parentSku || (viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : '')}</span>
                             <h2 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-2">{viewingProduct.name}</h2>
                             {publicVitrine?.config.showPrice && <div className="text-3xl font-black text-green-600 mb-6">{formatCurrency(applyMarkup(viewingProduct.group.info.price || 0))}</div>}
 
@@ -574,7 +613,6 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800 relative">
         
-        {/* BOTÃO FLUTUANTE DE EXPORTAÇÃO EM LOTE */}
         {selectedCatalogGroups.length > 0 && userView === 'catalog' && (
             <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white pl-6 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4 z-40 animate-in slide-in-from-bottom-10 border border-slate-700">
                 <span className="font-bold text-sm">{selectedCatalogGroups.length} selecionados</span>
@@ -582,14 +620,13 @@ export default function App() {
             </div>
         )}
 
-        {/* MODAL DE DETALHES DO PRODUTO (E-COMMERCE PRO) */}
+        {/* MODAL DE DETALHES DO PRODUTO (E-COMMERCE PRO PARA REVENDEDOR) */}
         {viewingProduct && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setViewingProduct(null)}>
                <div className="bg-white rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row" onClick={e => e.stopPropagation()}>
                   
                   <button onClick={() => setViewingProduct(null)} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-black transition-colors z-20"><X size={20}/></button>
 
-                  {/* LADO ESQUERDO: FOTOS */}
                   <div className="w-full md:w-1/2 p-6 bg-slate-50 flex flex-col">
                      <div className="aspect-square bg-white rounded-2xl border border-slate-200 overflow-hidden mb-4 flex items-center justify-center shadow-sm">
                          {activeModalImage ? <img src={activeModalImage} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-24 h-24" />}
@@ -601,28 +638,23 @@ export default function App() {
                      </div>
                   </div>
 
-                  {/* LADO DIREITO: INFORMAÇÕES */}
                   <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col max-h-[80vh] overflow-y-auto">
-                      <span className="text-xs font-bold text-slate-400 mb-1">{viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : 'SKU Padrão'}</span>
+                      <span className="text-xs font-bold text-slate-400 mb-1">{viewingProduct.group.info.parentSku || (viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : '')}</span>
                       <h2 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-2">{viewingProduct.name}</h2>
                       
                       <div className="text-3xl font-black text-green-600 mb-6">{formatCurrency(viewingProduct.group.info.price || 0)}</div>
                       
-                      {/* ATRIBUTOS */}
                       <div className="flex flex-wrap gap-2 mb-6">
                           {viewingProduct.group.info.material && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Mat: {viewingProduct.group.info.material}</span>}
                           {viewingProduct.group.info.sole && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Sol: {viewingProduct.group.info.sole}</span>}
                           {viewingProduct.group.info.fastening && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Ajus: {viewingProduct.group.info.fastening}</span>}
                       </div>
 
-                      {/* CORES E TAMANHOS DISPONÍVEIS */}
                       <div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Cores Disponíveis</p><div className="flex flex-wrap gap-2">{Array.from(new Set(viewingProduct.group.items.map((i: any) => i.color))).map(color => (<span key={String(color)} className="border border-slate-200 text-slate-700 bg-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm">{String(color)}</span>))}</div></div>
                       <div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Tamanhos Disponíveis</p><div className="flex flex-wrap gap-2">{Array.from(new Set(viewingProduct.group.items.map((i: any) => i.size))).map(size => (<span key={String(size)} className="border border-slate-200 text-slate-700 bg-white w-12 h-12 flex items-center justify-center rounded-xl text-sm font-black shadow-sm">{String(size)}</span>))}</div></div>
                       
-                      {/* DESCRIÇÃO */}
                       {viewingProduct.group.info.description && (<div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Descrição</p><p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">{viewingProduct.group.info.description}</p></div>)}
                       
-                      {/* BOTÕES DE AÇÃO */}
                       <div className="mt-auto pt-6 space-y-3">
                           <button onClick={() => { handleExportToUpSeller(viewingProduct.name, viewingProduct.group); setViewingProduct(null); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xl shadow-emerald-500/20 text-lg">
                               <Download size={24}/> Baixar Planilha UpSeller
@@ -663,6 +695,7 @@ export default function App() {
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-24 md:pb-6">
                  <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
                      <div className="relative w-full md:w-2/3"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo, cor ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
+                     
                      <div className="flex gap-2 w-full md:w-auto">
                         <button onClick={() => setSelectedCatalogGroups(Object.keys(groupedProducts))} className="flex-1 md:flex-none bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-3 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2"><CheckSquare size={16}/> Selecionar Tudo</button>
                         {selectedCatalogGroups.length > 0 && <button onClick={() => setSelectedCatalogGroups([])} className="flex-1 md:flex-none bg-red-100 hover:bg-red-200 text-red-600 px-4 py-3 rounded-xl font-bold text-sm transition-colors">Limpar</button>}
@@ -677,7 +710,13 @@ export default function App() {
                                const isSelected = selectedCatalogGroups.includes(name);
                                return (
                                <div key={name} className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300 relative ${isSelected ? 'border-emerald-500' : 'border-slate-200'}`}>
-                                   <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); toggleGroupSelection(name, e.target.checked); }} className="absolute top-3 left-3 z-10 w-6 h-6 accent-emerald-500 cursor-pointer shadow-sm rounded-lg" />
+                                   
+                                   <input 
+                                       type="checkbox" 
+                                       checked={isSelected} 
+                                       onChange={(e) => { e.stopPropagation(); toggleGroupSelection(name, e.target.checked); }}
+                                       className="absolute top-3 left-3 z-10 w-6 h-6 accent-emerald-500 cursor-pointer shadow-sm rounded-lg"
+                                   />
 
                                    <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group-card">
                                        {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
@@ -696,21 +735,17 @@ export default function App() {
               </div>
             )}
             
-            {/* OMITIDO AQUI O CODIGO DASHBOARD, ACADEMY, INTEGRATIONS E SUPORTE PARA FICAR CLEAN */}
-            {userView === 'dashboard' && <div className="text-center py-20 font-bold text-slate-500">Dashboard Operante. (Oculto nesta visualização para poupar espaço)</div>}
-            {userView === 'integrations' && <div className="text-center py-20 font-bold text-slate-500">Integrações Operantes. (Oculto nesta visualização para poupar espaço)</div>}
-            {userView === 'support' && <div className="text-center py-20 font-bold text-slate-500">Central de Suporte Operante. (Oculto nesta visualização para poupar espaço)</div>}
-            {userView === 'academy' && <div className="text-center py-20 font-bold text-slate-500">Academy Operante. (Oculto nesta visualização para poupar espaço)</div>}
-            
+            {userView === 'dashboard' && <div className="text-center py-20 font-bold text-slate-500">Dashboard Operante. (Oculto nesta visualização)</div>}
+            {userView === 'integrations' && <div className="text-center py-20 font-bold text-slate-500">Integrações Operantes. (Oculto nesta visualização)</div>}
+            {userView === 'support' && <div className="text-center py-20 font-bold text-slate-500">Central de Suporte Operante. (Oculto nesta visualização)</div>}
+            {userView === 'academy' && <div className="text-center py-20 font-bold text-slate-500">Academy Operante. (Oculto nesta visualização)</div>}
           </div>
         </main>
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
           <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
           <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
           <button onClick={() => setUserView('integrations')} className={`flex flex-col items-center gap-1 relative ${userView === 'integrations' ? '' : 'text-slate-400'}`} style={userView === 'integrations' ? {color: brandColor} : {}}>
-             <Plug size={20} />
-             {userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}
-             <span className="text-[10px] font-bold">Conectar</span>
+             <Plug size={20} />{userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}<span className="text-[10px] font-bold">Conectar</span>
           </button>
           <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? '' : 'text-slate-400'}`} style={userView === 'support' ? {color: brandColor} : {}}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
         </nav>
@@ -718,9 +753,6 @@ export default function App() {
     );
   }
 
-  // ==========================================
-  // RENDERIZAÇÃO: ADMIN DO INQUILINO (FORNECEDOR)
-  // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-xl">
@@ -802,7 +834,7 @@ export default function App() {
                 <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Package size={16} className="text-blue-400" /> 1. Produto Pai</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
-                    <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
+                    <div><label className="text-sm text-slate-400 block mb-1">SPU (SKU Pai / Base)*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full md:w-1/2 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     
                     <div className="md:col-span-2">
@@ -865,8 +897,18 @@ export default function App() {
               <form onSubmit={handleSaveGroupEdit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Nome do Modelo</label><input value={editingGroup.name} onChange={e => setEditingGroup({...editingGroup, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                    <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">SPU (SKU Pai / Base)</label><input value={editingGroup.parentSku} onChange={e => setEditingGroup({...editingGroup, parentSku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
-                    <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
+                    <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
+                </div>
+
+                <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
+                    <label className="text-xs font-bold text-purple-400 uppercase mb-2 block flex items-center gap-1"><Tag size={14}/> Atributos (Ficha Técnica)</label>
+                    <div className="grid grid-cols-3 gap-2">
+                        <div><label className="text-[10px] text-slate-500 uppercase">Material</label><input value={editingGroup.material} onChange={e => setEditingGroup({...editingGroup, material: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-xs"/></div>
+                        <div><label className="text-[10px] text-slate-500 uppercase">Solado</label><input value={editingGroup.sole} onChange={e => setEditingGroup({...editingGroup, sole: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-xs"/></div>
+                        <div><label className="text-[10px] text-slate-500 uppercase">Ajuste</label><input value={editingGroup.fastening} onChange={e => setEditingGroup({...editingGroup, fastening: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-xs"/></div>
+                    </div>
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
@@ -901,6 +943,53 @@ export default function App() {
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
                    <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- MODAL DE EDIÇÃO DE VARIAÇÃO (INDIVIDUAL) --- */}
+        {editingProduct && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
+            <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
+              <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-4">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2"><Pencil size={20} className="text-blue-400"/> Editar Variação</h2>
+                  <button type="button" onClick={handleDeleteProductFromModal} className="bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-3 py-2 rounded-lg transition-colors text-xs font-bold flex items-center gap-1"><Trash2 size={14} /> Excluir</button>
+              </div>
+              <form onSubmit={handleSaveEdit} className="space-y-4">
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome do Produto</label><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">SKU</label><input value={editingProduct.sku || ''} onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
+                   <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cód. Barras</label><input value={editingProduct.barcode || ''} onChange={e => setEditingProduct({...editingProduct, barcode: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono focus:border-blue-500 outline-none" /></div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Preço (R$)</label><input value={editingProduct.price || ''} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
+                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Cor</label><input value={editingProduct.color} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                    <div className="col-span-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tamanho</label><input value={editingProduct.size} onChange={e => setEditingProduct({...editingProduct, size: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" required /></div>
+                </div>
+                
+                <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
+                    <label className="text-xs font-bold text-blue-400 uppercase mb-1 block">Links das Fotos</label>
+                    <textarea 
+                        value={editingProduct.image ? editingProduct.image.replace(/,/g, '\n') : ''} 
+                        onChange={(e) => setEditingProduct({...editingProduct, image: parseImages(e.target.value)})} 
+                        rows={3} 
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white outline-none focus:border-blue-500 font-mono text-[10px]" 
+                        placeholder="https://..." 
+                    />
+                    {editingProduct.image && (
+                        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                            {editingProduct.image.split(',').map((url, i) => (
+                                <img key={i} src={url} className="w-12 h-12 rounded object-cover border border-slate-700 shrink-0" />
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex gap-3 pt-6 border-t border-slate-800">
+                   <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
+                   <button type="submit" className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors"><Save size={18}/> Salvar Edição</button>
                 </div>
               </form>
             </div>
