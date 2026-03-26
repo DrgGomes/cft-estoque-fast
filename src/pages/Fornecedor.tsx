@@ -1,45 +1,11 @@
-import React from 'react';
-import {
-  Package, Plus, ClipboardList, Users, Ticket, GraduationCap,
-  Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown,
-  ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown,
-  Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film
-} from 'lucide-react';
-import { Product, SupportTicket, QuickLink, Notice, AcademyLesson, Showcase } from '../types';
+import React, { useContext } from 'react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign } from 'lucide-react';
+import { AppContext, formatCurrency, formatDate, parseImages } from '../AppContext';
+import { Product } from '../types';
 
-const formatCurrency = (value: any) => { const num = Number(value); if (isNaN(num)) return 'R$ 0,00'; return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num); };
-const formatDate = (timestamp: any) => { if (!timestamp) return '...'; if (typeof timestamp.toMillis === 'function') { return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(timestamp.toMillis()); } return '...'; };
-const parseImages = (rawInput: string) => { if (!rawInput) return ''; return rawInput.split(/[\n, ]+/).filter(u => u.trim().startsWith('http')).join(','); };
-
-export default function Fornecedor(props: any) {
-  const {
-    currentTenant, adminView, setAdminView, handleLogout,
-    adminStockStats, searchTerm, setSearchTerm, adminStockFilter, setAdminStockFilter,
-    filteredAdminList, setAdminViewingGroupName, adminViewingGroupName,
-    groupedAdminProducts, handleUpdateQuantity, editingProduct, setEditingProduct,
-    handleDeleteProductFromModal, handleSaveEdit, openGroupEdit, editingGroup,
-    setEditingGroup, handleDeleteGroup, handleSaveGroupEdit,
-    baseName, setBaseName, baseSku, setBaseSku, basePrice, setBasePrice,
-    baseImage, setBaseImage, baseDescription, setBaseDescription,
-    baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening,
-    baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth,
-    baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest,
-    tempColor, setTempColor, addColor, colors, removeColor,
-    tempSize, setTempSize, addSize, sizes, removeSize,
-    generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch,
-    predictiveData, history, usersList, allTickets, handleAdminTicketAction, handlePrintTicket,
-    academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, availableSeasons,
-    academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode,
-    academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube,
-    academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks,
-    handleSaveAcademy, academySeasons, handleDeleteAcademy,
-    noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent,
-    noticeImage, setNoticeImage, handleSaveNotice, notices, handleDeleteNotice,
-    linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl,
-    linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, handleDeleteLink,
-    showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase,
-    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase
-  } = props;
+export default function Fornecedor() {
+  const ctx = useContext(AppContext);
+  const { currentTenant, adminView, setAdminView, handleLogout, adminStockStats, searchTerm, setSearchTerm, adminStockFilter, setAdminStockFilter, filteredAdminList, setAdminViewingGroupName, adminViewingGroupName, groupedAdminProducts, handleUpdateQuantity, editingProduct, setEditingProduct, handleDeleteProductFromModal, handleSaveEdit, openGroupEdit, editingGroup, setEditingGroup, handleDeleteGroup, handleSaveGroupEdit, baseName, setBaseName, baseSku, setBaseSku, basePrice, setBasePrice, baseImage, setBaseImage, baseDescription, setBaseDescription, baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, tempColor, setTempColor, addColor, colors, removeColor, tempSize, setTempSize, addSize, sizes, removeSize, generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch, predictiveData, history, usersList, allTickets, handleAdminTicketAction, handlePrintTicket, academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, availableSeasons, academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube, academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, handleSaveAcademy, academySeasons, handleDeleteAcademy, noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, handleSaveNotice, notices, handleDeleteNotice, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase } = ctx;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
@@ -93,9 +59,7 @@ export default function Fornecedor(props: any) {
                {filteredAdminList.length === 0 ? (<p className="text-center text-slate-500 py-10">Nenhum produto encontrado nesse filtro.</p>) : (
                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                        {filteredAdminList.map(([name, group]: any) => {
-                           const firstImage = group.info.image ? group.info.image.split(',')[0] : '';
-                           const isLow = group.total > 0 && group.total <= 20;
-                           const isOut = group.total === 0;
+                           const firstImage = group.info.image ? group.info.image.split(',')[0] : ''; const isLow = group.total > 0 && group.total <= 20; const isOut = group.total === 0;
                            return (
                            <div key={name} onClick={() => setAdminViewingGroupName(name)} className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col hover:border-blue-500 transition-all cursor-pointer group">
                                <div className="aspect-square bg-slate-950 relative overflow-hidden">
@@ -178,20 +142,11 @@ export default function Fornecedor(props: any) {
                     <div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">SPU (SKU Pai / Base)*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full md:w-1/2 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
+                    
                     <div className="md:col-span-2">
                         <label className="text-sm text-slate-400 block mb-1 font-bold text-blue-400">Links das Fotos (Cole todos os links do ImgBB de uma vez)</label>
-                        <textarea 
-                            value={baseImage} onChange={(e) => setBaseImage(e.target.value)} rows={4} 
-                            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-3 text-white outline-none focus:border-blue-500 font-mono text-xs placeholder:text-slate-600" 
-                            placeholder="Exemplo:&#10;https://i.ibb.co/67Pk8NkQ/foto1.png&#10;https://i.ibb.co/B5gWVRCK/foto2.png" 
-                        />
-                        {baseImage && (
-                            <div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">
-                                {parseImages(baseImage).split(',').map((url, i) => (
-                                    <div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>
-                                ))}
-                            </div>
-                        )}
+                        <textarea value={baseImage} onChange={(e) => setBaseImage(e.target.value)} rows={4} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-3 text-white outline-none focus:border-blue-500 font-mono text-xs placeholder:text-slate-600" placeholder="Exemplo:&#10;https://i.ibb.co/67Pk8NkQ/foto1.png&#10;https://i.ibb.co/B5gWVRCK/foto2.png" />
+                        {baseImage && (<div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">{parseImages(baseImage).split(',').map((url, i) => (<div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>))}</div>)}
                     </div>
                 </div>
               </div>
@@ -251,7 +206,7 @@ export default function Fornecedor(props: any) {
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">Links das Fotos (Pode colar vários do ImgBB)</label>
                     <textarea value={editingGroup.image.replace(/,/g, '\n')} onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} rows={4} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" />
-                    {editingGroup.image && (<div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">{editingGroup.image.split(',').map((url, i) => (<img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />))}</div>)}
+                    {editingGroup.image && (<div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">{editingGroup.image.split(',').map((url: string, i: number) => (<img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />))}</div>)}
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Peso(g)</label><input type="number" value={editingGroup.weight} onChange={e => setEditingGroup({...editingGroup, weight: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
@@ -269,60 +224,37 @@ export default function Fornecedor(props: any) {
           </div>
         )}
 
-        {/* INTELIGÊNCIA ARTIFICIAL */}
         {adminView === 'predictive' && predictiveData && (
             <div className="space-y-6 animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between"><div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div><div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Últimos 30 Dias</div></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden">
-                        <div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div>
-                        <div className="p-4 space-y-3">
-                            <p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>
-                            {predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (
-                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>
-                            ))}
-                        </div>
-                    </div>
+                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden"><div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div><div className="p-4 space-y-3"><p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>{predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (<div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>))}</div></div>
                 </div>
             </div>
         )}
 
-        {/* RELATÓRIOS (HISTORY) */}
         {adminView === 'history' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><ClipboardList className="text-purple-400" size={24}/><h2 className="text-xl font-black text-white">Relatório de Estoque</h2></div></div>
                 <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
                     {history.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum movimento registrado.</p> : history.map(item => (
-                        <div key={item.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition-colors">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-black ${item.type === 'entry' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                                    {item.type === 'entry' ? '+' : '-'}{item.amount}
-                                </div>
-                                <div><h3 className="font-bold text-white text-sm">{item.productName}</h3><p className="text-xs text-slate-500">SKU: {item.sku || 'N/A'}</p></div>
-                            </div>
-                            <div className="text-right"><span className="block text-xs text-slate-400">{formatDate(item.timestamp)}</span><span className="text-[10px] font-mono text-slate-600">Saldo: {item.newQty}</span></div>
-                        </div>
+                        <div key={item.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center font-black ${item.type === 'entry' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>{item.type === 'entry' ? '+' : '-'}{item.amount}</div><div><h3 className="font-bold text-white text-sm">{item.productName}</h3><p className="text-xs text-slate-500">SKU: {item.sku || 'N/A'}</p></div></div><div className="text-right"><span className="block text-xs text-slate-400">{formatDate(item.timestamp)}</span><span className="text-[10px] font-mono text-slate-600">Saldo: {item.newQty}</span></div></div>
                     ))}
                 </div>
             </div>
         )}
 
-        {/* CLIENTES */}
         {adminView === 'customers' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><Users className="text-indigo-400" size={24}/><h2 className="text-xl font-black text-white">Revendedores Cadastrados</h2></div><div className="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded font-bold text-sm">Total: {usersList.length}</div></div>
                 <div className="p-5 space-y-3">
                     {usersList.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum cliente cadastrado.</p> : usersList.map((u: any) => (
-                        <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
-                            <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 font-black text-lg uppercase">{u.name ? String(u.name).substring(0,2) : 'CL'}</div><div><h3 className="font-bold text-white text-lg">{u.name || 'Sem Nome'}</h3><p className="text-sm text-slate-500">{u.email}</p></div></div>
-                            <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg flex items-center gap-3 min-w-[200px] justify-between"><span className="text-xs text-slate-400 font-bold uppercase flex items-center gap-1"><Wallet size={14}/> Crédito</span><span className="text-lg font-black text-green-400">{formatCurrency(u.creditBalance || 0)}</span></div>
-                        </div>
+                        <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 font-black text-lg uppercase">{u.name ? String(u.name).substring(0,2) : 'CL'}</div><div><h3 className="font-bold text-white text-lg">{u.name || 'Sem Nome'}</h3><p className="text-sm text-slate-500">{u.email}</p></div></div><div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg flex items-center gap-3 min-w-[200px] justify-between"><span className="text-xs text-slate-400 font-bold uppercase flex items-center gap-1"><Wallet size={14}/> Crédito</span><span className="text-lg font-black text-green-400">{formatCurrency(u.creditBalance || 0)}</span></div></div>
                     ))}
                 </div>
             </div>
         )}
 
-        {/* TICKETS */}
         {adminView === 'tickets' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
@@ -345,8 +277,6 @@ export default function Fornecedor(props: any) {
                 </div>
             </div>
         )}
-
-        {/* ADMIN AVISOS E LINKS OCULTADOS NO EXEMPLO MAS FUNCIONANDO */}
       </main>
     </div>
   );

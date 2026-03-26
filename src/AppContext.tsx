@@ -1090,4 +1090,3 @@ function TelaRevendedor() {
       </main>
     </div>
   );
-}

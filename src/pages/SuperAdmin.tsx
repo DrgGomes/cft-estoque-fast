@@ -1,14 +1,15 @@
-import React from 'react';
-import { Building2, Plus, Store, Globe, LayoutGrid, Lock, RefreshCw } from 'lucide-react';
-import { Tenant } from '../types';
+import React, { useContext } from 'react';
+import { Building2, Plus, Store, Globe, LayoutGrid, Lock, RefreshCw, PaintBucket } from 'lucide-react';
+import { AppContext } from '../AppContext';
 
-export default function SuperAdmin({
-  superAdminAuthenticated, setSuperAdminAuthenticated,
-  newTenantName, setNewTenantName, newTenantDomain, setNewTenantDomain,
-  newTenantLogo, setNewTenantLogo, newTenantColor, setNewTenantColor,
-  isSavingBatch, handleCreateTenant, saasTenants
-}: any) {
-  
+export default function SuperAdmin() {
+  const {
+    superAdminAuthenticated, setSuperAdminAuthenticated,
+    newTenantName, setNewTenantName, newTenantDomain, setNewTenantDomain,
+    newTenantLogo, setNewTenantLogo, newTenantColor, setNewTenantColor,
+    isSavingBatch, handleCreateTenant, saasTenants
+  } = useContext(AppContext);
+
   if (!superAdminAuthenticated) {
       return (
          <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -43,7 +44,7 @@ export default function SuperAdmin({
                   <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
                       <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Store className="text-blue-500"/> Empresas Hospedadas ({saasTenants.length})</h2>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {saasTenants.length === 0 ? (<p className="text-slate-500 text-sm">Nenhum cliente cadastrado ainda.</p>) : saasTenants.map((tenant: Tenant) => (
+                          {saasTenants.length === 0 ? (<p className="text-slate-500 text-sm">Nenhum cliente cadastrado ainda.</p>) : saasTenants.map((tenant: any) => (
                               <div key={tenant.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col gap-3 relative overflow-hidden">
                                   <div className="absolute left-0 top-0 bottom-0 w-2" style={{ backgroundColor: tenant.primaryColor }}></div>
                                   <div className="pl-2 flex justify-between items-start">
