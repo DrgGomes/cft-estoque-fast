@@ -46,7 +46,6 @@ const sortByDateDesc = (a: any, b: any, fieldName: string) => {
     return tB - tA;
 };
 
-// NOVO: Função que lê os links do ImgBB (separados por linha) e transforma num texto separado por vírgula.
 const parseImages = (rawInput: string) => {
     if (!rawInput) return '';
     return rawInput.split(/[\n, ]+/).filter(u => u.trim().startsWith('http')).join(',');
@@ -65,7 +64,7 @@ const renderDynamicIcon = (iconName: string, size = 24, className = "") => {
   }
 };
 
-// --- CONFIGURAÇÃO FIREBASE ---
+// --- CONFIGURAÇÃO FIREBASE ÚNICA DO SAAS ---
 const firebaseConfig = {
   apiKey: "AIzaSyDG8hpJggHKpWBLaILx2WJrD-Jw7XcKvRg",
   authDomain: "cft-drop---estoque-flash.firebaseapp.com",
@@ -149,7 +148,7 @@ export default function App() {
   const [baseSku, setBaseSku] = useState('');
   const [baseName, setBaseName] = useState('');
   const [baseDescription, setBaseDescription] = useState(''); 
-  const [baseImage, setBaseImage] = useState(''); // AGORA SALVA VÁRIOS LINKS SEPARADOS POR VÍRGULA
+  const [baseImage, setBaseImage] = useState(''); 
   const [basePrice, setBasePrice] = useState('');
   const [colors, setColors] = useState<string[]>([]);
   const [sizes, setSizes] = useState<string[]>([]);
@@ -300,7 +299,7 @@ export default function App() {
   }, [academySeason, academySeasonMode, lessons, adminView]);
 
   // ==========================================
-  // EXPORTAÇÃO UPSELLER 
+  // EXPORTAÇÃO UPSELLER (MAPEAMENTO 100% CORRIGIDO)
   // ==========================================
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
       const headerRow = [
@@ -336,40 +335,40 @@ export default function App() {
         "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)",
         "Link do Fornecedor"
       ];
+      
       const rows = [headerRow];
 
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
-          const desc = p.description || '';
-          const tituloCompleto = desc ? `${p.name} - ${desc}` : p.name;
+          const safeTitulo = (p.name || '').replace(/"/g, '""'); 
           
           rows.push([
-              skuPai,
-              p.sku || '',
-              tituloCompleto,
-              '',
-              'N',
-              'Cor',
-              p.color || '',
-              'Tamanho',
-              p.size || '',
-              '', '', '', '', '', '',
-              189.90, 
-              p.price || 0, 
-              500, 
-              '', 
-              p.barcode || '', 
-              '', 
-              p.image || '', // Como p.image agora é um texto separado por vírgulas, a UpSeller vai ler todas as fotos do ImgBB!
-              p.weight || 800,
-              p.length || 33,
-              p.width || 12,
-              p.height || 19,
-              p.ncm || '',
-              p.cest || '',
-              'UN',
-              0,
-              ''
+              skuPai,                 // 0: SPU
+              p.sku || '',            // 1: SKU
+              safeTitulo,             // 2: Título (APENAS O NOME DO PRODUTO)
+              '',                     // 3: Apelido
+              'N',                    // 4: NFe
+              'Cor',                  // 5: Var 1
+              p.color || '',          // 6: Valor 1
+              'Tamanho',              // 7: Var 2
+              p.size || '',           // 8: Valor 2
+              '', '', '', '', '', '', // 9 a 14
+              189.90,                 // 15: Preço varejo
+              p.price || 0,           // 16: Custo
+              500,                    // 17: Quantidade
+              '',                     // 18: Estante
+              p.barcode || '',        // 19: Código de Barras
+              '',                     // 20: Apelido de SKU
+              p.image || '',          // 21: Imagem (Recebe os links do ImgBB separados por vírgula)
+              p.weight || 800,        // 22: Peso
+              p.length || 33,         // 23: Comp
+              p.width || 12,          // 24: Larg
+              p.height || 19,         // 25: Alt
+              p.ncm || '',            // 26: NCM
+              p.cest || '',           // 27: CEST
+              'UN',                   // 28: Unidade
+              0,                      // 29: Origem
+              ''                      // 30: Link Fornecedor
           ]);
       });
 
@@ -447,8 +446,7 @@ export default function App() {
   const handleSaveBatch = async () => { 
       if (!baseName || !baseSku || generatedRows.length === 0) return; setIsSavingBatch(true); 
       const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; 
-      // Processar a lista de imagens que o usuário colou
-      const cleanImages = parseImages(baseImage);
+      const cleanImages = parseImages(baseImage); // Limpa e prepara os links das fotos
 
       try { 
           const batch = writeBatch(db); 
@@ -738,7 +736,6 @@ export default function App() {
               </div>
             )}
             
-            {/* OMITIDO AQUI O CODIGO ACADEMY E SUPORTE PARA FICAR CLEAN (ELES AINDA ESTÃO NO SISTEMA, SÓ NAO VISUALIZADOS AQUI NA REDUÇÃO) */}
             {userView === 'support' && <div className="text-center py-20 font-bold text-slate-500">Central de Suporte Operante. (Oculto nesta visualização para poupar espaço)</div>}
             {userView === 'academy' && <div className="text-center py-20 font-bold text-slate-500">Academy Operante. (Oculto nesta visualização para poupar espaço)</div>}
             
@@ -758,9 +755,6 @@ export default function App() {
     );
   }
 
-  // ==========================================
-  // RENDERIZAÇÃO: ADMIN DO INQUILINO (FORNECEDOR)
-  // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-xl">
@@ -779,15 +773,8 @@ export default function App() {
         
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 mt-2">
-            <button onClick={() => setAdminView('predictive')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-fuchsia-500"><div className="w-14 h-14 bg-fuchsia-500/10 rounded-full flex items-center justify-center"><BrainCircuit size={28} className="text-fuchsia-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Inteligência IA</h3></div></button>
-            <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
-            <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
-            <button onClick={() => setAdminView('customers')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-indigo-500/10 rounded-full flex items-center justify-center"><Users size={28} className="text-indigo-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Clientes / Wallet</h3></div></button>
-            <button onClick={() => setAdminView('tickets')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 relative"><div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center"><Ticket size={28} className="text-rose-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Chamados</h3></div></button>
-            <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Jornada Alunos</h3></div></button>
-            <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
-            <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
-            <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
+            <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
+            <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
           </div>
         )}
 
@@ -872,7 +859,7 @@ export default function App() {
                         )}
                     </div>
                     
-                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material, conforto e estilo..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
+                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
                 </div>
               </div>
 
@@ -996,36 +983,6 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* RESTO DOS MÓDULOS DE ADMIN OCULTADOS NO EXEMPLO (MAS MANTIDOS NO SISTEMA GERAL) */}
-        {adminView === 'predictive' && predictiveData && (
-            <div className="space-y-6 animate-in slide-in-from-right">
-                <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between">
-                    <div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div>
-                    <div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Últimos 30 Dias</div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden">
-                        <div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2">
-                            <AlertTriangle className="text-red-500" size={20} />
-                            <h3 className="font-bold text-red-500">Fila de Produção</h3>
-                        </div>
-                        <div className="p-4 space-y-3">
-                            <p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>
-                            {predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (
-                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center">
-                                    <div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div>
-                                    <div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    {/* Mais blocos da IA ficariam aqui (Campeões de Venda e Estoque Encalhado) - Simplificado para caber */}
-                </div>
-            </div>
-        )}
-
       </main>
     </div>
   );
