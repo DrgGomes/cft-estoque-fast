@@ -1,13 +1,41 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, updateDoc, addDoc, deleteDoc, setDoc, getDoc, serverTimestamp, query, onSnapshot, writeBatch, where, getDocs, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { Bell, Package, RefreshCw, Trash2, Plus, Smartphone, LogOut, ScanBarcode, Image as ImageIcon, Search, X, Save, Check, Layers, Pencil, Zap, AlertCircle, Camera, StopCircle, ChevronLeft, ClipboardList, ChevronDown, ChevronUp, ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag, LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick, Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock, TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle, Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box, CheckSquare, Tag, Lock, DollarSign } from 'lucide-react';
+import {
+  getFirestore, collection, doc, updateDoc, addDoc, deleteDoc, setDoc, getDoc,
+  serverTimestamp, query, onSnapshot, writeBatch, where, getDocs, arrayUnion, arrayRemove, increment
+} from 'firebase/firestore';
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
+} from 'firebase/auth';
+import {
+  Bell, Package, RefreshCw, Trash2, Plus, Smartphone, LogOut,
+  ScanBarcode, Image as ImageIcon, Search, X, Save, Check,
+  Layers, Pencil, Zap, AlertCircle, Camera, StopCircle,
+  ChevronLeft, ClipboardList, ChevronDown, ChevronUp,
+  ShoppingCart, MessageCircle, Minus, Truck, FileText, ShoppingBag,
+  LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
+  Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
+  TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
+  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box, CheckSquare, Tag, Lock, DollarSign
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-const firebaseConfig = { apiKey: "AIzaSyDG8hpJggHKpWBLaILx2WJrD-Jw7XcKvRg", authDomain: "cft-drop---estoque-flash.firebaseapp.com", projectId: "cft-drop---estoque-flash", storageBucket: "cft-drop---estoque-flash.firebasestorage.app", messagingSenderId: "513670906518", appId: "1:513670906518:web:eec3f177a4779f3ddf78b7" };
-const app = initializeApp(firebaseConfig); const auth = getAuth(app); const db = getFirestore(app); const TENANTS_COLLECTION = `saas_tenants`;
+// --- CONFIGURAÇÃO FIREBASE ÚNICA DO SAAS ---
+const firebaseConfig = {
+  apiKey: "AIzaSyDG8hpJggHKpWBLaILx2WJrD-Jw7XcKvRg",
+  authDomain: "cft-drop---estoque-flash.firebaseapp.com",
+  projectId: "cft-drop---estoque-flash",
+  storageBucket: "cft-drop---estoque-flash.firebasestorage.app",
+  messagingSenderId: "513670906518",
+  appId: "1:513670906518:web:eec3f177a4779f3ddf78b7"
+};
 
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const TENANTS_COLLECTION = `saas_tenants`;
+
+// --- TIPOS ---
 type Tenant = { id: string; name: string; domain: string; logoUrl: string; primaryColor: string; createdAt?: any; };
 type Product = { id: string; parentSku?: string; sku?: string; barcode?: string; image?: string; name: string; description?: string; color: string; size: string; quantity: number; price: number; weight?: number; length?: number; width?: number; height?: number; ncm?: string; cest?: string; material?: string; sole?: string; fastening?: string; updatedAt?: any; };
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
@@ -20,6 +48,7 @@ type UserProfile = { id: string; name: string; email: string; role: string; cred
 type SupportTicket = { id: string; userId: string; userName: string; type: 'troca' | 'devolucao'; status: 'pendente' | 'aceito' | 'recusado' | 'aguardando_devolucao' | 'concluido'; productId: string; productInfo: string; productValue: number; reason: string; adminNote?: string; createdAt: any; updatedAt?: any; };
 type AcademyLesson = { id: string; season: string; episode: number; title: string; description: string; youtubeUrl: string; bannerUrl: string; materialLinks: string; createdAt: any; };
 
+// --- FUNÇÕES AUXILIARES ---
 const SOUNDS = { success: "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3", error: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3", magic: "https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3" };
 const playSound = (type: 'success' | 'error' | 'magic') => { try { const audio = new Audio(SOUNDS[type]); audio.volume = 0.5; audio.play().catch(e => console.log(e)); } catch (e) {} };
 const formatCurrency = (value: any) => { const num = Number(value); if (isNaN(num)) return 'R$ 0,00'; return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num); };
@@ -67,6 +96,7 @@ export default function App() {
 
   const [authName, setAuthName] = useState(''); const [authEmail, setAuthEmail] = useState(''); const [authPassword, setAuthPassword] = useState(''); const [isRegistering, setIsRegistering] = useState(false); const [authError, setAuthError] = useState('');
 
+  // Estados Admin - Produtos
   const [baseSku, setBaseSku] = useState(''); const [baseName, setBaseName] = useState(''); const [baseDescription, setBaseDescription] = useState(''); const [baseImage, setBaseImage] = useState(''); const [basePrice, setBasePrice] = useState('');
   const [colors, setColors] = useState<string[]>([]); const [sizes, setSizes] = useState<string[]>([]); const [tempColor, setTempColor] = useState(''); const [tempSize, setTempSize] = useState('');
   const [baseWeight, setBaseWeight] = useState('800'); const [baseLength, setBaseLength] = useState('33'); const [baseWidth, setBaseWidth] = useState('12'); const [baseHeight, setBaseHeight] = useState('19'); const [baseNcm, setBaseNcm] = useState(''); const [baseCest, setBaseCest] = useState(''); const [baseMaterial, setBaseMaterial] = useState(''); const [baseSole, setBaseSole] = useState(''); const [baseFastening, setBaseFastening] = useState('');
@@ -132,6 +162,7 @@ export default function App() {
   useEffect(() => { if (searchTerm.trim() === '') { setFilteredProducts(products); } else { const lowerTerm = searchTerm.toLowerCase(); setFilteredProducts(products.filter(p => { const name = String(p.name || '').toLowerCase(); const sku = String(p.sku || '').toLowerCase(); return name.includes(lowerTerm) || sku.includes(lowerTerm); })); } }, [searchTerm, products]);
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
 
+  // CÁLCULOS E MEMOS
   const groupProducts = (items: Product[]) => { 
       const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
       if (!items || !Array.isArray(items)) return groups;
@@ -147,7 +178,7 @@ export default function App() {
   const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season || 'Módulo Geral'))), [lessons]);
   useEffect(() => { if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) { const eps = lessons.filter(l => (l.season || 'Módulo Geral') === academySeason); setAcademyEpisode(String(eps.length + 1)); } else if (academySeasonMode === 'new') { setAcademyEpisode('1'); } }, [academySeason, academySeasonMode, lessons, adminView]);
 
-  // --- FUNÇÕES E AÇÕES ---
+  // UPSELLER E FUNÇÕES DE AÇÃO
   const UPSELLER_HEADER = ["SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)", "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)", "Título*\n(Obrigatório, 1-500 caracteres)", "Apelido do Produto\n(1-500 caracteres)", "Usar apelido como título da NFe", "Variantes1*\n(Obrigatório, 1-14 caracteres)", "Valor da Variante1*\n(Obrigatório, 1-30 caracteres)", "Variantes2\n(limite 1-14 caracteres)", "Valor da Variante2\n(limite 1-30 caracteres)", "Variantes3\n(limite 1-14 caracteres)", "Valor da Variante3\n(limite 1-30 caracteres)", "Variantes4\n(limite 1-14 caracteres)", "Valor da Variante4\n(limite 1-30 caracteres)", "Variantes5\n(limite 1-14 caracteres)", "Valor da Variante5\n(limite 1-30 caracteres)", "Preço de varejo\n(limite 0-999999999)", "Custo de Compra\n(limite 0-999999999)", "Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)", "N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)", "Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)", "Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）", "Imagem", "Peso (g)\n(limite 1-999999)", "Comprimento (cm)\n(limite 1-999999)", "Largura (cm)\n(limite 1-999999)", "Altura (cm)\n(limite 1-999999)", "NCM\n(limite 8 dígitos)", "CEST\n(limite 7 dígitos)", "Unidade\n(Selecionar UN/KG/Par)", "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)", "Link do Fornecedor", "Material", "Solado", "Tipo de Ajuste"];
   const generateUpSellerRows = (groupName: string, groupData: any, initialRows: any[] = []) => { const rows = [...initialRows]; groupData.items.forEach((p: Product) => { const skuPai = p.parentSku || (p.sku ? p.sku.split('-').slice(0, -2).join('-') : 'SKU'); const safeTitulo = p.name || ''; const finalImages = p.image ? p.image.replace(/,/g, '|') : ''; rows.push([ skuPai, p.sku || '', safeTitulo, '', 'N', 'Cor', p.color || '', 'Tamanho', p.size || '', '', '', '', '', '', '', 189.90, p.price || 0, 500, '', p.barcode || '', '', finalImages, p.weight || 800, p.length || 33, p.width || 12, p.height || 19, p.ncm || '', p.cest || '', 'UN', 0, '', p.material || '', p.sole || '', p.fastening || '' ]); }); return rows; };
   const handleExportToUpSeller = (groupName: string, groupData: any) => { const rows = generateUpSellerRows(groupName, groupData, [UPSELLER_HEADER]); const worksheet = XLSX.utils.aoa_to_sheet(rows); const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos"); XLSX.writeFile(workbook, `UpSeller_${groupName.replace(/\s+/g, '_')}.xlsx`); playSound('magic'); };
@@ -242,7 +273,7 @@ export default function App() {
       const applyMarkup = (basePrice: number) => { return basePrice * (1 + (publicVitrine?.config.priceMarkup || 0) / 100); };
       return (
           <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-              <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center gap-3">{brandLogo && <img src={brandLogo} className="h-8 object-contain" alt="Logo"/><h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine?.name}</h1>}</header>
+              <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center gap-3">{brandLogo && <img src={brandLogo} className="h-8 object-contain" alt="Logo"/>}<h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine?.name}</h1></header>
               <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-20">
                  <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{ outlineColor: brandColor }} /></div>
                  {Object.keys(vitrineGroups).length === 0 ? (<div className="text-center py-20 text-slate-400">Nenhum produto disponível neste catálogo.</div>) : (
@@ -308,7 +339,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800 relative">
         {selectedCatalogGroups.length > 0 && userView === 'catalog' && (
-            <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white pl-6 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4 z-40 animate-in slide-in-from-bottom-10"><span className="font-bold text-sm">{selectedCatalogGroups.length} selecionados</span><button onClick={handleBatchExportToUpSeller} className="bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2.5 rounded-full font-black flex items-center gap-2 text-sm shadow-lg"><Download size={16} /> Baixar Lote (UpSeller)</button></div>
+            <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white pl-6 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4 z-40 animate-in slide-in-from-bottom-10 border border-slate-700"><span className="font-bold text-sm">{selectedCatalogGroups.length} selecionados</span><button onClick={handleBatchExportToUpSeller} className="bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2.5 rounded-full font-black flex items-center gap-2 text-sm shadow-lg transition-colors"><Download size={16} /> Baixar Lote (UpSeller)</button></div>
         )}
 
         {viewingProduct && (
@@ -442,7 +473,7 @@ export default function App() {
             {userView === 'support' && (
                 <div className="space-y-6 animate-in slide-in-from-bottom-4">
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket style={{color:brandColor}}/> Abrir Chamado de Troca/Devolução</h3><p className="text-sm text-slate-500 mt-1">Siga o passo a passo abaixo para relatar o problema.</p></div>
+                        <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket style={{color:brandColor}}/> Abrir Chamado</h3><p className="text-sm text-slate-500 mt-1">Siga o passo a passo abaixo para relatar o problema.</p></div>
                         <form onSubmit={handleOpenTicket} className="p-6 space-y-6">
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">1. O que você deseja fazer?</label>
@@ -472,7 +503,6 @@ export default function App() {
                             <div className="pt-4 border-t border-slate-100"><button type="submit" disabled={isSavingBatch || !ticketReturnProductId || (ticketType === 'troca' && !ticketDesiredProductId)} className={`w-full md:w-auto px-8 py-4 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg transition-transform ${isSavingBatch || !ticketReturnProductId || (ticketType === 'troca' && !ticketDesiredProductId) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'text-white hover:scale-[1.02]'}`} style={(!isSavingBatch && ticketReturnProductId && (ticketType !== 'troca' || ticketDesiredProductId)) ? {backgroundColor: brandColor} : {}}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Enviar Solicitação</button></div>
                         </form>
                     </div>
-
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800 text-lg">Meu Histórico de Chamados</h3></div>
                         <div className="p-4 space-y-3">
@@ -493,6 +523,16 @@ export default function App() {
             )}
           </div>
         </main>
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+          <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
+          <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
+          <button onClick={() => setUserView('integrations')} className={`flex flex-col items-center gap-1 relative ${userView === 'integrations' ? '' : 'text-slate-400'}`} style={userView === 'integrations' ? {color: brandColor} : {}}>
+             <Plug size={20} />
+             {userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}
+             <span className="text-[10px] font-bold">Conectar</span>
+          </button>
+          <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? '' : 'text-slate-400'}`} style={userView === 'support' ? {color: brandColor} : {}}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
+        </nav>
       </div>
     );
   }
@@ -547,7 +587,7 @@ export default function App() {
              </div>
 
              <div>
-               {filteredAdminList.length === 0 ? (<p className="text-center text-slate-500 py-10">Nenhum produto encontrado.</p>) : (
+               {filteredAdminList.length === 0 ? (<p className="text-center text-slate-500 py-10">Nenhum produto encontrado nesse filtro.</p>) : (
                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                        {filteredAdminList.map(([name, group]: any) => {
                            const firstImage = group.info.image ? group.info.image.split(',')[0] : ''; const isLow = group.total > 0 && group.total <= 20; const isOut = group.total === 0;
@@ -582,17 +622,38 @@ export default function App() {
                      <h2 className="text-xl font-black text-white leading-tight mb-2">{adminViewingGroupName}</h2>
                      <div className="text-2xl font-black text-green-400 mb-4">{formatCurrency(groupedAdminProducts[adminViewingGroupName].info.price || 0)}</div>
                      
-                     <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex justify-between items-center mb-6"><span className="text-xs font-bold text-slate-400 uppercase">Estoque Geral</span><span className="text-lg font-black text-blue-400">{groupedAdminProducts[adminViewingGroupName].total}</span></div>
-                     <button onClick={() => { openGroupEdit(adminViewingGroupName, groupedAdminProducts[adminViewingGroupName]); }} className="mt-auto w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"><Pencil size={18}/> Editar Ficha</button>
+                     <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex justify-between items-center mb-6">
+                         <span className="text-xs font-bold text-slate-400 uppercase">Estoque Geral</span>
+                         <span className="text-lg font-black text-blue-400">{groupedAdminProducts[adminViewingGroupName].total}</span>
+                     </div>
+
+                     <button onClick={() => { openGroupEdit(adminViewingGroupName, groupedAdminProducts[adminViewingGroupName]); }} className="mt-auto w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors">
+                        <Pencil size={18}/> Editar Ficha Completa
+                     </button>
                   </div>
 
                   <div className="w-full md:w-2/3 p-6 md:p-8 flex flex-col max-h-[80vh] overflow-y-auto">
-                      <div className="mb-6 border-b border-slate-800 pb-4"><h3 className="text-lg font-black text-white flex items-center gap-2"><Zap className="text-yellow-500"/> Ajuste Rápido de Numerações</h3><p className="text-xs text-slate-400">As alterações no estoque (+) ou (-) são salvas automaticamente na nuvem.</p></div>
+                      <div className="mb-6 border-b border-slate-800 pb-4">
+                          <h3 className="text-lg font-black text-white flex items-center gap-2"><Zap className="text-yellow-500"/> Ajuste Rápido de Numerações</h3>
+                          <p className="text-xs text-slate-400">As alterações no estoque (+) ou (-) são salvas automaticamente na nuvem.</p>
+                      </div>
+
                       <div className="space-y-3">
                           {groupedAdminProducts[adminViewingGroupName].items.map((p: Product) => (
                               <div key={p.id} className="flex items-center justify-between bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors">
-                                  <div className="flex items-center gap-4"><span className="w-10 h-10 rounded-lg bg-slate-800 text-white flex items-center justify-center font-black text-lg shadow-inner">{String(p.size || '')}</span><div><span className="text-sm font-bold text-slate-300 uppercase block mb-1">{String(p.color || '')}</span><span className="text-[10px] text-slate-600 font-mono flex items-center gap-1"><ScanBarcode size={10}/> {p.barcode || 'Sem Cód.'}</span></div></div>
-                                  <div className="flex items-center bg-slate-900 rounded-lg border border-slate-700 overflow-hidden h-12 shadow-sm"><button onClick={() => handleUpdateQuantity(p, Number(p.quantity) - 1)} className="w-12 h-full hover:bg-slate-800 text-slate-400 hover:text-red-400 font-black text-xl transition-colors">-</button><div className={`w-14 text-center font-black text-lg ${p.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{Number(p.quantity)}</div><button onClick={() => handleUpdateQuantity(p, Number(p.quantity) + 1)} className="w-12 h-full hover:bg-slate-800 text-slate-400 hover:text-emerald-400 font-black text-xl transition-colors">+</button></div>
+                                  <div className="flex items-center gap-4">
+                                      <span className="w-10 h-10 rounded-lg bg-slate-800 text-white flex items-center justify-center font-black text-lg shadow-inner">{String(p.size || '')}</span>
+                                      <div>
+                                          <span className="text-sm font-bold text-slate-300 uppercase block mb-1">{String(p.color || '')}</span>
+                                          <span className="text-[10px] text-slate-600 font-mono flex items-center gap-1"><ScanBarcode size={10}/> {p.barcode || 'Sem Cód.'}</span>
+                                      </div>
+                                  </div>
+                                  
+                                  <div className="flex items-center bg-slate-900 rounded-lg border border-slate-700 overflow-hidden h-12 shadow-sm">
+                                      <button onClick={() => handleUpdateQuantity(p, Number(p.quantity) - 1)} className="w-12 h-full hover:bg-slate-800 text-slate-400 hover:text-red-400 font-black text-xl transition-colors">-</button>
+                                      <div className={`w-14 text-center font-black text-lg ${p.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{Number(p.quantity)}</div>
+                                      <button onClick={() => handleUpdateQuantity(p, Number(p.quantity) + 1)} className="w-12 h-full hover:bg-slate-800 text-slate-400 hover:text-emerald-400 font-black text-xl transition-colors">+</button>
+                                  </div>
                               </div>
                           ))}
                       </div>
@@ -650,6 +711,7 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL EDIÇÃO GRUPO */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -664,6 +726,7 @@ export default function App() {
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
                 </div>
+
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-purple-400 uppercase mb-2 block flex items-center gap-1"><Tag size={14}/> Atributos (Ficha Técnica)</label>
                     <div className="grid grid-cols-3 gap-2">
@@ -672,21 +735,20 @@ export default function App() {
                         <div><label className="text-[10px] text-slate-500 uppercase">Ajuste</label><input value={editingGroup.fastening} onChange={e => setEditingGroup({...editingGroup, fastening: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-xs"/></div>
                     </div>
                 </div>
+
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">Links das Fotos (Pode colar vários do ImgBB)</label>
                     <textarea value={editingGroup.image.replace(/,/g, '\n')} onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} rows={4} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" />
                     {editingGroup.image && (<div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">{editingGroup.image.split(',').map((url: string, i: number) => (<img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />))}</div>)}
                 </div>
+                
                 <div className="grid grid-cols-4 gap-2">
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Peso(g)</label><input type="number" value={editingGroup.weight} onChange={e => setEditingGroup({...editingGroup, weight: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">C(cm)</label><input type="number" value={editingGroup.length} onChange={e => setEditingGroup({...editingGroup, length: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">L(cm)</label><input type="number" value={editingGroup.width} onChange={e => setEditingGroup({...editingGroup, width: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">A(cm)</label><input type="number" value={editingGroup.height} onChange={e => setEditingGroup({...editingGroup, height: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                </div>
+                <div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div></div>
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
                    <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
@@ -696,26 +758,29 @@ export default function App() {
           </div>
         )}
 
+        {/* INTELIGÊNCIA ARTIFICIAL */}
         {adminView === 'predictive' && predictiveData && (
             <div className="space-y-6 animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between"><div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div><div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Últimos 30 Dias</div></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden"><div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div><div className="p-4 space-y-3"><p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>{predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (<div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>))}</div></div>
+                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden"><div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div><div className="p-4 space-y-3"><p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>{predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map((p:any) => (<div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>))}</div></div>
                 </div>
             </div>
         )}
 
+        {/* RELATÓRIOS */}
         {adminView === 'history' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><ClipboardList className="text-purple-400" size={24}/><h2 className="text-xl font-black text-white">Relatório de Estoque</h2></div></div>
                 <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
-                    {history.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum movimento registrado.</p> : history.map(item => (
+                    {history.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum movimento registrado.</p> : history.map((item:any) => (
                         <div key={item.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center font-black ${item.type === 'entry' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>{item.type === 'entry' ? '+' : '-'}{item.amount}</div><div><h3 className="font-bold text-white text-sm">{item.productName}</h3><p className="text-xs text-slate-500">SKU: {item.sku || 'N/A'}</p></div></div><div className="text-right"><span className="block text-xs text-slate-400">{formatDate(item.timestamp)}</span><span className="text-[10px] font-mono text-slate-600">Saldo: {item.newQty}</span></div></div>
                     ))}
                 </div>
             </div>
         )}
 
+        {/* CLIENTES */}
         {adminView === 'customers' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><Users className="text-indigo-400" size={24}/><h2 className="text-xl font-black text-white">Revendedores Cadastrados</h2></div><div className="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded font-bold text-sm">Total: {usersList.length}</div></div>
@@ -727,6 +792,7 @@ export default function App() {
             </div>
         )}
 
+        {/* TICKETS ADMIN */}
         {adminView === 'tickets' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
