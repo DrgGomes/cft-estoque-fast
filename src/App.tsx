@@ -16,7 +16,7 @@ import {
   LayoutGrid, Megaphone, Upload, Link2, Video, Globe, MousePointerClick,
   Store, Copy, Percent, Ticket, Users, Wallet, Printer, Clock,
   TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
-  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box, CheckSquare, Tag, LayoutDashboard, DollarSign
+  Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box, CheckSquare, Tag
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -138,7 +138,6 @@ export default function App() {
   const [viewingProduct, setViewingProduct] = useState<{name: string, group: any} | null>(null);
   const [activeModalImage, setActiveModalImage] = useState<string>('');
 
-  // NOVOS ESTADOS PARA O ESTOQUE DO ADMIN
   const [adminViewingGroupName, setAdminViewingGroupName] = useState<string | null>(null);
   const [adminStockFilter, setAdminStockFilter] = useState<'all' | 'low' | 'out'>('all');
 
@@ -176,14 +175,20 @@ export default function App() {
   const [generatedRows, setGeneratedRows] = useState<VariationRow[]>([]);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  
   const [editingGroup, setEditingGroup] = useState<{ oldName: string, name: string, parentSku: string, description: string, image: string, price: number, weight: number, length: number, width: number, height: number, ncm: string, cest: string, material: string, sole: string, fastening: string, items: Product[] } | null>(null);
 
   const [noticeType, setNoticeType] = useState<'text' | 'banner'>('text'); const [noticeTitle, setNoticeTitle] = useState(''); const [noticeContent, setNoticeContent] = useState(''); const [noticeImage, setNoticeImage] = useState('');
   const [linkTitle, setLinkTitle] = useState(''); const [linkSubtitle, setLinkSubtitle] = useState(''); const [linkUrl, setLinkUrl] = useState(''); const [linkIcon, setLinkIcon] = useState('Link2'); const [linkOrder, setLinkOrder] = useState('1');
   const [academySeasonMode, setAcademySeasonMode] = useState<'existing' | 'new'>('existing'); const [academySeason, setAcademySeason] = useState(''); const [academyNewSeason, setAcademyNewSeason] = useState(''); const [academyEpisode, setAcademyEpisode] = useState('1'); const [academyTitle, setAcademyTitle] = useState(''); const [academyDesc, setAcademyDesc] = useState(''); const [academyYoutube, setAcademyYoutube] = useState(''); const [academyBanner, setAcademyBanner] = useState(''); const [academyLinks, setAcademyLinks] = useState(''); const [activeLesson, setActiveLesson] = useState<AcademyLesson | null>(null);
   const [editingShowcase, setEditingShowcase] = useState<Partial<Showcase> | null>(null); const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
-  const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca'); const [ticketReturnProductId, setTicketReturnProductId] = useState(''); const [ticketDesiredProductId, setTicketDesiredProductId] = useState(''); const [ticketReason, setTicketReason] = useState(''); const [ticketValue, setTicketValue] = useState(0);
+  
+  // NOVOS ESTADOS PARA SUPORTE (UX EM 2 PASSOS)
+  const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca'); 
+  const [ticketReturnGroup, setTicketReturnGroup] = useState('');
+  const [ticketReturnProductId, setTicketReturnProductId] = useState(''); 
+  const [ticketDesiredGroup, setTicketDesiredGroup] = useState('');
+  const [ticketDesiredProductId, setTicketDesiredProductId] = useState(''); 
+  const [ticketReason, setTicketReason] = useState('');
 
   const [isShopeeSimulating, setIsShopeeSimulating] = useState(false);
 
@@ -263,7 +268,7 @@ export default function App() {
   useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
 
   // ==========================================
-  // LÓGICA DE AGRUPAMENTO E CÁLCULOS
+  // LÓGICA DE AGRUPAMENTO (COR -> TAMANHO)
   // ==========================================
   const groupProducts = (items: Product[]) => { 
       const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
@@ -287,24 +292,17 @@ export default function App() {
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
 
-  // Filtro Dinâmico para o Estoque do Admin
   const filteredAdminList = useMemo(() => {
       let list = Object.entries(groupedAdminProducts);
-      if (adminStockFilter === 'low') {
-          list = list.filter(([_, group]) => group.total > 0 && group.total <= 20); // Alerta se total do modelo <= 20
-      } else if (adminStockFilter === 'out') {
-          list = list.filter(([_, group]) => group.total === 0);
-      }
+      if (adminStockFilter === 'low') { list = list.filter(([_, group]) => group.total > 0 && group.total <= 20); } 
+      else if (adminStockFilter === 'out') { list = list.filter(([_, group]) => group.total === 0); }
       return list;
   }, [groupedAdminProducts, adminStockFilter]);
 
   const adminStockStats = useMemo(() => {
-      let totalItems = 0;
-      let totalValue = 0;
-      let outOfStockModels = 0;
+      let totalItems = 0; let totalValue = 0; let outOfStockModels = 0;
       Object.values(groupedAdminProducts).forEach(group => {
-          totalItems += group.total;
-          totalValue += (group.total * (group.info.price || 0));
+          totalItems += group.total; totalValue += (group.total * (group.info.price || 0));
           if (group.total === 0) outOfStockModels++;
       });
       return { totalItems, totalValue, outOfStockModels };
@@ -321,18 +319,34 @@ export default function App() {
       return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
   }, [adminView, products, history]);
 
-  const academySeasons = useMemo(() => { const seasonsObj: Record<string, AcademyLesson[]> = {}; lessons.forEach(l => { if (!seasonsObj[l.season]) seasonsObj[l.season] = []; seasonsObj[l.season].push(l); }); return Object.entries(seasonsObj).map(([name, eps]) => ({ name, episodes: eps.sort((a,b) => a.episode - b.episode) })).sort((a,b) => a.name.localeCompare(b.name)); }, [lessons]);
-  const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season))), [lessons]);
+  // CORREÇÃO CRÍTICA DO ACADEMY (Impede tela branca se a aula estiver sem módulo)
+  const academySeasons = useMemo(() => { 
+      const seasonsObj: Record<string, AcademyLesson[]> = {}; 
+      lessons.forEach(l => { 
+          const safeSeasonName = l.season || 'Módulo Geral';
+          if (!seasonsObj[safeSeasonName]) seasonsObj[safeSeasonName] = []; 
+          seasonsObj[safeSeasonName].push(l); 
+      }); 
+      return Object.entries(seasonsObj).map(([name, eps]) => ({ 
+          name, 
+          episodes: eps.sort((a,b) => (a.episode || 0) - (b.episode || 0)) 
+      })).sort((a,b) => String(a.name).localeCompare(String(b.name))); 
+  }, [lessons]);
+  
+  const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season || 'Módulo Geral'))), [lessons]);
 
   useEffect(() => {
       if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) {
-          const eps = lessons.filter(l => l.season === academySeason);
+          const eps = lessons.filter(l => (l.season || 'Módulo Geral') === academySeason);
           setAcademyEpisode(String(eps.length + 1));
       } else if (academySeasonMode === 'new') {
           setAcademyEpisode('1');
       }
   }, [academySeason, academySeasonMode, lessons, adminView]);
 
+  // ==========================================
+  // EXPORTAÇÃO UPSELLER
+  // ==========================================
   const UPSELLER_HEADER = [
       "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
       "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
@@ -398,7 +412,50 @@ export default function App() {
 
   const handleCreateTenant = async (e: React.FormEvent) => { e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true); try { const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase(); await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() }); setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   
-  const handleOpenTicket = async (e: React.FormEvent) => { e.preventDefault(); if(!currentTenant || !user || !userProfile) return; const returnProd = products.find(p => p.id === ticketReturnProductId); if (!returnProd) return alert("Selecione o produto que vai devolver."); let finalProductInfo = ''; let finalValue = returnProd.price || 0; if (ticketType === 'troca') { const desiredProd = products.find(p => p.id === ticketDesiredProductId); if (!desiredProd) return alert("Selecione o produto desejado para a troca."); finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`; } else { if (!ticketReason) return alert("Preencha o motivo do defeito."); finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`; } setIsSavingBatch(true); try { await addDoc(collection(db, getCol('tickets')), { userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() }); setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); alert("Solicitação enviada!"); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
+  // CORREÇÃO CRÍTICA DO CHAMADO (TICKETS UX/BUG)
+  const handleOpenTicket = async (e: React.FormEvent) => { 
+      e.preventDefault(); 
+      if(!currentTenant || !user) { alert("Sessão expirada."); return; }
+      
+      const returnProd = products.find(p => p.id === ticketReturnProductId);
+      if (!returnProd) return alert("Selecione o produto exato que você vai devolver.");
+      
+      let finalProductInfo = ''; let finalValue = returnProd.price || 0;
+
+      if (ticketType === 'troca') {
+          const desiredProd = products.find(p => p.id === ticketDesiredProductId);
+          if (!desiredProd) return alert("Selecione o produto exato desejado para a troca.");
+          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`;
+      } else {
+          if (!ticketReason) return alert("Preencha o motivo do defeito.");
+          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`;
+      }
+      setIsSavingBatch(true); 
+      try { 
+          await addDoc(collection(db, getCol('tickets')), { 
+              userId: user.uid, 
+              userName: userProfile?.name || user.email || 'Revendedor', 
+              type: ticketType, 
+              status: 'pendente', 
+              productId: returnProd.id, 
+              productInfo: finalProductInfo, 
+              productValue: finalValue, 
+              reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', 
+              createdAt: serverTimestamp() 
+          }); 
+          setTicketReturnGroup(''); setTicketReturnProductId(''); 
+          setTicketDesiredGroup(''); setTicketDesiredProductId(''); 
+          setTicketReason(''); 
+          alert("Solicitação de Suporte enviada com Sucesso!"); 
+          playSound('success'); 
+      } catch (error) { 
+          console.error(error); 
+          alert("Falha ao enviar chamado. Tente novamente.");
+      } finally { 
+          setIsSavingBatch(false); 
+      } 
+  };
+
   const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, getCol('tickets'), ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   
   const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
@@ -408,12 +465,6 @@ export default function App() {
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
-  const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
-  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
-  const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
-  const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
-  const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
-  const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
   
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
@@ -444,131 +495,20 @@ export default function App() {
   const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, getCol('products'), product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, getCol('history'))); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); } };
   const handleDeleteProductFromModal = async () => { if (editingProduct && confirm('Excluir?')) { await deleteDoc(doc(db, getCol('products'), editingProduct.id)); setEditingProduct(null); } };
   const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; try { await updateDoc(doc(db, getCol('products'), editingProduct.id), { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro."); } };
-  
-  const openGroupEdit = (groupName: string, groupData: any) => { 
-      const info = groupData.info; 
-      const resolvedParentSku = info.parentSku || (info.sku ? info.sku.split('-').slice(0, -2).join('-') : '');
-      setAdminViewingGroupName(null); // Fecha o modal de estoque rápido, se estiver aberto
-      setEditingGroup({ 
-          oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', material: info.material || '', sole: info.sole || '', fastening: info.fastening || '', parentSku: resolvedParentSku,
-          items: groupData.items 
-      }); 
-  };
-  
+  const openGroupEdit = (groupName: string, groupData: any) => { const info = groupData.info; const resolvedParentSku = info.parentSku || (info.sku ? info.sku.split('-').slice(0, -2).join('-') : ''); setAdminViewingGroupName(null); setEditingGroup({ oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', material: info.material || '', sole: info.sole || '', fastening: info.fastening || '', parentSku: resolvedParentSku, items: groupData.items }); };
   const handleDeleteGroup = async () => { if(editingGroup && confirm('Excluir todas as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach(item => { batch.delete(doc(db, getCol('products'), item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, material: editingGroup.material, sole: editingGroup.sole, fastening: editingGroup.fastening, parentSku: editingGroup.parentSku.toUpperCase().replace(/\s+/g, ''), updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
   // ========================================================================
-  // RENDERIZAÇÃO GERAL DO SISTEMA 
+  // RENDERIZAÇÃO 
   // ========================================================================
   if (globalLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
-
-  if (isSuperAdminMode) {
-      return (
-          <div className="min-h-screen bg-slate-950 font-sans text-white p-6 md:p-12 overflow-y-auto">
-              <div className="max-w-6xl mx-auto space-y-8">
-                  <header className="flex items-center gap-4 border-b border-slate-800 pb-6"><div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/50"><Building2 size={32} /></div><div><h1 className="text-3xl font-black">MaxDrop SaaS Manager</h1><p className="text-slate-400">Painel Geral de Controle de Inquilinos</p></div></header>
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl h-fit">
-                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Plus className="text-emerald-500"/> Cadastrar Novo Cliente</h2>
-                          <form onSubmit={handleCreateTenant} className="space-y-4">
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Empresa</label><input value={newTenantName} onChange={e => setNewTenantName(e.target.value)} required placeholder="Ex: João Drop" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" /></div>
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Domínio do Cliente</label><input value={newTenantDomain} onChange={e => setNewTenantDomain(e.target.value)} required placeholder="Ex: joaodrop.com.br" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" /><p className="text-[10px] text-slate-500 mt-1">É assim que o sistema vai reconhecer de quem é a loja.</p></div>
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Logo (Opcional)</label><input value={newTenantLogo} onChange={e => setNewTenantLogo(e.target.value)} placeholder="https://" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none text-xs" /></div>
-                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><PaintBucket size={14}/> Cor Principal da Marca</label><div className="flex gap-3"><input type="color" value={newTenantColor} onChange={e => setNewTenantColor(e.target.value)} className="w-12 h-12 rounded cursor-pointer bg-slate-950 border border-slate-800" /><input type="text" value={newTenantColor} onChange={e => setNewTenantColor(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono uppercase" /></div></div>
-                              <button type="submit" disabled={isSavingBatch} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black mt-4 transition-transform hover:scale-[1.02] flex justify-center">{isSavingBatch ? <RefreshCw className="animate-spin" /> : 'Criar Infraestrutura da Empresa'}</button>
-                          </form>
-                      </div>
-                      <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Store className="text-blue-500"/> Empresas Hospedadas ({saasTenants.length})</h2>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {saasTenants.length === 0 ? (<p className="text-slate-500 text-sm">Nenhum cliente cadastrado ainda.</p>) : saasTenants.map(tenant => (
-                                  <div key={tenant.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col gap-3 relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2" style={{ backgroundColor: tenant.primaryColor }}></div><div className="pl-2 flex justify-between items-start"><div><h3 className="font-bold text-lg text-white uppercase">{tenant.name}</h3><a href={`https://${tenant.domain}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline flex items-center gap-1 mt-1"><Globe size={12}/> {tenant.domain}</a></div>{tenant.logoUrl ? (<img src={tenant.logoUrl} className="w-10 h-10 rounded bg-white object-contain p-1" />) : (<div className="w-10 h-10 rounded bg-slate-800 flex items-center justify-center"><Store size={16} className="text-slate-500"/></div>)}</div><div className="pl-2 mt-2 pt-3 border-t border-slate-800 flex justify-between items-center"><span className="text-[10px] text-slate-500 font-mono flex-1">ID: {tenant.id.substring(0,8)}</span><div className="flex gap-2"><a href={`/?preview=${tenant.id}`} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded hover:bg-blue-500/20 font-bold flex items-center gap-1 transition-colors"><LayoutGrid size={12}/> Ver Painel</a><button className="text-[10px] bg-red-500/10 text-red-500 px-3 py-1.5 rounded hover:bg-red-500/20 font-bold transition-colors">Suspender</button></div></div></div>
-                              ))}
-                          </div>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      );
-  }
 
   const brandColor = currentTenant?.primaryColor || '#2563eb'; 
   const brandName = currentTenant?.name || 'DropFast';
   const brandLogo = currentTenant?.logoUrl || null;
 
-  if (isVitrineMode) {
-      const vitrineGroups: Record<string, any> = {};
-      Object.entries(groupedProducts).forEach(([name, group]) => { if (publicVitrine?.models.includes(name)) { vitrineGroups[name] = group; } });
-      const applyMarkup = (basePrice: number) => { return basePrice * (1 + (publicVitrine?.config.priceMarkup || 0) / 100); };
-
-      return (
-          <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-              <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center gap-3">
-                  {brandLogo && <img src={brandLogo} className="h-8 object-contain" alt="Logo"/>}
-                  <h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine?.name}</h1>
-              </header>
-              <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-20">
-                 <div className="relative"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{ outlineColor: brandColor }} /></div>
-                 {Object.keys(vitrineGroups).length === 0 ? (<div className="text-center py-20 text-slate-400">Nenhum produto disponível neste catálogo.</div>) : (
-                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                         {Object.entries(vitrineGroups).map(([name, group]: [string, any]) => {
-                             const firstImage = group.info.image ? group.info.image.split(',')[0] : '';
-                             return (
-                             <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
-                                 <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
-                                     {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
-                                 </div>
-                                 <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
-                                     <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3><span className="text-xs font-bold text-slate-400">{group.info.parentSku || (group.info.sku ? String(group.info.sku).split('-')[0] : '')}</span></div>
-                                     <div className="mt-3 flex items-center justify-between"><span className="text-lg font-black" style={{ color: brandColor }}>{formatCurrency(applyMarkup(group.info.price || 0))}</span></div>
-                                 </div>
-                             </div>
-                         )})}
-                     </div>
-                 )}
-              </main>
-
-              {/* MODAL VITRINE PUBLICA */}
-              {viewingProduct && (
-                  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setViewingProduct(null)}>
-                     <div className="bg-white rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setViewingProduct(null)} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-black transition-colors z-20"><X size={20}/></button>
-
-                        <div className="w-full md:w-1/2 p-6 bg-slate-50 flex flex-col">
-                           <div className="aspect-square bg-white rounded-2xl border border-slate-200 overflow-hidden mb-4 flex items-center justify-center shadow-sm">
-                               {activeModalImage ? <img src={activeModalImage} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-24 h-24" />}
-                           </div>
-                           <div className="flex gap-3 overflow-x-auto pb-2 hidden-scroll">
-                               {viewingProduct.group.info.image && viewingProduct.group.info.image.split(',').map((url: string, i: number) => (
-                                   <img key={i} src={url} onClick={() => setActiveModalImage(url)} className={`w-16 h-16 rounded-xl object-cover cursor-pointer border-2 transition-all ${activeModalImage === url ? 'border-emerald-500 opacity-100' : 'border-transparent opacity-60 hover:opacity-100'}`} />
-                               ))}
-                           </div>
-                        </div>
-
-                        <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col max-h-[80vh] overflow-y-auto">
-                            <span className="text-xs font-bold text-slate-400 mb-1">{viewingProduct.group.info.parentSku || (viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : '')}</span>
-                            <h2 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-2">{viewingProduct.name}</h2>
-                            {publicVitrine?.config.showPrice && <div className="text-3xl font-black text-green-600 mb-6">{formatCurrency(applyMarkup(viewingProduct.group.info.price || 0))}</div>}
-
-                            <div className="flex flex-wrap gap-2 mb-6">
-                                {viewingProduct.group.info.material && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Mat: {viewingProduct.group.info.material}</span>}
-                                {viewingProduct.group.info.sole && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Sol: {viewingProduct.group.info.sole}</span>}
-                                {viewingProduct.group.info.fastening && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Ajus: {viewingProduct.group.info.fastening}</span>}
-                            </div>
-
-                            <div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Cores Disponíveis</p><div className="flex flex-wrap gap-2">{Array.from(new Set(viewingProduct.group.items.map((i: any) => i.color))).map(color => (<span key={String(color)} className="border border-slate-200 text-slate-700 bg-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm">{String(color)}</span>))}</div></div>
-                            <div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Tamanhos Disponíveis</p><div className="flex flex-wrap gap-2">{Array.from(new Set(viewingProduct.group.items.map((i: any) => i.size))).map(size => (<span key={String(size)} className="border border-slate-200 text-slate-700 bg-white w-12 h-12 flex items-center justify-center rounded-xl text-sm font-black shadow-sm">{String(size)}</span>))}</div></div>
-                            {viewingProduct.group.info.description && (<div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Descrição</p><p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">{viewingProduct.group.info.description}</p></div>)}
-                        </div>
-                     </div>
-                  </div>
-              )}
-          </div>
-      );
-  }
-
-  if (!selectedRole && !isVitrineMode) {
+  if (!selectedRole && !isVitrineMode && !isSuperAdminMode) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans relative overflow-hidden">
         {previewTenantId && (<div className="absolute top-4 left-4 bg-yellow-500 text-black font-black text-xs px-3 py-1 rounded shadow-lg uppercase z-50 animate-pulse">Modo Preview</div>)}
@@ -737,12 +677,10 @@ export default function App() {
                                return (
                                <div key={name} className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300 relative ${isSelected ? 'border-emerald-500' : 'border-slate-200'}`}>
                                    <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); toggleGroupSelection(name, e.target.checked); }} className="absolute top-3 left-3 z-10 w-6 h-6 accent-emerald-500 cursor-pointer shadow-sm rounded-lg" />
-
                                    <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group-card">
                                        {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
                                        {group.info.image && group.info.image.split(',').length > 1 && <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] font-black px-2 py-1 rounded backdrop-blur-sm shadow-lg">+{group.info.image.split(',').length - 1} fotos</div>}
                                    </div>
-                                   
                                    <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
                                        <div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{String(name)}</h3></div>
                                        <div className="mt-3 flex items-center justify-between"><span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span></div>
@@ -774,7 +712,7 @@ export default function App() {
                                     {getYoutubeId(activeLesson.youtubeUrl) ? (<iframe src={`https://www.youtube.com/embed/${getYoutubeId(activeLesson.youtubeUrl)}?autoplay=1&rel=0`} className="w-full h-full" allow="autoplay; fullscreen" allowFullScreen></iframe>) : (<div className="w-full h-full flex items-center justify-center text-slate-500 bg-slate-900 font-bold">Vídeo Indisponível</div>)}
                                 </div>
                                 <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl">
-                                    <span className="font-black text-sm uppercase tracking-widest" style={{color: brandColor}}>{activeLesson.season} - Ep {activeLesson.episode}</span>
+                                    <span className="font-black text-sm uppercase tracking-widest" style={{color: brandColor}}>{activeLesson.season || 'Módulo Geral'} - Ep {activeLesson.episode}</span>
                                     <h1 className="text-2xl md:text-3xl font-black text-white mt-1 mb-4">{activeLesson.title}</h1>
                                     <p className="text-slate-400 text-sm leading-relaxed whitespace-pre-wrap">{activeLesson.description}</p>
                                     {activeLesson.materialLinks && (
@@ -789,7 +727,7 @@ export default function App() {
                             <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[70vh]">
                                 <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h3 className="font-black text-white">Conteúdo do Módulo</h3></div>
                                 <div className="flex-1 overflow-y-auto hidden-scroll p-2 space-y-2">
-                                    {lessons.filter(l => l.season === activeLesson.season).sort((a,b)=> a.episode - b.episode).map((ep) => {
+                                    {lessons.filter(l => (l.season || 'Módulo Geral') === (activeLesson.season || 'Módulo Geral')).sort((a,b)=> (a.episode||0) - (b.episode||0)).map((ep) => {
                                         const isCompleted = userProfile?.completedLessons?.includes(ep.id);
                                         const isActive = activeLesson.id === ep.id;
                                         return (
@@ -864,51 +802,75 @@ export default function App() {
                 <div className="space-y-6 animate-in slide-in-from-bottom-4">
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50">
-                            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket style={{color:brandColor}}/> Abrir Chamado</h3>
-                            <p className="text-sm text-slate-500 mt-1">Selecione o produto do catálogo que você comprou e relate o problema.</p>
+                            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket style={{color:brandColor}}/> Abrir Chamado de Troca/Devolução</h3>
+                            <p className="text-sm text-slate-500 mt-1">Siga o passo a passo abaixo para relatar o problema.</p>
                         </div>
                         <form onSubmit={handleOpenTicket} className="p-6 space-y-6">
+                            
+                            {/* PASSO 1 */}
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">1. O que você deseja fazer?</label>
                                 <div className="flex gap-4">
                                     <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-4 rounded-xl flex-1 transition-colors">
-                                        <input type="radio" name="ticketType" checked={ticketType === 'troca'} onChange={() => {setTicketType('troca'); setTicketReason(''); setTicketDesiredProductId('');}} className="w-5 h-5" style={{accentColor: brandColor}} />
+                                        <input type="radio" name="ticketType" checked={ticketType === 'troca'} onChange={() => {setTicketType('troca'); setTicketReason(''); setTicketDesiredProductId(''); setTicketDesiredGroup('');}} className="w-5 h-5" style={{accentColor: brandColor}} />
                                         <div><span className="font-bold text-slate-800 block">Troca Normal</span><span className="text-[10px] text-slate-500 font-medium">Trocar uma peça por outra</span></div>
                                     </label>
                                     <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-4 rounded-xl flex-1 transition-colors">
-                                        <input type="radio" name="ticketType" checked={ticketType === 'devolucao'} onChange={() => {setTicketType('devolucao'); setTicketDesiredProductId('');}} className="accent-red-600 w-5 h-5" />
+                                        <input type="radio" name="ticketType" checked={ticketType === 'devolucao'} onChange={() => {setTicketType('devolucao'); setTicketDesiredProductId(''); setTicketDesiredGroup('');}} className="accent-red-600 w-5 h-5" />
                                         <div><span className="font-bold text-slate-800 text-red-600 block">Devolução (Defeito)</span><span className="text-[10px] text-slate-500 font-medium">Devolver e gerar crédito</span></div>
                                     </label>
                                 </div>
+                                {ticketType === 'devolucao' && (
+                                    <div className="mt-3 bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-sm font-medium animate-in zoom-in">
+                                        <strong>ATENÇÃO:</strong> Aceitamos devolução <strong>APENAS em casos de defeito de fabricação</strong>. Solicitações por outros motivos serão recusadas. O valor será creditado na sua carteira.
+                                    </div>
+                                )}
                             </div>
 
-                            {ticketType === 'devolucao' && (
-                                <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-sm font-medium animate-in zoom-in">
-                                    <strong>ATENÇÃO:</strong> Aceitamos devolução <strong>APENAS em casos de defeito de fabricação</strong>. Solicitações por outros motivos serão recusadas. O valor será creditado na sua carteira.
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">2. Selecione o Produto que vai devolver*</label>
-                                <select value={ticketReturnProductId} onChange={(e) => {setTicketReturnProductId(e.target.value); const p = products.find(x => x.id === e.target.value); setTicketValue(p?.price || 0);}} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-medium text-sm focus:ring-2" style={{'--tw-ring-color':brandColor} as any}>
-                                    <option value="">-- Clique para escolher no catálogo --</option>
-                                    {products.map(p => (
-                                        <option key={p.id} value={p.id}>{String(p.name)} - Cor: {String(p.color)} - Tam: {String(p.size)} (R$ {formatCurrency(p.price)})</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {ticketType === 'troca' && (
-                                <div className="p-5 rounded-xl space-y-4 animate-in slide-in-from-top-2" style={{backgroundColor: `${brandColor}10`, borderColor: `${brandColor}30`, borderWidth: '1px'}}>
-                                    <div className="flex items-center gap-2 font-bold mb-2" style={{color: brandColor}}><RefreshCw size={18}/> <span>3. Escolha a nova peça:</span></div>
+                            {/* PASSO 2 (UX MELHORADA - DOIS PASSOS) */}
+                            <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
+                                <label className="text-xs font-bold text-slate-500 uppercase block">2. Qual modelo você comprou e quer devolver?*</label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="text-xs font-bold uppercase mb-1 block" style={{color: brandColor}}>Selecione o Produto Desejado*</label>
-                                        <select value={ticketDesiredProductId} onChange={(e) => setTicketDesiredProductId(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-medium text-sm shadow-sm focus:ring-2" style={{'--tw-ring-color':brandColor} as any}>
-                                            <option value="">-- Clique para escolher a nova peça --</option>
-                                            {products.filter(p => p.quantity > 4).map(p => (
-                                                <option key={p.id} value={p.id}>{String(p.name)} - Cor: {String(p.color)} - Tam: {String(p.size)}</option>
+                                        <select value={ticketReturnGroup} onChange={(e) => {setTicketReturnGroup(e.target.value); setTicketReturnProductId('');}} className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-bold text-sm focus:ring-2 shadow-sm" style={{'--tw-ring-color':brandColor} as any}>
+                                            <option value="">1º - Escolha o Modelo...</option>
+                                            {Object.keys(groupedProducts).map(k => <option key={k} value={k}>{k}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <select disabled={!ticketReturnGroup} value={ticketReturnProductId} onChange={(e) => setTicketReturnProductId(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-medium text-sm focus:ring-2 shadow-sm disabled:opacity-50" style={{'--tw-ring-color':brandColor} as any}>
+                                            <option value="">2º - Escolha Cor e Tamanho...</option>
+                                            {ticketReturnGroup && groupedProducts[ticketReturnGroup]?.items.map(p => (
+                                                <option key={p.id} value={p.id}>Cor: {p.color} | Tam: {p.size} (R$ {formatCurrency(p.price)})</option>
                                             ))}
                                         </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* PASSO 3 (TROCA - UX MELHORADA) */}
+                            {ticketType === 'troca' && (
+                                <div className="p-5 rounded-xl space-y-4 animate-in slide-in-from-top-2" style={{backgroundColor: `${brandColor}10`, borderColor: `${brandColor}30`, borderWidth: '1px'}}>
+                                    <div className="flex items-center gap-2 font-bold mb-1" style={{color: brandColor}}><RefreshCw size={18}/> <span>3. Por qual peça deseja trocar?*</span></div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <select value={ticketDesiredGroup} onChange={(e) => {setTicketDesiredGroup(e.target.value); setTicketDesiredProductId('');}} className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-bold text-sm focus:ring-2 shadow-sm" style={{'--tw-ring-color':brandColor} as any}>
+                                                <option value="">1º - Escolha o Novo Modelo...</option>
+                                                {Object.keys(groupedProducts).map(k => <option key={k} value={k}>{k}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <select disabled={!ticketDesiredGroup} value={ticketDesiredProductId} onChange={(e) => setTicketDesiredProductId(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-medium text-sm focus:ring-2 shadow-sm disabled:opacity-50" style={{'--tw-ring-color':brandColor} as any}>
+                                                <option value="">2º - Escolha Cor e Tamanho...</option>
+                                                {ticketDesiredGroup && groupedProducts[ticketDesiredGroup]?.items.map(p => {
+                                                    const isOutOfStock = p.quantity <= 0;
+                                                    return (
+                                                        <option key={p.id} value={p.id} disabled={isOutOfStock}>Cor: {p.color} | Tam: {p.size} {isOutOfStock ? '(ESGOTADO)' : ''}</option>
+                                                    );
+                                                })}
+                                            </select>
+                                            <p className="text-[10px] mt-2 font-medium" style={{color: brandColor}}>*Mostramos apenas variações em estoque.</p>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -957,7 +919,6 @@ export default function App() {
                     </div>
                 </div>
             )}
-            
           </div>
         </main>
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
@@ -999,40 +960,24 @@ export default function App() {
             <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
             <button onClick={() => setAdminView('history')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-purple-500/10 rounded-full flex items-center justify-center"><ClipboardList size={28} className="text-purple-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Relatórios</h3></div></button>
-            
             <button onClick={() => setAdminView('customers')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-indigo-500/10 rounded-full flex items-center justify-center"><Users size={28} className="text-indigo-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Clientes</h3></div></button>
             <button onClick={() => setAdminView('tickets')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 relative"><div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center"><Ticket size={28} className="text-rose-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Chamados</h3></div>{allTickets.filter(t => t.status === 'pendente').length > 0 && <span className="absolute top-2 right-2 bg-red-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-pulse">{allTickets.filter(t => t.status === 'pendente').length}</span>}</button>
-            <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Aulas</h3></div></button>
-            <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
-            <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
+            <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Jornada Alunos</h3></div></button>
+            <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos</h3></div></button>
+            <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Links</h3></div></button>
           </div>
         )}
 
-        {/* TELA DE ESTOQUE ADMIN MELHORADA */}
         {adminView === 'stock' && (
           <div className="space-y-6 animate-in slide-in-from-right pb-24">
-             {/* MINI-DASHBOARD SUPERIOR */}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-blue-500">
-                     <div className="bg-blue-500/10 p-3 rounded-xl"><Package className="text-blue-500" size={24}/></div>
-                     <div><p className="text-[10px] font-bold text-slate-500 uppercase">Peças Físicas</p><h3 className="text-2xl font-black text-white">{adminStockStats.totalItems}</h3></div>
-                 </div>
-                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-emerald-500">
-                     <div className="bg-emerald-500/10 p-3 rounded-xl"><DollarSign className="text-emerald-500" size={24}/></div>
-                     <div><p className="text-[10px] font-bold text-slate-500 uppercase">Valor em Estoque</p><h3 className="text-2xl font-black text-green-400">{formatCurrency(adminStockStats.totalValue)}</h3></div>
-                 </div>
-                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-red-500">
-                     <div className="bg-red-500/10 p-3 rounded-xl"><AlertTriangle className="text-red-500" size={24}/></div>
-                     <div><p className="text-[10px] font-bold text-slate-500 uppercase">Modelos Esgotados</p><h3 className="text-2xl font-black text-red-400">{adminStockStats.outOfStockModels}</h3></div>
-                 </div>
+                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-blue-500"><div className="bg-blue-500/10 p-3 rounded-xl"><Package className="text-blue-500" size={24}/></div><div><p className="text-[10px] font-bold text-slate-500 uppercase">Peças Físicas</p><h3 className="text-2xl font-black text-white">{adminStockStats.totalItems}</h3></div></div>
+                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-emerald-500"><div className="bg-emerald-500/10 p-3 rounded-xl"><DollarSign className="text-emerald-500" size={24}/></div><div><p className="text-[10px] font-bold text-slate-500 uppercase">Valor em Estoque</p><h3 className="text-2xl font-black text-green-400">{formatCurrency(adminStockStats.totalValue)}</h3></div></div>
+                 <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-red-500"><div className="bg-red-500/10 p-3 rounded-xl"><AlertTriangle className="text-red-500" size={24}/></div><div><p className="text-[10px] font-bold text-slate-500 uppercase">Modelos Esgotados</p><h3 className="text-2xl font-black text-red-400">{adminStockStats.outOfStockModels}</h3></div></div>
              </div>
 
-             {/* BARRA DE PESQUISA E FILTROS RAPIDOS */}
              <div className="flex flex-col md:flex-row gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800">
-                 <div className="relative flex-1">
-                     <Search className="absolute left-4 top-3 text-slate-500 w-5 h-5" />
-                     <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome ou SKU..." className="w-full pl-12 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none" />
-                 </div>
+                 <div className="relative flex-1"><Search className="absolute left-4 top-3 text-slate-500 w-5 h-5" /><input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome ou SKU..." className="w-full pl-12 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none" /></div>
                  <div className="flex gap-2 overflow-x-auto hidden-scroll">
                      <button onClick={() => setAdminStockFilter('all')} className={`px-4 py-2 rounded-xl text-sm font-bold shrink-0 transition-colors ${adminStockFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Todos</button>
                      <button onClick={() => setAdminStockFilter('low')} className={`px-4 py-2 rounded-xl text-sm font-bold shrink-0 transition-colors ${adminStockFilter === 'low' ? 'bg-yellow-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Estoque Baixo</button>
@@ -1040,7 +985,6 @@ export default function App() {
                  </div>
              </div>
 
-             {/* GRID DE ESTOQUE PRO */}
              <div>
                {filteredAdminList.length === 0 ? (<p className="text-center text-slate-500 py-10">Nenhum produto encontrado nesse filtro.</p>) : (
                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -1052,21 +996,11 @@ export default function App() {
                            <div key={name} onClick={() => setAdminViewingGroupName(name)} className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col hover:border-blue-500 transition-all cursor-pointer group">
                                <div className="aspect-square bg-slate-950 relative overflow-hidden">
                                    {firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-700 w-12 h-12" /></div>)}
-                                   
-                                   {/* BADGES FLUTUANTES */}
-                                   <div className={`absolute top-2 right-2 px-2 py-1 rounded-lg text-xs font-black shadow-lg backdrop-blur-md ${isOut ? 'bg-red-500 text-white' : isLow ? 'bg-yellow-500 text-black' : 'bg-blue-600 text-white'}`}>
-                                       {group.total} UN
-                                   </div>
+                                   <div className={`absolute top-2 right-2 px-2 py-1 rounded-lg text-xs font-black shadow-lg backdrop-blur-md ${isOut ? 'bg-red-500 text-white' : isLow ? 'bg-yellow-500 text-black' : 'bg-blue-600 text-white'}`}>{group.total} UN</div>
                                </div>
-                               
                                <div className="p-3 flex-1 flex flex-col justify-between">
-                                   <div>
-                                       <h3 className="font-bold text-white text-sm leading-tight line-clamp-1">{String(name)}</h3>
-                                       <span className="text-[10px] font-bold text-slate-500">{group.info.parentSku || (group.info.sku ? String(group.info.sku).split('-')[0] : '')}</span>
-                                   </div>
-                                   <div className="mt-2 flex items-center justify-between">
-                                       <span className="text-sm font-black text-green-400">{formatCurrency(group.info.price || 0)}</span>
-                                   </div>
+                                   <div><h3 className="font-bold text-white text-sm leading-tight line-clamp-1">{String(name)}</h3><span className="text-[10px] font-bold text-slate-500">{group.info.parentSku || (group.info.sku ? String(group.info.sku).split('-')[0] : '')}</span></div>
+                                   <div className="mt-2 flex items-center justify-between"><span className="text-sm font-black text-green-400">{formatCurrency(group.info.price || 0)}</span></div>
                                </div>
                            </div>
                        )})}
@@ -1076,7 +1010,6 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL DE AJUSTE RÁPIDO DO ESTOQUE (ADMIN) */}
         {adminViewingGroupName && groupedAdminProducts[adminViewingGroupName] && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setAdminViewingGroupName(null)}>
                <div className="bg-slate-900 rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row border border-slate-700" onClick={e => e.stopPropagation()}>
@@ -1141,13 +1074,10 @@ export default function App() {
                     <div><label className="text-sm text-slate-400 block mb-1">Nome*</label><input value={baseName} onChange={e => setBaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">SPU (SKU Pai / Base)*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full md:w-1/2 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
-                    
                     <div className="md:col-span-2">
                         <label className="text-sm text-slate-400 block mb-1 font-bold text-blue-400">Links das Fotos (Cole todos os links do ImgBB de uma vez)</label>
                         <textarea 
-                            value={baseImage} 
-                            onChange={(e) => setBaseImage(e.target.value)} 
-                            rows={4} 
+                            value={baseImage} onChange={(e) => setBaseImage(e.target.value)} rows={4} 
                             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-3 text-white outline-none focus:border-blue-500 font-mono text-xs placeholder:text-slate-600" 
                             placeholder="Exemplo:&#10;https://i.ibb.co/67Pk8NkQ/foto1.png&#10;https://i.ibb.co/B5gWVRCK/foto2.png" 
                         />
@@ -1191,7 +1121,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- MODAL DE EDIÇÃO DE GRUPO --- */}
+        {/* MODAIS ADMIN */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -1206,7 +1136,6 @@ export default function App() {
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
                     <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
                 </div>
-
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-purple-400 uppercase mb-2 block flex items-center gap-1"><Tag size={14}/> Atributos (Ficha Técnica)</label>
                     <div className="grid grid-cols-3 gap-2">
@@ -1215,36 +1144,18 @@ export default function App() {
                         <div><label className="text-[10px] text-slate-500 uppercase">Ajuste</label><input value={editingGroup.fastening} onChange={e => setEditingGroup({...editingGroup, fastening: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-xs"/></div>
                     </div>
                 </div>
-
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                     <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">Links das Fotos (Pode colar vários do ImgBB)</label>
-                    <textarea 
-                        value={editingGroup.image.replace(/,/g, '\n')} 
-                        onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} 
-                        rows={4} 
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" 
-                        placeholder="https://..." 
-                    />
-                    {editingGroup.image && (
-                        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">
-                            {editingGroup.image.split(',').map((url, i) => (
-                                <img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />
-                            ))}
-                        </div>
-                    )}
+                    <textarea value={editingGroup.image.replace(/,/g, '\n')} onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} rows={4} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" />
+                    {editingGroup.image && (<div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">{editingGroup.image.split(',').map((url, i) => (<img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />))}</div>)}
                 </div>
-                
                 <div className="grid grid-cols-4 gap-2">
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Peso(g)</label><input type="number" value={editingGroup.weight} onChange={e => setEditingGroup({...editingGroup, weight: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">C(cm)</label><input type="number" value={editingGroup.length} onChange={e => setEditingGroup({...editingGroup, length: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">L(cm)</label><input type="number" value={editingGroup.width} onChange={e => setEditingGroup({...editingGroup, width: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">A(cm)</label><input type="number" value={editingGroup.height} onChange={e => setEditingGroup({...editingGroup, height: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                </div>
-                
+                <div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div></div>
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
                    <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
@@ -1252,6 +1163,24 @@ export default function App() {
               </form>
             </div>
           </div>
+        )}
+
+        {/* INTELIGÊNCIA ARTIFICIAL */}
+        {adminView === 'predictive' && predictiveData && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between"><div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div><div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Últimos 30 Dias</div></div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-slate-900 rounded-2xl border border-red-900/50 shadow-lg overflow-hidden">
+                        <div className="p-4 bg-red-500/10 border-b border-red-900/50 flex items-center gap-2"><AlertTriangle className="text-red-500" size={20} /><h3 className="font-bold text-red-500">Fila de Produção</h3></div>
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-slate-400 mb-3">Modelos com estoque no fim.</p>
+                            {predictiveData.toProduce.length === 0 ? <p className="text-sm text-slate-500 text-center py-4">Tudo sob controle.</p> : predictiveData.toProduce.map(p => (
+                                <div key={p.id} className="bg-slate-950 p-3 rounded-xl border border-red-900/30 flex justify-between items-center"><div><h4 className="text-sm font-bold text-white">{String(p.name)}</h4><span className="text-xs text-slate-400">{String(p.color)} - Tam {String(p.size)}</span></div><div className="text-right"><span className="block text-red-400 font-black text-lg">{Number(p.quantity)} un</span></div></div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
         )}
 
       </main>
