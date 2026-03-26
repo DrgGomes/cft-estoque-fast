@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, doc, updateDoc, addDoc, deleteDoc, setDoc, getDoc,
-  serverTimestamp, query, onSnapshot, writeBatch, limit, increment, where, getDocs, arrayUnion, arrayRemove
+  serverTimestamp, query, onSnapshot, writeBatch, where, getDocs, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
@@ -18,7 +18,7 @@ import {
   TrendingUp, TrendingDown, Activity, BrainCircuit, AlertTriangle,
   Play, Film, GraduationCap, CheckCircle2, Circle, Building2, PaintBucket, ExternalLink, Download, Plug, Send, Box
 } from 'lucide-react';
-import { Html5Qrcode } from "html5-qrcode";
+import * as XLSX from 'xlsx';
 
 // --- SONS ---
 const SOUNDS = {
@@ -30,7 +30,6 @@ const SOUNDS = {
 
 const playSound = (type: 'success' | 'error' | 'alert' | 'magic') => { try { const audio = new Audio(SOUNDS[type]); audio.volume = 0.5; audio.play().catch(e => console.log("Audio", e)); } catch (e) {} };
 const formatCurrency = (value: any) => { const num = Number(value); if (isNaN(num)) return 'R$ 0,00'; return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num); };
-const processImageUrl = (url: string) => { if (!url) return ''; const match = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/); return match && match[1] ? `https://drive.google.com/uc?export=view&id=${match[1]}` : url; };
 const getYoutubeId = (url: string) => { if (!url) return null; const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&]{11})/); return match ? match[1] : null; };
 
 const formatDate = (timestamp: any) => {
@@ -60,7 +59,7 @@ const renderDynamicIcon = (iconName: string, size = 24, className = "") => {
   }
 };
 
-// --- CONFIGURAÇÃO FIREBASE ÚNICA DO SAAS ---
+// --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDG8hpJggHKpWBLaILx2WJrD-Jw7XcKvRg",
   authDomain: "cft-drop---estoque-flash.firebaseapp.com",
@@ -78,10 +77,8 @@ const TENANTS_COLLECTION = `saas_tenants`;
 
 // Tipos
 type Tenant = { id: string; name: string; domain: string; logoUrl: string; primaryColor: string; createdAt?: any; };
-// NOVO: Adicionado weight, length, width, height, ncm, cest no Product
 type Product = { id: string; sku?: string; barcode?: string; image?: string; name: string; description?: string; color: string; size: string; quantity: number; price: number; weight?: number; length?: number; width?: number; height?: number; ncm?: string; cest?: string; updatedAt?: any; };
 type VariationRow = { color: string; size: string; sku: string; barcode: string; };
-type ScannedItem = { product: Product; count: number; };
 type HistoryItem = { id: string; productId: string; productName: string; sku: string; image: string; type: 'entry' | 'exit' | 'correction'; amount: number; previousQty: number; newQty: number; timestamp: any; };
 type PurchaseOrder = { id: string; orderCode: string; supplier: string; status: 'pending' | 'received'; items: { productId: string; sku: string; name: string; quantity: number }[]; totalItems: number; createdAt: any; receivedAt?: any; };
 type Notice = { id: string; type: 'text' | 'banner'; title: string; content?: string; imageUrl?: string; createdAt: any; };
@@ -92,12 +89,14 @@ type SupportTicket = { id: string; userId: string; userName: string; type: 'troc
 type AcademyLesson = { id: string; season: string; episode: number; title: string; description: string; youtubeUrl: string; bannerUrl: string; materialLinks: string; createdAt: any; };
 
 export default function App() {
-  const [globalLoading, setGlobalLoading] = useState(true);
+  // TODAS AS DECLARAÇÕES DE ESTADO (HOOKS) PRECISAM FICAR AQUI NO TOPO
   const urlParams = new URLSearchParams(window.location.search);
   const previewTenantId = urlParams.get('preview'); 
   const vitrineLinkId = urlParams.get('vitrine');
   const isVitrineMode = !!vitrineLinkId;
+  const currentDomain = window.location.hostname;
   
+  const [globalLoading, setGlobalLoading] = useState(true);
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [isSuperAdminMode, setIsSuperAdminMode] = useState(false);
   const [saasTenants, setSaasTenants] = useState<Tenant[]>([]);
@@ -107,7 +106,6 @@ export default function App() {
   const [newTenantLogo, setNewTenantLogo] = useState('');
   const [newTenantColor, setNewTenantColor] = useState('#2563eb');
   
-  const currentDomain = window.location.hostname;
   const getCol = (name: string) => `saas_tenants/${currentTenant?.id}/${name}`;
 
   const [publicVitrine, setPublicVitrine] = useState<Showcase | null>(null);
@@ -134,8 +132,7 @@ export default function App() {
   
   const prevProductsRef = useRef<Product[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
-
+  
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -153,7 +150,6 @@ export default function App() {
   const [tempColor, setTempColor] = useState('');
   const [tempSize, setTempSize] = useState('');
   
-  // NOVO: Estados de Logística (UpSeller)
   const [baseWeight, setBaseWeight] = useState('800');
   const [baseLength, setBaseLength] = useState('33');
   const [baseWidth, setBaseWidth] = useState('12');
@@ -174,26 +170,48 @@ export default function App() {
 
   const [isShopeeSimulating, setIsShopeeSimulating] = useState(false);
 
+  // ========================================================================
+  // EFEITOS (USE EFFECT)
+  // ========================================================================
+  
+  // 1. Auth Listener
+  useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); }); return () => unsubscribe(); }, []);
+
+  // 2. Leitor de Domínio / Preview
   useEffect(() => {
     const fetchTenant = async () => {
       if (previewTenantId) {
         const docRef = doc(db, TENANTS_COLLECTION, previewTenantId);
         const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) { setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant); setIsSuperAdminMode(false); } 
-        else { alert("Erro no Preview: Empresa não encontrada."); setIsSuperAdminMode(true); }
-        setGlobalLoading(false); return;
+        if (docSnap.exists()) { 
+            setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant); 
+            setIsSuperAdminMode(false); 
+        } else { 
+            alert("Erro no Preview: Empresa não encontrada."); 
+            setIsSuperAdminMode(true); 
+        }
+        setGlobalLoading(false); 
+        return;
       }
+
       const q = query(collection(db, TENANTS_COLLECTION), where("domain", "==", currentDomain));
       const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) { setCurrentTenant({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Tenant); setIsSuperAdminMode(false); } 
-      else { setIsSuperAdminMode(true); }
+      
+      if (!querySnapshot.empty) { 
+          setCurrentTenant({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Tenant); 
+          setIsSuperAdminMode(false); 
+      } else { 
+          setIsSuperAdminMode(true); 
+      }
       setGlobalLoading(false);
     };
     fetchTenant();
   }, [currentDomain, previewTenantId]);
 
+  // 3. Busca de Dados Gerais do Inquilino
   useEffect(() => {
     if (!currentTenant) return;
+
     const unsubProducts = onSnapshot(collection(db, getCol('products')), (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
       items.sort((a, b) => sortByDateDesc(a, b, 'updatedAt'));
@@ -212,6 +230,7 @@ export default function App() {
     }
   }, [currentTenant, loading, isVitrineMode, vitrineLinkId]);
 
+  // 4. Perfil do Revendedor logado
   useEffect(() => {
      if (user && selectedRole === 'user' && currentTenant) {
          const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (docSnap) => { if (docSnap.exists()) setUserProfile({ id: docSnap.id, completedLessons: [], shopeeConnected: false, ...docSnap.data() } as UserProfile); });
@@ -220,10 +239,50 @@ export default function App() {
      }
   }, [user, selectedRole, currentTenant]);
 
+  // 5. Dados Logados do Fornecedor (Admin)
+  useEffect(() => {
+    if (selectedRole === 'admin' && currentTenant) {
+      const unsubHist = onSnapshot(collection(db, getCol('history')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem)); items.sort((a, b) => sortByDateDesc(a, b, 'timestamp')); setHistory(items.slice(0, 300)); });
+      const unsubPurch = onSnapshot(collection(db, getCol('purchases')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setPurchases(items); });
+      const unsubUsers = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', currentTenant.id)), (snap) => { setUsersList(snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile)).filter(u => u.role === 'revendedor')); });
+      const unsubAllTickets = onSnapshot(collection(db, getCol('tickets')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setAllTickets(items); });
+      return () => { unsubHist(); unsubPurch(); unsubUsers(); unsubAllTickets(); };
+    }
+  }, [selectedRole, currentTenant]);
+
+  // 6. Dados do Super Admin
+  useEffect(() => {
+    if (isSuperAdminMode) {
+      const unsub = onSnapshot(collection(db, TENANTS_COLLECTION), (snap) => { 
+        const items = snap.docs.map(d => ({id: d.id, ...d.data()} as Tenant));
+        items.sort((a, b) => sortByDateDesc(a, b, 'createdAt'));
+        setSaasTenants(items); 
+      }); 
+      return () => unsub(); 
+    } 
+  }, [isSuperAdminMode]);
+
+  // 7. Filtro de Pesquisa e Geração Automática
   useEffect(() => {
     if (searchTerm.trim() === '') { setFilteredProducts(products); } 
     else { const lowerTerm = searchTerm.toLowerCase(); setFilteredProducts(products.filter(p => { const name = String(p.name || '').toLowerCase(); const sku = String(p.sku || '').toLowerCase(); return name.includes(lowerTerm) || sku.includes(lowerTerm); })); }
   }, [searchTerm, products]);
+
+  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
+
+  useEffect(() => {
+      if (adminView === 'academy' && academySeasonMode === 'existing' && academySeason) {
+          const eps = lessons.filter(l => l.season === academySeason);
+          setAcademyEpisode(String(eps.length + 1));
+      } else if (academySeasonMode === 'new') {
+          setAcademyEpisode('1');
+      }
+  }, [academySeason, academySeasonMode, lessons, adminView]);
+
+  // ==========================================
+  // FUNÇÕES DE LÓGICA E CÁLCULOS (MEMOS)
+  // ==========================================
+  const toggleGroup = (groupName: string) => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
 
   const groupProducts = (items: Product[]) => { 
       const groups: Record<string, { info: Product, total: number, items: Product[] }> = {}; 
@@ -239,84 +298,176 @@ export default function App() {
   const groupedProducts = groupProducts(filteredProducts);
   const groupedAdminProducts = groupProducts(filteredProducts);
 
+  const predictiveData = useMemo(() => {
+      if (adminView !== 'predictive' || products.length === 0) return null;
+      const now = new Date(); const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); const exitStats: Record<string, number> = {};
+      history.forEach(h => { if (h.type === 'exit') { const date = h.timestamp?.toMillis ? new Date(h.timestamp.toMillis()) : new Date(); if (date >= thirtyDaysAgo) exitStats[h.productId] = (exitStats[h.productId] || 0) + h.amount; } });
+      const insights = products.map(p => { const exits30d = exitStats[p.id] || 0; const velocityPerDay = exits30d / 30; const daysRemaining = velocityPerDay > 0 ? (p.quantity / velocityPerDay) : Infinity; return { ...p, exits30d, velocityPerDay, daysRemaining }; });
+      const toProduce = insights.filter(p => (p.daysRemaining <= 15 || p.quantity <= 4) && p.velocityPerDay > 0).sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 10);
+      const topSellers = [...insights].filter(p => p.exits30d > 0).sort((a, b) => b.exits30d - a.exits30d).slice(0, 10);
+      const deadStock = insights.filter(p => p.quantity > 10 && p.exits30d === 0).sort((a, b) => b.quantity - a.quantity).slice(0, 10);
+      return { toProduce, topSellers, deadStock, totalExits: Object.values(exitStats).reduce((a,b)=>a+b, 0) };
+  }, [adminView, products, history]);
+
+  const academySeasons = useMemo(() => { const seasonsObj: Record<string, AcademyLesson[]> = {}; lessons.forEach(l => { if (!seasonsObj[l.season]) seasonsObj[l.season] = []; seasonsObj[l.season].push(l); }); return Object.entries(seasonsObj).map(([name, eps]) => ({ name, episodes: eps.sort((a,b) => a.episode - b.episode) })).sort((a,b) => a.name.localeCompare(b.name)); }, [lessons]);
+  const availableSeasons = useMemo(() => Array.from(new Set(lessons.map(l => l.season))), [lessons]);
+
   // ==========================================
-  // EXPORTAÇÃO UPSELLER COM ESTRUTURA EXATA
+  // EXPORTAÇÃO UPSELLER COM ESTRUTURA EXATA (.xlsx)
   // ==========================================
   const handleExportToUpSeller = (groupName: string, groupData: any) => {
-      let csvContent = "\uFEFF"; 
-      const headerRow = `"SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)","SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)","Título*\n(Obrigatório, 1-500 caracteres)","Apelido do Produto\n(1-500 caracteres)","Usar apelido como título da NFe","Variantes1*\n(Obrigatório, 1-14 caracteres)","Valor da Variante1*\n(Obrigatório, 1-30 caracteres)","Variantes2\n(limite 1-14 caracteres)","Valor da Variante2\n(limite 1-30 caracteres)","Variantes3\n(limite 1-14 caracteres)","Valor da Variante3\n(limite 1-30 caracteres)","Variantes4\n(limite 1-14 caracteres)","Valor da Variante4\n(limite 1-30 caracteres)","Variantes5\n(limite 1-14 caracteres)","Valor da Variante5\n(limite 1-30 caracteres)","Preço de varejo\n(limite 0-999999999)","Custo de Compra\n(limite 0-999999999)","Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)","N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)","Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)","Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）","Imagem","Peso (g)\n(limite 1-999999)","Comprimento (cm)\n(limite 1-999999)","Largura (cm)\n(limite 1-999999)","Altura (cm)\n(limite 1-999999)","NCM\n(limite 8 dígitos)","CEST\n(limite 7 dígitos)","Unidade\n(Selecionar UN/KG/Par)","Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)","Link do Fornecedor"`;
-      csvContent += headerRow + "\n";
+      const headerRow = [
+        "SPU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
+        "SKU*\n(Obrigatório, 1-200 caracteres e limite de números, letras e caracteres especiais)",
+        "Título*\n(Obrigatório, 1-500 caracteres)",
+        "Apelido do Produto\n(1-500 caracteres)",
+        "Usar apelido como título da NFe",
+        "Variantes1*\n(Obrigatório, 1-14 caracteres)",
+        "Valor da Variante1*\n(Obrigatório, 1-30 caracteres)",
+        "Variantes2\n(limite 1-14 caracteres)",
+        "Valor da Variante2\n(limite 1-30 caracteres)",
+        "Variantes3\n(limite 1-14 caracteres)",
+        "Valor da Variante3\n(limite 1-30 caracteres)",
+        "Variantes4\n(limite 1-14 caracteres)",
+        "Valor da Variante4\n(limite 1-30 caracteres)",
+        "Variantes5\n(limite 1-14 caracteres)",
+        "Valor da Variante5\n(limite 1-30 caracteres)",
+        "Preço de varejo\n(limite 0-999999999)",
+        "Custo de Compra\n(limite 0-999999999)",
+        "Quantidade\n(limite 0-999999999, Se não for preenchido, não será registrado na Lista de Estoque)",
+        "N° do Estante\n(Apenas estantes existentes, serão filtrados se o estante selecionado estiver cheio ou ficará cheio após a importação)",
+        "Código de Barras\n(Limite de 8 a 14 caracteres, separe vários códigos de barras com vírgulas)",
+        "Apelido de SKU\n（Limite a letras, números e caracteres especiais; separe vários apelidos de SKU com vírgulas; máximo de 20 entradas）",
+        "Imagem",
+        "Peso (g)\n(limite 1-999999)",
+        "Comprimento (cm)\n(limite 1-999999)",
+        "Largura (cm)\n(limite 1-999999)",
+        "Altura (cm)\n(limite 1-999999)",
+        "NCM\n(limite 8 dígitos)",
+        "CEST\n(limite 7 dígitos)",
+        "Unidade\n(Selecionar UN/KG/Par)",
+        "Origem\n(Selecionar 0/1/2/3/4/5/6/7/8)",
+        "Link do Fornecedor"
+      ];
+
+      const rows = [headerRow];
 
       groupData.items.forEach((p: Product) => {
           const skuPai = p.sku ? p.sku.split('-')[0] : 'SKU';
           const desc = p.description || '';
           const tituloCompleto = desc ? `${p.name} - ${desc}` : p.name;
-          const safeTitulo = tituloCompleto.replace(/"/g, '""'); 
           
-          const row = [ 
-              `"${skuPai}"`, 
-              `"${p.sku || ''}"`, 
-              `"${safeTitulo}"`, 
-              `""`, 
-              `"N"`, 
-              `"Cor"`, 
-              `"${p.color || ''}"`, 
-              `"Tamanho"`, 
-              `"${p.size || ''}"`, 
-              `""`,`""`, `""`,`""`, `""`,`""`, 
-              `189.90`,                     // Preço Varejo Fixo
-              `${p.price || 0}`,            // Custo de Compra
-              `500`,                        // Quantidade Fixa
-              `""`, 
-              `"${p.barcode || ''}"`, 
-              `""`, 
-              `""`,                         // Imagem em branco para evitar erros UpSeller
-              `${p.weight || 800}`,         // Peso (g)
-              `${p.length || 33}`,          // Comprimento
-              `${p.width || 12}`,           // Largura
-              `${p.height || 19}`,          // Altura
-              `"${p.ncm || ''}"`,           // NCM
-              `"${p.cest || ''}"`,          // CEST
-              `"UN"`,                       // Unidade
-              `"0"`,                        // Origem
-              `""` 
-          ].join(',');
-          csvContent += row + "\n";
+          rows.push([
+              skuPai,
+              p.sku || '',
+              tituloCompleto,
+              '',
+              'N',
+              'Cor',
+              p.color || '',
+              'Tamanho',
+              p.size || '',
+              '', '', '', '', '', '',
+              189.90, // Preço Varejo (Fixo)
+              p.price || 0, // Custo
+              500, // Qtd Fixa
+              '', 
+              p.barcode || '', 
+              '', 
+              '', // Imagem deixada em branco para o UpSeller
+              p.weight || 800,
+              p.length || 33,
+              p.width || 12,
+              p.height || 19,
+              p.ncm || '',
+              p.cest || '',
+              'UN',
+              0,
+              ''
+          ]);
       });
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.setAttribute("download", `UpSeller_${groupName.replace(/\s+/g, '_')}.csv`);
-      document.body.appendChild(link); link.click(); document.body.removeChild(link); playSound('magic');
+
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
+      XLSX.writeFile(workbook, `UpSeller_${groupName.replace(/\s+/g, '_')}.xlsx`);
+      playSound('magic');
   };
 
-  const handleConnectShopee = async () => {
-      if (!user) return;
-      setIsShopeeSimulating(true);
-      setTimeout(async () => {
-          await updateDoc(doc(db, 'users', user.uid), { shopeeConnected: true });
-          setIsShopeeSimulating(false); playSound('success'); alert("Shopee Conectada com Sucesso!");
-      }, 2000);
-  };
-
+  const handleConnectShopee = async () => { if (!user) return; setIsShopeeSimulating(true); setTimeout(async () => { await updateDoc(doc(db, 'users', user.uid), { shopeeConnected: true }); setIsShopeeSimulating(false); playSound('success'); alert("Shopee Conectada com Sucesso!"); }, 2000); };
   const handleDisconnectShopee = async () => { if (!user) return; if(confirm("Deseja desconectar sua loja Shopee?")) { await updateDoc(doc(db, 'users', user.uid), { shopeeConnected: false }); } };
   const handlePublishToShopee = (groupName: string) => { if (!userProfile?.shopeeConnected) { alert("Você precisa conectar sua loja Shopee na aba 'Integrações' primeiro!"); setUserView('integrations'); return; } if(confirm(`Deseja publicar o modelo ${groupName}?`)) { alert("Sincronizando com a API da Shopee... (Modo Simulação)"); playSound('magic'); } };
 
   // ==========================================
-  // FUNÇÕES DE AÇÃO GERAIS
+  // FUNÇÕES DE AÇÃO (SALVAR, EDITAR, DELETAR)
   // ==========================================
-  useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); }); return () => unsubscribe(); }, []);
   const handleAuth = async (e: React.FormEvent) => { e.preventDefault(); setAuthError(''); if(!currentTenant) return setAuthError('Domínio não cadastrado no sistema.'); try { if (isRegistering) { if(!authName) return setAuthError('Preencha seu nome.'); const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword); await setDoc(doc(db, 'users', userCredential.user.uid), { name: authName, email: authEmail, role: 'revendedor', creditBalance: 0, tenantId: currentTenant.id, shopeeConnected: false, createdAt: serverTimestamp() }); setSelectedRole('user'); playSound('success'); } else { await signInWithEmailAndPassword(auth, authEmail, authPassword); setSelectedRole('user'); playSound('success'); } } catch (err: any) { setAuthError('Erro: E-mail ou senha incorretos.'); playSound('error'); } };
   const handleLogout = async () => { await signOut(auth); setSelectedRole(null); setUserView('dashboard'); setAdminView('menu'); setUserProfile(null); };
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => { const file = e.target.files?.[0]; if (file) { if(file.size > 800000) { alert("Imagem muito grande. Máx 800KB."); return; } const reader = new FileReader(); reader.onloadend = () => { setter(reader.result as string); }; reader.readAsDataURL(file); } };
 
-  // Funções Admin 
-  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
+  const handleCreateTenant = async (e: React.FormEvent) => {
+      e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true);
+      try {
+          const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase();
+          await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() });
+          setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!");
+      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); }
+  };
+
+  const handleOpenTicket = async (e: React.FormEvent) => { 
+      e.preventDefault(); 
+      if(!currentTenant || !user || !userProfile) return; 
+      
+      const returnProd = products.find(p => p.id === ticketReturnProductId);
+      if (!returnProd) return alert("Selecione o produto que vai devolver.");
+
+      let finalProductInfo = '';
+      let finalValue = returnProd.price || 0;
+
+      if (ticketType === 'troca') {
+          const desiredProd = products.find(p => p.id === ticketDesiredProductId);
+          if (!desiredProd) return alert("Selecione o produto desejado para a troca.");
+          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})\nDESEJA: ${desiredProd.name} (Cor: ${desiredProd.color} | Tam: ${desiredProd.size})`;
+      } else {
+          if (!ticketReason) return alert("Preencha o motivo do defeito.");
+          finalProductInfo = `DEVOLVE: ${returnProd.name} (Cor: ${returnProd.color} | Tam: ${returnProd.size})`;
+      }
+
+      setIsSavingBatch(true); 
+      try { 
+          await addDoc(collection(db, getCol('tickets')), { 
+              userId: user.uid, userName: userProfile.name, type: ticketType, status: 'pendente', 
+              productId: returnProd.id, productInfo: finalProductInfo, productValue: finalValue, 
+              reason: ticketType === 'devolucao' ? ticketReason : 'Troca Normal', createdAt: serverTimestamp() 
+          }); 
+          setTicketReturnProductId(''); setTicketDesiredProductId(''); setTicketReason(''); 
+          alert("Solicitação enviada!"); playSound('success'); 
+      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } 
+  };
+
+  const handleAdminTicketAction = async (ticket: SupportTicket, action: 'aceitar_troca' | 'recusar' | 'aceitar_devolucao' | 'recebido_gerar_credito') => { setIsSavingBatch(true); try { const ticketRef = doc(db, getCol('tickets'), ticket.id); if (action === 'aceitar_troca') { await updateDoc(ticketRef, { status: 'aceito', updatedAt: serverTimestamp() }); alert("Troca Aceita!"); } else if (action === 'recusar') { const note = prompt("Motivo da recusa (Opcional):"); await updateDoc(ticketRef, { status: 'recusado', adminNote: note || '', updatedAt: serverTimestamp() }); } else if (action === 'aceitar_devolucao') { await updateDoc(ticketRef, { status: 'aguardando_devolucao', updatedAt: serverTimestamp() }); alert("Devolução autorizada."); } else if (action === 'recebido_gerar_credito') { if (confirm(`Gerar crédito de R$ ${ticket.productValue.toFixed(2)} para ${ticket.userName}?`)) { const batch = writeBatch(db); batch.update(ticketRef, { status: 'concluido', updatedAt: serverTimestamp() }); batch.update(doc(db, 'users', ticket.userId), { creditBalance: increment(ticket.productValue) }); await batch.commit(); playSound('magic'); alert("Crédito gerado!"); } } } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
+  const handlePrintTicket = (ticket: SupportTicket) => { const printContent = `<html><head><title>Via de Troca</title><style>body { font-family: sans-serif; padding: 20px; } .box { border: 2px dashed #000; padding: 20px; max-width: 400px; margin: 0 auto; } h2 { text-align: center; margin-top: 0; } p { margin: 8px 0; font-size: 14px; } .line { border-top: 1px solid #ccc; margin: 15px 0; } .sign { margin-top: 40px; text-align: center; }</style></head><body><div class="box"><h2>VIA DE AUTORIZAÇÃO</h2><p><strong>TIPO:</strong> ${ticket.type.toUpperCase()}</p><p><strong>CLIENTE:</strong> ${ticket.userName}</p><p><strong>DADOS:</strong><br/> ${ticket.productInfo.replace(/\n/g, '<br/>')}</p><p><strong>MOTIVO:</strong> ${ticket.reason}</p><div class="line"></div><p><strong>DATA:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</p><div class="sign">___________________________________<br/>Assinatura Responsável</div></div></body></html>`; const printWindow = window.open('', '_blank', 'width=600,height=600'); if (printWindow) { printWindow.document.write(printContent); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); } };
+  
+  const handleSaveAcademy = async (e: React.FormEvent) => { e.preventDefault(); const finalSeason = academySeasonMode === 'new' ? academyNewSeason : academySeason; if (!finalSeason || !academyTitle || !academyYoutube) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('academy')), { season: finalSeason, episode: parseInt(academyEpisode) || 1, title: academyTitle, description: academyDesc, youtubeUrl: academyYoutube, bannerUrl: academyBanner, materialLinks: academyLinks, createdAt: serverTimestamp() }); setAcademyTitle(''); setAcademyDesc(''); setAcademyYoutube(''); setAcademyBanner(''); setAcademyLinks(''); setAcademyEpisode(String(parseInt(academyEpisode)+1)); alert("Aula publicada!"); playSound('success'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } };
+  const handleDeleteAcademy = async (id: string) => { if(confirm('Excluir?')) await deleteDoc(doc(db, getCol('academy'), id)); };
+  const toggleLessonCompletion = async (lessonId: string) => { if (!user) return; const isCompleted = userProfile?.completedLessons?.includes(lessonId); try { await updateDoc(doc(db, 'users', user.uid), { completedLessons: isCompleted ? arrayRemove(lessonId) : arrayUnion(lessonId) }); } catch (e) { console.error(e); } };
+  const handleSaveNotice = async (e: React.FormEvent) => { e.preventDefault(); if (!noticeTitle) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('notices')), { type: noticeType, title: noticeTitle, content: noticeContent, imageUrl: noticeType === 'banner' ? noticeImage : '', createdAt: serverTimestamp() }); setNoticeTitle(''); setNoticeContent(''); setNoticeImage(''); alert("Aviso publicado!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
+  const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
+  const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
+  const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
+  const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
+  const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
+  const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
+  const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
+  const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
+  const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
+  
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const removeColor = (c: string) => setColors(colors.filter(item => item !== c));
   const removeSize = (s: string) => setSizes(sizes.filter(item => item !== s));
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
   
-  // ATUALIZADO: Salvar Produto com Dados Fiscais/Logística
   const handleSaveBatch = async () => { 
       if (!baseName || !baseSku || generatedRows.length === 0) return; setIsSavingBatch(true); 
       const priceNumber = parseFloat(basePrice.replace(',', '.').replace('R$', '').trim()) || 0; 
@@ -337,43 +488,130 @@ export default function App() {
   const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, getCol('products'), product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, getCol('history'))); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); } };
   const handleDeleteProductFromModal = async () => { if (editingProduct && confirm('Excluir?')) { await deleteDoc(doc(db, getCol('products'), editingProduct.id)); setEditingProduct(null); } };
   const handleSaveEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingProduct) return; const priceNumber = typeof editingProduct.price === 'string' ? parseFloat(editingProduct.price) : editingProduct.price; try { await updateDoc(doc(db, getCol('products'), editingProduct.id), { ...editingProduct, price: priceNumber, updatedAt: serverTimestamp() }); setEditingProduct(null); } catch (error) { alert("Erro."); } };
-  
-  // ATUALIZADO: Editar Dados Fiscais/Logística no Modal
-  const openGroupEdit = (groupName: string, groupData: any) => { 
-      const info = groupData.info;
-      setEditingGroup({ 
-          oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, 
-          weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '',
-          items: groupData.items 
-      }); 
-  };
+  const openGroupEdit = (groupName: string, groupData: any) => { const info = groupData.info; setEditingGroup({ oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', items: groupData.items }); };
   const handleDeleteGroup = async () => { if(editingGroup && confirm('Excluir todas as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach(item => { batch.delete(doc(db, getCol('products'), item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
-  const handleSaveGroupEdit = async (e: React.FormEvent) => { 
-      e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; 
-      try { 
-          const batch = writeBatch(db); 
-          editingGroup.items.forEach((item) => { 
-              const ref = doc(db, getCol('products'), item.id); 
-              batch.update(ref, { 
-                  name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, 
-                  weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest,
-                  updatedAt: serverTimestamp() 
-              }); 
-          }); 
-          await batch.commit(); setEditingGroup(null); alert("Atualizado!"); 
-      } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } 
-  };
+  const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
-  const handleCreateTenant = async (e: React.FormEvent) => { e.preventDefault(); if (!newTenantName || !newTenantDomain) return; setIsSavingBatch(true); try { const cleanDomain = newTenantDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase(); await addDoc(collection(db, TENANTS_COLLECTION), { name: newTenantName, domain: cleanDomain, logoUrl: newTenantLogo, primaryColor: newTenantColor, createdAt: serverTimestamp() }); setNewTenantName(''); setNewTenantDomain(''); setNewTenantLogo(''); setNewTenantColor('#2563eb'); alert("Empresa criada!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
-
-  // (Outras funções de salvar Notice, Links, Academy foram omitidas aqui para focar na renderização, mas elas seguem exatamente o mesmo padrão blindado que já existia).
-
+  // ========================================================================
+  // RENDERIZAÇÃO GERAL DO SISTEMA (RETORNOS)
+  // ========================================================================
+  
   if (globalLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500 w-12 h-12"/></div>;
-  if (isSuperAdminMode) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Modo Super Admin Carregado. (Você verá o painel no computador)</div>;
+
+  if (isSuperAdminMode) {
+      return (
+          <div className="min-h-screen bg-slate-950 font-sans text-white p-6 md:p-12 overflow-y-auto">
+              <div className="max-w-6xl mx-auto space-y-8">
+                  <header className="flex items-center gap-4 border-b border-slate-800 pb-6">
+                      <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/50"><Building2 size={32} /></div>
+                      <div><h1 className="text-3xl font-black">MaxDrop SaaS Manager</h1><p className="text-slate-400">Painel Geral de Controle de Inquilinos</p></div>
+                  </header>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl h-fit">
+                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Plus className="text-emerald-500"/> Cadastrar Novo Cliente</h2>
+                          <form onSubmit={handleCreateTenant} className="space-y-4">
+                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Empresa</label><input value={newTenantName} onChange={e => setNewTenantName(e.target.value)} required placeholder="Ex: João Drop" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" /></div>
+                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Domínio do Cliente</label><input value={newTenantDomain} onChange={e => setNewTenantDomain(e.target.value)} required placeholder="Ex: joaodrop.com.br" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" /><p className="text-[10px] text-slate-500 mt-1">É assim que o sistema vai reconhecer de quem é a loja.</p></div>
+                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Logo (Opcional)</label><input value={newTenantLogo} onChange={e => setNewTenantLogo(e.target.value)} placeholder="https://" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none text-xs" /></div>
+                              <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><PaintBucket size={14}/> Cor Principal da Marca</label><div className="flex gap-3"><input type="color" value={newTenantColor} onChange={e => setNewTenantColor(e.target.value)} className="w-12 h-12 rounded cursor-pointer bg-slate-950 border border-slate-800" /><input type="text" value={newTenantColor} onChange={e => setNewTenantColor(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono uppercase" /></div></div>
+                              <button type="submit" disabled={isSavingBatch} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black mt-4 transition-transform hover:scale-[1.02] flex justify-center">{isSavingBatch ? <RefreshCw className="animate-spin" /> : 'Criar Infraestrutura da Empresa'}</button>
+                          </form>
+                      </div>
+
+                      <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
+                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Store className="text-blue-500"/> Empresas Hospedadas ({saasTenants.length})</h2>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {saasTenants.length === 0 ? (<p className="text-slate-500 text-sm">Nenhum cliente cadastrado ainda.</p>) : saasTenants.map(tenant => (
+                                  <div key={tenant.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col gap-3 relative overflow-hidden">
+                                      <div className="absolute left-0 top-0 bottom-0 w-2" style={{ backgroundColor: tenant.primaryColor }}></div>
+                                      <div className="pl-2 flex justify-between items-start">
+                                          <div>
+                                              <h3 className="font-bold text-lg text-white uppercase">{tenant.name}</h3>
+                                              <a href={`https://${tenant.domain}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline flex items-center gap-1 mt-1"><Globe size={12}/> {tenant.domain}</a>
+                                          </div>
+                                          {tenant.logoUrl ? (<img src={tenant.logoUrl} className="w-10 h-10 rounded bg-white object-contain p-1" />) : (<div className="w-10 h-10 rounded bg-slate-800 flex items-center justify-center"><Store size={16} className="text-slate-500"/></div>)}
+                                      </div>
+                                      <div className="pl-2 mt-2 pt-3 border-t border-slate-800 flex justify-between items-center">
+                                          <span className="text-[10px] text-slate-500 font-mono flex-1">ID: {tenant.id.substring(0,8)}</span>
+                                          <div className="flex gap-2">
+                                              <a href={`/?preview=${tenant.id}`} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded hover:bg-blue-500/20 font-bold flex items-center gap-1 transition-colors"><LayoutGrid size={12}/> Ver Painel</a>
+                                              <button className="text-[10px] bg-red-500/10 text-red-500 px-3 py-1.5 rounded hover:bg-red-500/20 font-bold transition-colors">Suspender</button>
+                                          </div>
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  }
 
   const brandColor = currentTenant?.primaryColor || '#2563eb'; 
   const brandName = currentTenant?.name || 'DropFast';
   const brandLogo = currentTenant?.logoUrl || null;
+
+  if (isVitrineMode) {
+      if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando catálogo...</div>;
+      if (!publicVitrine) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400 flex-col"><Store size={48} className="mb-4 opacity-20"/> Vitrine não encontrada ou indisponível.</div>;
+
+      const vitrineGroups: Record<string, any> = {};
+      Object.entries(groupedProducts).forEach(([name, group]) => { if (publicVitrine.models.includes(name)) { vitrineGroups[name] = group; } });
+      const applyMarkup = (basePrice: number) => { return basePrice * (1 + (publicVitrine.config.priceMarkup || 0) / 100); };
+
+      return (
+          <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
+              <header className="bg-white shadow-sm p-4 sticky top-0 z-20 border-b border-slate-100 flex items-center justify-center gap-3">
+                  {brandLogo && <img src={brandLogo} className="h-8 object-contain" alt="Logo"/>}
+                  <h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><Store style={{ color: brandColor }} /> {publicVitrine.name}</h1>
+              </header>
+              <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-20">
+                 <div className="relative">
+                    <Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" />
+                    <input type="text" placeholder="Buscar modelo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{ outlineColor: brandColor }} />
+                 </div>
+                 
+                 {Object.keys(vitrineGroups).length === 0 ? (<div className="text-center py-20 text-slate-400">Nenhum produto disponível neste catálogo.</div>) : (
+                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+                         {Object.entries(vitrineGroups).map(([name, group]: [string, any]) => (
+                             <div key={name} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300">
+                                 <div onClick={() => toggleGroup(name)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group">
+                                     {group.info.image ? (<img src={group.info.image} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}
+                                 </div>
+                                 <div onClick={() => toggleGroup(name)} className="p-4 flex-1 cursor-pointer flex flex-col justify-between">
+                                     <div>
+                                         <h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{name}</h3>
+                                         <span className="text-xs font-bold text-slate-400">{group.info.sku ? String(group.info.sku).split('-')[0] : ''}</span>
+                                     </div>
+                                     <div className="mt-3 flex items-center justify-between">
+                                         {publicVitrine.config.showPrice ? (<span className="text-lg font-black" style={{ color: brandColor }}>{formatCurrency(applyMarkup(group.info.price || 0))}</span>) : (<span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">Sob Consulta</span>)}
+                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedGroups[name] ? 'text-white' : 'bg-slate-100 text-slate-400'}`} style={expandedGroups[name] ? { backgroundColor: brandColor } : {}}>
+                                            {expandedGroups[name] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                         </div>
+                                     </div>
+                                 </div>
+                                 {expandedGroups[name] && (
+                                     <div className="bg-slate-50 border-t border-slate-100 p-3 max-h-64 overflow-y-auto hidden-scroll animate-in slide-in-from-top-2">
+                                         <p className="text-xs font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Cores e Numerações</p>
+                                         <div className="flex flex-wrap gap-2">
+                                             {group.items.map((p: Product) => (
+                                                 Number(p.quantity) > 4 && (
+                                                    <div key={p.id} className="bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs shadow-sm flex items-center gap-1"><span className="font-bold text-slate-800">{String(p.size)}</span><span className="text-slate-400">|</span><span className="text-slate-600 uppercase font-medium">{String(p.color)}</span></div>
+                                                 )
+                                             ))}
+                                         </div>
+                                     </div>
+                                 )}
+                             </div>
+                         ))}
+                     </div>
+                 )}
+              </main>
+          </div>
+      );
+  }
 
   if (!selectedRole && !isVitrineMode) {
     return (
@@ -381,12 +619,14 @@ export default function App() {
         {previewTenantId && (<div className="absolute top-4 left-4 bg-yellow-500 text-black font-black text-xs px-3 py-1 rounded shadow-lg uppercase z-50 animate-pulse">Modo Preview</div>)}
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
+
         <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500">
           <div className="flex flex-col items-center mb-8">
             {brandLogo ? (<img src={brandLogo} alt={brandName} className="h-16 object-contain mb-4" />) : (<div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg text-white" style={{ backgroundColor: brandColor }}><Package className="w-8 h-8" /></div>)}
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">{brandName}</h1>
             <p className="text-slate-500 text-sm mt-1">Área Exclusiva para Revendedores</p>
           </div>
+
           <form onSubmit={handleAuth} className="space-y-4">
             {authError && <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl text-center font-bold">{authError}</div>}
             {isRegistering && (<div className="animate-in slide-in-from-top-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Seu Nome Completo</label><input type="text" value={authName} onChange={e => setAuthName(e.target.value)} required={isRegistering} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="Ex: João da Silva" /></div>)}
@@ -394,6 +634,7 @@ export default function App() {
             <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Senha (Mínimo 6 dígitos)</label><input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="••••••" /></div>
             <button type="submit" className="w-full py-4 mt-2 text-white rounded-xl font-black shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2" style={{ backgroundColor: brandColor }}>{isRegistering ? 'Criar Minha Conta Agora' : 'Entrar no Sistema'}</button>
           </form>
+
           <div className="mt-6 text-center"><button type="button" onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} className="text-sm font-bold transition-colors" style={{ color: brandColor }}>{isRegistering ? 'Já tenho uma conta. Fazer Login.' : 'Não tem conta? Cadastre-se grátis.'}</button></div>
           <div className="mt-8 pt-6 border-t border-slate-100 text-center"><button type="button" onClick={() => { const s = prompt("Senha ADM da Fábrica:"); if (s === "1234") setSelectedRole('admin'); else alert("Acesso negado!"); }} className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1.5 mx-auto font-bold uppercase tracking-wider transition-colors"><Package size={14} /> Acesso Restrito (Fornecedor)</button></div>
         </div>
@@ -401,12 +642,27 @@ export default function App() {
     );
   }
 
-  // ==========================================
-  // RENDERIZAÇÃO: REVENDEDOR LOGADO
-  // ==========================================
   if (selectedRole === 'user') {
     return (
       <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
+        {selectedNotice && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="flex justify-between items-center p-4 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">{selectedNotice.type === 'banner' ? <ImageIcon style={{color: brandColor}} size={18}/> : <Bell className="text-orange-500" size={18}/>} Detalhes do Aviso</h3>
+                        <button onClick={() => setSelectedNotice(null)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-600"><X size={20}/></button>
+                    </div>
+                    <div className="overflow-y-auto p-6 space-y-4">
+                        {selectedNotice.type === 'banner' && selectedNotice.imageUrl && (<img src={selectedNotice.imageUrl} loading="lazy" className="w-full rounded-xl object-cover border border-slate-200" />)}
+                        <h2 className="text-2xl font-black text-slate-800">{selectedNotice.title}</h2>
+                        <p className="text-sm text-slate-400">{formatDate(selectedNotice.createdAt)}</p>
+                        {selectedNotice.content && (<div className="text-slate-700 whitespace-pre-wrap leading-relaxed">{selectedNotice.content}</div>)}
+                    </div>
+                    <div className="p-4 border-t border-slate-100"><button onClick={() => setSelectedNotice(null)} className="w-full py-3 text-white rounded-xl font-bold transition-colors" style={{backgroundColor: brandColor}}>Fechar</button></div>
+                </div>
+            </div>
+        )}
+
         <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex h-screen sticky top-0">
           <div className="p-6 text-center border-b border-slate-800">
             {brandLogo ? (<img src={brandLogo} className="h-10 mx-auto object-contain mb-2" alt="Logo"/>) : (<h1 className="text-2xl font-black flex items-center justify-center gap-2" style={{ color: brandColor }}><RefreshCw size={24} /> {brandName}</h1>)}
@@ -415,12 +671,15 @@ export default function App() {
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto hidden-scroll">
             <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'dashboard' ? {backgroundColor: brandColor} : {}}><Layers size={20} /> Visão Geral</button>
             <button onClick={() => setUserView('catalog')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'catalog' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'catalog' ? {backgroundColor: brandColor} : {}}><LayoutGrid size={20} /> Catálogo</button>
+            <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'academy' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'academy' ? {backgroundColor: brandColor} : {}}><Play size={20} /> Como Funciona</button>
             <button onClick={() => setUserView('integrations')} className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-all ${userView === 'integrations' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'integrations' ? {backgroundColor: brandColor} : {}}>
                 <div className="flex items-center gap-3"><Plug size={20} /> Integrações</div>
                 {userProfile?.shopeeConnected && <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span>}
             </button>
             <button onClick={() => setUserView('support')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'support' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'support' ? {backgroundColor: brandColor} : {}}><Ticket size={20} /> Suporte / Trocas</button>
           </nav>
+          <div className="p-4 mx-4 mb-4 bg-slate-800 rounded-xl border border-slate-700 text-center"><p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center justify-center gap-1"><Wallet size={12}/> Seu Crédito</p><p className="text-xl font-black text-green-400">{formatCurrency(userProfile?.creditBalance || 0)}</p></div>
+          <div className="p-4 border-t border-slate-800"><button onClick={handleLogout} className="flex items-center gap-3 text-red-400 hover:text-red-300 w-full p-2"><LogOut size={20} /> Sair</button></div>
         </aside>
 
         <main className={`flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 text-slate-800`}>
@@ -505,7 +764,7 @@ export default function App() {
                                                 <button onClick={(e) => { e.stopPropagation(); handlePublishToShopee(name); }} className="w-full bg-[#ee4d2d] hover:bg-[#d74326] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md">
                                                     <Send size={16}/> Publicar na Shopee
                                                 </button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleExportToUpSeller(name, group); }} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md">
+                                                <button onClick={(e) => { e.stopPropagation(); handleExportToUpSeller(name, group); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs shadow-md">
                                                     <Download size={16}/> Baixar P/ UpSeller
                                                 </button>
                                            </div>
@@ -520,7 +779,6 @@ export default function App() {
             )}
           </div>
         </main>
-        
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
           <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
           <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
@@ -552,7 +810,6 @@ export default function App() {
           </div>
         </div>
       </header>
-
       <main className="max-w-7xl mx-auto p-3 md:p-6 space-y-6 relative pb-20">
         
         {adminView === 'menu' && (
@@ -561,10 +818,7 @@ export default function App() {
             <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
             <button onClick={() => setAdminView('customers')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-indigo-500/10 rounded-full flex items-center justify-center"><Users size={28} className="text-indigo-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Clientes / Wallet</h3></div></button>
-            <button onClick={() => setAdminView('tickets')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 relative">
-                <div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center"><Ticket size={28} className="text-rose-500" /></div>
-                <div className="text-center"><h3 className="font-bold text-white text-sm">Chamados</h3></div>
-            </button>
+            <button onClick={() => setAdminView('tickets')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 relative"><div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center"><Ticket size={28} className="text-rose-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Chamados</h3></div></button>
           </div>
         )}
 
@@ -603,6 +857,7 @@ export default function App() {
                           <div className="min-w-0 flex-1"><div className="flex items-center gap-2 mb-1"><span className="text-xs font-black bg-slate-800 text-white px-2 py-1 rounded">{String(p.size || '')}</span><span className="text-xs text-slate-400 uppercase font-bold">{String(p.color || '')}</span></div><div className="text-[10px] text-slate-600 font-mono flex items-center gap-1"><ScanBarcode size={10} /> {p.barcode ? String(p.barcode) : '---'}</div></div>
                           <div className="flex items-center gap-2 shrink-0">
                             <div className="flex items-center bg-slate-950 rounded-lg border border-slate-800 overflow-hidden h-10 shadow-sm"><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, Number(p.quantity) - 1); }} className="w-10 h-full hover:bg-slate-800 text-slate-400 hover:text-white font-black text-lg">-</button><div className="w-12 text-center font-black text-white text-sm">{Number(p.quantity)}</div><button onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(p, Number(p.quantity) + 1); }} className="w-10 h-full hover:bg-slate-800 text-slate-400 hover:text-white font-black text-lg">+</button></div>
+                            <button onClick={(e) => { e.stopPropagation(); setEditingProduct(p); }} className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-blue-400 bg-slate-950 border border-slate-800 rounded-lg"><Pencil size={16} /></button>
                           </div>
                         </div>
                       ))}
@@ -625,11 +880,10 @@ export default function App() {
                     <div><label className="text-sm text-slate-400 block mb-1">SKU Base*</label><input value={baseSku} onChange={e => setBaseSku(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">Preço Padrão (R$)*</label><input value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Ex: 59,90" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white font-mono" /></div>
                     <div><label className="text-sm text-slate-400 block mb-1">Foto Principal</label><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setBaseImage)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white outline-none file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 cursor-pointer" />{baseImage && (<div className="mt-2 w-16 h-16 rounded overflow-hidden border border-slate-700"><img src={baseImage} className="w-full h-full object-cover" /></div>)}</div>
-                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
+                    <div className="md:col-span-2"><label className="text-sm text-slate-400 block mb-1 flex items-center gap-2"><Download size={14}/> Descrição do Anúncio (Opcional - Para exportação UpSeller)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={3} placeholder="Descreva o produto com detalhes de material, conforto e estilo..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
                 </div>
               </div>
 
-              {/* NOVA SEÇÃO: LOGÍSTICA UPSELLER */}
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50">
                   <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Box size={16} className="text-orange-400" /> Logística e Fiscal (UpSeller)</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -649,7 +903,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- MODAL DE EDIÇÃO DE GRUPO (Atualizado para ter Logística) --- */}
+        {/* --- MODAL DE EDIÇÃO --- */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
             <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -662,7 +916,6 @@ export default function App() {
                 <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Preço Geral (R$)</label><input value={editingGroup.price || ''} onChange={e => setEditingGroup({...editingGroup, price: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" type="number" required /></div>
                 <div><label className="text-xs font-bold text-slate-500 mb-1 block uppercase flex items-center gap-1"><Download size={12}/> Descrição (UpSeller)</label><textarea value={editingGroup.description} onChange={e => setEditingGroup({...editingGroup, description: e.target.value})} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none"></textarea></div>
                 
-                {/* CAMPOS LOGÍSTICA NA EDIÇÃO */}
                 <div className="grid grid-cols-4 gap-2">
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Peso(g)</label><input type="number" value={editingGroup.weight} onChange={e => setEditingGroup({...editingGroup, weight: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
                     <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">C(cm)</label><input type="number" value={editingGroup.length} onChange={e => setEditingGroup({...editingGroup, length: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
