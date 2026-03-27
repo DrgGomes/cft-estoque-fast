@@ -73,7 +73,27 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => { if (isSuperAdminMode) { const unsub = onSnapshot(collection(db, TENANTS_COLLECTION), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as Tenant)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setSaasTenants(items); }); return () => unsub(); } }, [isSuperAdminMode]);
   useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); }); return () => unsubscribe(); }, []);
   useEffect(() => { if (searchTerm.trim() === '') { setFilteredProducts(products); } else { const lowerTerm = searchTerm.toLowerCase(); setFilteredProducts(products.filter(p => { const name = String(p.name || '').toLowerCase(); const sku = String(p.sku || '').toLowerCase(); return name.includes(lowerTerm) || sku.includes(lowerTerm); })); } }, [searchTerm, products]);
-  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
+  
+  // Gerador de grade quando o usuário adiciona cor/tamanho
+  useEffect(() => { 
+    const newRows: VariationRow[] = []; 
+    colors.forEach(color => { 
+      sizes.forEach(size => { 
+        const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); 
+        const cleanColor = color.toUpperCase(); 
+        const cleanSize = size.toUpperCase().replace(/\s+/g, ''); 
+        const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; 
+        const existingRow = generatedRows.find(r => r.color === color && r.size === size); 
+        newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); 
+      });
+    }); 
+    setGeneratedRows(newRows); 
+  }, [colors, sizes, baseSku]);
+
+  // NOVO: Função para Auto-gerar códigos de barras na tela de Add Produto
+  const handleGenerateAllAddBarcodes = () => {
+      setGeneratedRows(prev => prev.map(r => ({ ...r, barcode: r.barcode || Math.floor(1000000000000 + Math.random() * 9000000000000).toString() })));
+  };
 
   const groupProducts = (items: Product[]) => { const groups: Record<string, { info: Product & {driveLink?: string}, total: number, items: Product[] }> = {}; if (!items || !Array.isArray(items)) return groups; items.forEach(product => { if (!product) return; const key = String(product.name || 'Sem Nome'); if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; groups[key].items.push(product); groups[key].total += Number(product.quantity || 0); }); Object.values(groups).forEach(group => { group.items.sort((a, b) => { const colorA = String(a.color || '').toLowerCase(); const colorB = String(b.color || '').toLowerCase(); if (colorA !== colorB) return colorA.localeCompare(colorB); const numA = parseFloat(a.size); const numB = parseFloat(b.size); if (!isNaN(numA) && !isNaN(numB)) return numA - numB; return String(a.size || '').localeCompare(String(b.size || '')); }); }); return groups; };
   const groupedProducts = groupProducts(filteredProducts); const groupedAdminProducts = groupProducts(filteredProducts);
@@ -115,28 +135,61 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const openGroupEdit = (groupName: string, groupData: any) => { const info = groupData.info; const resolvedParentSku = info.parentSku || (info.sku ? info.sku.split('-').slice(0, -2).join('-') : ''); setAdminViewingGroupName(null); setEditingGroup({ oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', material: info.material || '', sole: info.sole || '', fastening: info.fastening || '', parentSku: resolvedParentSku, driveLink: info.driveLink || '', items: groupData.items }); };
   const handleDeleteGroup = async () => { if(editingGroup && confirm('Excluir todas as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach((item: Product) => { batch.delete(doc(db, getCol('products'), item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
   
-  // ATUALIZADO: Salva as informações base E os skus/barcodes individuais
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item: Product) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, material: editingGroup.material, sole: editingGroup.sole, fastening: editingGroup.fastening, parentSku: editingGroup.parentSku.toUpperCase().replace(/\s+/g, ''), driveLink: editingGroup.driveLink, sku: item.sku, barcode: item.barcode, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
-  // NOVO: IMPRESSÃO DE ETIQUETAS EM LOTE (75x35mm)
-  const handlePrintLabels = (itemsToPrint: any[]) => {
+  // =======================================================================================
+  // NOVO: IMPRESSÃO DE ETIQUETAS EM LOTE (75x35mm) COM OPÇÃO DE QR CODE E REDESIGN
+  // =======================================================================================
+  const handlePrintLabels = (itemsToPrint: any[], type: 'qrcode' | 'barcode' = 'qrcode') => {
       let htmlContent = `<html><head><title>Etiquetas 75x35</title>
       <style>
           @page { size: 75mm 35mm; margin: 0; }
-          body { margin: 0; padding: 0; font-family: sans-serif; background: #fff;}
-          .label { width: 75mm; height: 35mm; box-sizing: border-box; padding: 3mm; page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; overflow: hidden; }
-          .title { font-size: 10px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; width: 100%;}
-          .subtitle { font-size: 9px; color: #333; margin-bottom: 3px;}
-          .barcode { max-width: 100%; height: 14mm; object-fit: contain; }
-          .sku { font-size: 9px; margin-top: 2px; font-family: monospace; font-weight: bold;}
+          body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff;}
+          .label { 
+              width: 75mm; height: 35mm; box-sizing: border-box; 
+              padding: 2mm 3mm; page-break-after: always; 
+              display: flex; flex-direction: row; align-items: center; justify-content: space-between; 
+              overflow: hidden; 
+          }
+          .img-container { 
+              width: 45%; height: 100%; 
+              display: flex; align-items: center; justify-content: center; 
+          }
+          .img-container img { 
+              max-width: 100%; max-height: 100%; object-fit: contain; 
+          }
+          .text-container { 
+              width: 55%; height: 100%; 
+              display: flex; flex-direction: column; justify-content: space-between; align-items: center; 
+              text-align: center; padding: 4mm 0 4mm 2mm; box-sizing: border-box;
+          }
+          .parent-sku { 
+              font-size: 13px; font-weight: 900; word-wrap: break-word; line-height: 1.1; color: #000;
+          }
+          .variation { 
+              font-size: 13px; font-weight: 900; color: #000; 
+          }
       </style></head><body>`;
 
       itemsToPrint.forEach(item => {
           for(let i=0; i<item.printQty; i++) {
               const code = item.barcode || item.sku;
-              // Usando API confiável do bwipjs para gerar o código de barras
-              const barcodeImg = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(code)}&scale=3&includetext=false`;
-              htmlContent += `<div class="label"><div class="title">${item.name}</div><div class="subtitle">Cor: ${item.color} | Tam: ${item.size}</div><img class="barcode" src="${barcodeImg}" /><div class="sku">${code}</div></div>`;
+              const bcid = type === 'qrcode' ? 'qrcode' : 'code128';
+              const parentSku = item.parentSku || (item.sku ? item.sku.split('-').slice(0, 2).join('-') : 'SKU');
+              
+              // Gerador Universal do BWIP-JS (Lê tanto QrCode quanto Code128)
+              const barcodeImg = `https://bwipjs-api.metafloor.com/?bcid=${bcid}&text=${encodeURIComponent(code)}&scale=3&includetext=false`;
+              
+              htmlContent += `
+                <div class="label">
+                    <div class="img-container">
+                        <img src="${barcodeImg}" />
+                    </div>
+                    <div class="text-container">
+                        <div class="parent-sku">${parentSku}</div>
+                        <div class="variation">${item.size}, ${item.color}</div>
+                    </div>
+                </div>`;
           }
       });
       htmlContent += `</body></html>`;
@@ -147,13 +200,14 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
       const docFrame = iframe.contentWindow?.document || iframe.contentDocument;
       if(docFrame) { docFrame.open(); docFrame.write(htmlContent); docFrame.close(); }
       
-      // Espera 1.5 segundos para garantir que a API gerou a imagem do código de barras
+      // Espera 1.5 segundos para dar tempo do Google baixar os QR Codes da API antes de imprimir
       setTimeout(() => {
           iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
           setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 1000);
       }, 1500);
   };
+  // =======================================================================================
 
   const contextValue = {
     currentTenant, isSuperAdminMode, superAdminAuthenticated, setSuperAdminAuthenticated, saasTenants, selectedRole, setSelectedRole, user, userProfile,
@@ -162,10 +216,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     brandColor: currentTenant?.primaryColor || '#2563eb', brandName: currentTenant?.name || 'DropFast', brandLogo: currentTenant?.logoUrl || null,
     previewTenantId, isVitrineMode, publicVitrine, groupedProducts, groupedAdminProducts, filteredAdminList, adminStockStats, predictiveData,
     products, filteredProducts, history, purchases, notices, quickLinks, showcases, lessons, usersList, allTickets, myTickets, academySeasons, availableSeasons,
-    baseSku, setBaseSku, baseName, setBaseName, baseDescription, setBaseDescription, baseImage, setBaseImage, basePrice, setBasePrice, colors, setColors, sizes, setSizes, tempColor, setTempColor, tempSize, setTempSize, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening, generatedRows, isSavingBatch, setIsSavingBatch, editingProduct, setEditingProduct, editingGroup, setEditingGroup, adminViewingGroupName, setAdminViewingGroupName, adminStockFilter, setAdminStockFilter, selectedCatalogGroups, setSelectedCatalogGroups, viewingProduct, setViewingProduct, activeModalImage, setActiveModalImage, selectedNotice, setSelectedNotice, activeLesson, setActiveLesson, ticketType, setTicketType, ticketReturnGroup, setTicketReturnGroup, ticketReturnProductId, setTicketReturnProductId, ticketDesiredGroup, setTicketDesiredGroup, ticketDesiredProductId, setTicketDesiredProductId, ticketReason, setTicketReason,
+    baseSku, setBaseSku, baseName, setBaseName, baseDescription, setBaseDescription, baseImage, setBaseImage, basePrice, setBasePrice, colors, setColors, sizes, setSizes, tempColor, setTempColor, tempSize, setTempSize, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening, generatedRows, setGeneratedRows, isSavingBatch, setIsSavingBatch, editingProduct, setEditingProduct, editingGroup, setEditingGroup, adminViewingGroupName, setAdminViewingGroupName, adminStockFilter, setAdminStockFilter, selectedCatalogGroups, setSelectedCatalogGroups, viewingProduct, setViewingProduct, activeModalImage, setActiveModalImage, selectedNotice, setSelectedNotice, activeLesson, setActiveLesson, ticketType, setTicketType, ticketReturnGroup, setTicketReturnGroup, ticketReturnProductId, setTicketReturnProductId, ticketDesiredGroup, setTicketDesiredGroup, ticketDesiredProductId, setTicketDesiredProductId, ticketReason, setTicketReason,
     noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyDesc, setAcademyDesc, academyYoutube, setAcademyYoutube, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, editingShowcase, setEditingShowcase, baseDriveLink, setBaseDriveLink, newTenantCnpj, setNewTenantCnpj,
     handleLogout, handleAuth, handleCreateTenant, handleSaveBatch, handleExportToUpSeller, handleBatchExportToUpSeller, handleUpdateQuantity, handleOpenTicket, handleAdminTicketAction, openGroupEdit, handleSaveGroupEdit, handleDeleteGroup, toggleLessonCompletion, handleSaveAcademy, handleDeleteAcademy, handleSaveNotice, handleDeleteNotice, handleSaveLink, handleDeleteLink, handleSaveShowcase, handleDeleteShowcase, toggleModelInShowcase, selectAllModelsForShowcase, clearAllModelsForShowcase, copyShowcaseLink, toggleGroupSelection, addColor, addSize, updateRowBarcode, toggleGroup, newTenantName, setNewTenantName, newTenantDomain, setNewTenantDomain, newTenantLogo, setNewTenantLogo, newTenantColor, setNewTenantColor,
-    handlePrintLabels // EXPORTADO
+    handleGenerateAllAddBarcodes, handlePrintLabels
   };
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;

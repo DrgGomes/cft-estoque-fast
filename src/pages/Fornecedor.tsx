@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Scan, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Layers, Box, Wand2 } from 'lucide-react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Scan, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Layers, Box, Wand2, QrCode } from 'lucide-react';
 import { AppContext, formatCurrency, formatDate, parseImages, playSound } from '../AppContext';
 import { Product, SupportTicket } from '../types';
 
@@ -24,7 +24,7 @@ export default function Fornecedor() {
     notices, handleDeleteNotice, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, 
     setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, 
     handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, 
-    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase, baseDriveLink, setBaseDriveLink, brandName, brandLogo, products, setGeneratedRows, handlePrintLabels
+    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase, baseDriveLink, setBaseDriveLink, brandName, brandLogo, products, handleGenerateAllAddBarcodes, handlePrintLabels
   } = ctx;
 
   const removeColor = (colorToRemove: string) => setColors(colors.filter((c: string) => c !== colorToRemove));
@@ -34,8 +34,9 @@ export default function Fornecedor() {
   const [scanInput, setScanInput] = useState('');
   const [lastScanned, setLastScanned] = useState<any>(null);
 
-  // Modal Impressão de Etiquetas
+  // Modal Impressão de Etiquetas e Opção de Formato
   const [printModalData, setPrintModalData] = useState<any[] | null>(null);
+  const [printType, setPrintType] = useState<'qrcode' | 'barcode'>('qrcode');
 
   const handleScanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,20 +52,15 @@ export default function Fornecedor() {
     setScanInput('');
   };
 
-  // Funções de Edição Filha
   const handleUpdateEditingItem = (index: number, field: string, value: string) => {
       const newItems = [...editingGroup.items];
       newItems[index] = { ...newItems[index], [field]: value };
       setEditingGroup({ ...editingGroup, items: newItems });
   };
+
   const handleGenerateBarcodeForEdit = (index: number) => {
       const generated = Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
       handleUpdateEditingItem(index, 'barcode', generated);
-  };
-
-  const handleGenerateAllAddBarcodes = () => {
-      const updated = generatedRows.map(r => ({ ...r, barcode: r.barcode || Math.floor(1000000000000 + Math.random() * 9000000000000).toString() }));
-      setGeneratedRows(updated);
   };
 
   return (
@@ -99,20 +95,58 @@ export default function Fornecedor() {
           </div>
         )}
 
+        {/* TELA DE BIPAGEM / SCANNER */}
         {adminView === 'scanner' && (
           <div className="space-y-6 animate-in slide-in-from-right max-w-2xl mx-auto">
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden p-6 md:p-8">
-              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 border-b border-slate-800 pb-6"><div className="bg-orange-500/10 p-4 rounded-2xl shrink-0"><Scan className="text-orange-500" size={36}/></div><div><h2 className="text-2xl font-black text-white leading-tight">Leitor de Estoque (Bipagem)</h2><p className="text-sm text-slate-400 mt-1">Conecte seu leitor USB ou digite o SKU manualmente.</p></div></div>
-              <div className="flex gap-4 mb-8">
-                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'entry' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}><input type="radio" name="scanMode" className="hidden" checked={scanMode === 'entry'} onChange={() => {setScanMode('entry'); document.getElementById('scan-input')?.focus();}} /><TrendingUp size={32} className="mb-3" /><span className="font-black tracking-wider uppercase">ENTRADA (+)</span></label>
-                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'exit' ? 'bg-red-500/10 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}><input type="radio" name="scanMode" className="hidden" checked={scanMode === 'exit'} onChange={() => {setScanMode('exit'); document.getElementById('scan-input')?.focus();}} /><TrendingDown size={32} className="mb-3" /><span className="font-black tracking-wider uppercase">SAÍDA (-)</span></label>
+              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 border-b border-slate-800 pb-6">
+                <div className="bg-orange-500/10 p-4 rounded-2xl shrink-0"><Scan className="text-orange-500" size={36}/></div>
+                <div><h2 className="text-2xl font-black text-white leading-tight">Leitor de Estoque (Bipagem)</h2><p className="text-sm text-slate-400 mt-1">Conecte seu leitor USB ou digite o SKU manualmente.</p></div>
               </div>
-              <form onSubmit={handleScanSubmit} className="relative mb-6"><input id="scan-input" autoFocus type="text" value={scanInput} onChange={(e) => setScanInput(e.target.value)} placeholder="Bipe o Código de Barras ou digite o SKU..." className="w-full bg-slate-950 border-2 border-slate-700 rounded-xl p-5 pl-14 text-white font-mono text-xl focus:border-orange-500 outline-none shadow-inner"/><ScanBarcode className="absolute left-5 top-5 text-slate-500" size={28}/><button type="submit" className="hidden">Bipar</button></form>
+              
+              <div className="flex gap-4 mb-8">
+                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'entry' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
+                  <input type="radio" name="scanMode" className="hidden" checked={scanMode === 'entry'} onChange={() => {setScanMode('entry'); document.getElementById('scan-input')?.focus();}} />
+                  <TrendingUp size={32} className="mb-3" />
+                  <span className="font-black tracking-wider uppercase">ENTRADA (+)</span>
+                </label>
+                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'exit' ? 'bg-red-500/10 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
+                  <input type="radio" name="scanMode" className="hidden" checked={scanMode === 'exit'} onChange={() => {setScanMode('exit'); document.getElementById('scan-input')?.focus();}} />
+                  <TrendingDown size={32} className="mb-3" />
+                  <span className="font-black tracking-wider uppercase">SAÍDA (-)</span>
+                </label>
+              </div>
+
+              <form onSubmit={handleScanSubmit} className="relative mb-6">
+                <input 
+                  id="scan-input"
+                  autoFocus
+                  type="text" 
+                  value={scanInput} 
+                  onChange={(e) => setScanInput(e.target.value)} 
+                  placeholder="Bipe o Código de Barras ou digite o SKU..." 
+                  className="w-full bg-slate-950 border-2 border-slate-700 rounded-xl p-5 pl-14 text-white font-mono text-xl focus:border-orange-500 outline-none shadow-inner"
+                />
+                <ScanBarcode className="absolute left-5 top-5 text-slate-500" size={28}/>
+                <button type="submit" className="hidden">Bipar</button>
+              </form>
+
               {lastScanned && (
                 <div className={`mt-8 p-5 rounded-2xl border-2 flex items-center gap-5 animate-in zoom-in-95 shadow-xl ${lastScanned.action === 'entry' ? 'bg-emerald-950/30 border-emerald-500/50' : 'bg-red-950/30 border-red-500/50'}`}>
-                  <div className="w-20 h-20 bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-700">{lastScanned.image ? <img src={lastScanned.image.split(',')[0]} className="w-full h-full object-cover"/> : <ImageIcon className="w-full h-full p-5 text-slate-500"/>}</div>
-                  <div className="flex-1"><span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm ${lastScanned.action === 'entry' ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}`}>{lastScanned.action === 'entry' ? 'Entrada Adicionada' : 'Saída Registrada'}</span><h4 className="font-bold text-white text-lg mt-2 leading-tight">{lastScanned.name}</h4><p className="text-sm text-slate-400 font-mono mt-1">{lastScanned.color} | Tam: {lastScanned.size} | SKU: {lastScanned.sku}</p></div>
-                  <div className="text-center shrink-0 bg-slate-900 px-4 py-3 rounded-xl border border-slate-700"><span className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Estoque Novo</span><span className={`text-3xl font-black ${lastScanned.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{lastScanned.quantity}</span></div>
+                  <div className="w-20 h-20 bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-700">
+                    {lastScanned.image ? <img src={lastScanned.image.split(',')[0]} className="w-full h-full object-cover"/> : <ImageIcon className="w-full h-full p-5 text-slate-500"/>}
+                  </div>
+                  <div className="flex-1">
+                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm ${lastScanned.action === 'entry' ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}`}>
+                      {lastScanned.action === 'entry' ? 'Entrada Adicionada' : 'Saída Registrada'}
+                    </span>
+                    <h4 className="font-bold text-white text-lg mt-2 leading-tight">{lastScanned.name}</h4>
+                    <p className="text-sm text-slate-400 font-mono mt-1">{lastScanned.color} | Tam: {lastScanned.size} | SKU: {lastScanned.sku}</p>
+                  </div>
+                  <div className="text-center shrink-0 bg-slate-900 px-4 py-3 rounded-xl border border-slate-700">
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Estoque Novo</span>
+                    <span className={`text-3xl font-black ${lastScanned.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{lastScanned.quantity}</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -178,7 +212,7 @@ export default function Fornecedor() {
                      </div>
                      
                      <div className="mt-auto space-y-2">
-                        {/* NOVO: Botão Imprimir Etiquetas */}
+                        {/* Botão Imprimir Etiquetas */}
                         <button onClick={() => setPrintModalData(groupedAdminProducts[adminViewingGroupName].items.map((i:any) => ({...i, printQty: 0})))} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors border border-slate-700">
                             <Printer size={18}/> Imprimir Etiquetas
                         </button>
@@ -201,7 +235,7 @@ export default function Fornecedor() {
                                       <span className="w-10 h-10 rounded-lg bg-slate-800 text-white flex items-center justify-center font-black text-lg shadow-inner">{String(p.size || '')}</span>
                                       <div>
                                           <span className="text-sm font-bold text-slate-300 uppercase block mb-1">{String(p.color || '')}</span>
-                                          <span className="text-[10px] text-slate-600 font-mono flex items-center gap-1"><ScanBarcode size={10}/> {p.barcode || 'Sem Cód.'}</span>
+                                          <span className="text-[10px] text-slate-600 font-mono flex items-center gap-1"><ScanBarcode size={10}/> {p.barcode || p.sku || 'Sem Cód.'}</span>
                                       </div>
                                   </div>
                                   
@@ -218,7 +252,7 @@ export default function Fornecedor() {
             </div>
         )}
 
-        {/* NOVO: MODAL IMPRESSÃO EM MASSA */}
+        {/* MODAL IMPRESSÃO EM MASSA COM OPÇÃO DE FORMATO */}
         {printModalData && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4 animate-in fade-in" onClick={() => setPrintModalData(null)}>
                 <div className="bg-slate-900 p-6 md:p-8 rounded-3xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
@@ -226,9 +260,22 @@ export default function Fornecedor() {
                         <h2 className="text-xl font-black text-white flex items-center gap-2"><Printer className="text-blue-400" size={24}/> Impressão Massiva (75x35mm)</h2>
                         <button onClick={() => setPrintModalData(null)} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={16}/></button>
                     </div>
-                    <p className="text-sm text-slate-400 mb-6">Selecione quantas etiquetas imprimir de cada numeração. As etiquetas sairão formatadas para bobina tamanho 75mm x 35mm.</p>
                     
-                    <div className="space-y-3 mb-6 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <div className="mb-6 bg-slate-950 border border-slate-800 rounded-xl p-4">
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-3">Formato da Etiqueta</label>
+                        <div className="flex gap-4">
+                            <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${printType === 'qrcode' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                                <input type="radio" className="hidden" checked={printType==='qrcode'} onChange={()=>setPrintType('qrcode')}/>
+                                <QrCode size={20}/> <span className="font-bold text-sm">QR Code</span>
+                            </label>
+                            <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${printType === 'barcode' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                                <input type="radio" className="hidden" checked={printType==='barcode'} onChange={()=>setPrintType('barcode')}/>
+                                <ScanBarcode size={20}/> <span className="font-bold text-sm">Código de Barras</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3 mb-6 bg-slate-950 p-4 rounded-xl border border-slate-800 max-h-[40vh] overflow-y-auto hidden-scroll">
                         {printModalData.map((item, idx) => (
                             <div key={item.id} className="flex items-center justify-between border-b border-slate-800/50 pb-2 last:border-0 last:pb-0">
                                 <div><span className="font-bold text-white text-sm">Tam: {item.size} | Cor: {item.color}</span><p className="text-[10px] text-slate-500 font-mono">Cód: {item.barcode || item.sku}</p></div>
@@ -246,7 +293,7 @@ export default function Fornecedor() {
                     
                     <div className="flex gap-3">
                         <button onClick={() => {const d = [...printModalData]; d.forEach(i => i.printQty = Number(i.quantity) > 0 ? Number(i.quantity) : 0); setPrintModalData(d);}} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors text-xs">Copiar Estoque Real</button>
-                        <button onClick={() => { handlePrintLabels(printModalData.filter(i => i.printQty > 0)); }} disabled={printModalData.every(i => i.printQty === 0)} className={`flex-1 flex-[2] text-white py-4 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg transition-transform ${printModalData.every(i => i.printQty === 0) ? 'bg-slate-700 text-slate-500' : 'bg-blue-600 hover:bg-blue-500 hover:scale-[1.02]'}`}><Printer size={18}/> Imprimir Selecionadas</button>
+                        <button onClick={() => { handlePrintLabels(printModalData.filter(i => i.printQty > 0), printType); }} disabled={printModalData.every(i => i.printQty === 0)} className={`flex-1 flex-[2] text-white py-4 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg transition-transform ${printModalData.every(i => i.printQty === 0) ? 'bg-slate-700 text-slate-500' : 'bg-blue-600 hover:bg-blue-500 hover:scale-[1.02]'}`}><Printer size={18}/> Imprimir Selecionadas</button>
                     </div>
                 </div>
             </div>
@@ -281,7 +328,7 @@ export default function Fornecedor() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div><label className="text-sm text-slate-400 block mb-1">Material</label><input value={baseMaterial} onChange={e => setBaseMaterial(e.target.value)} placeholder="Ex: Couro, Sintético..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                       <div><label className="text-sm text-slate-400 block mb-1">Solado</label><input value={baseSole} onChange={e => setBaseSole(e.target.value)} placeholder="Ex: Borracha, EVA..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
-                      <div><label className="text-sm text-slate-400 block mb-1">Tipo de Ajuste</label><input value={baseFastening} onChange={e => setBaseFastening(e.target.value)} placeholder="Ex: Cadarço, Zíper" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
+                      <div><label className="text-sm text-slate-400 block mb-1">Tipo de Ajuste</label><input value={baseFastening} onChange={e => setFastening(e.target.value)} placeholder="Ex: Cadarço, Zíper" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /></div>
                       <div className="md:col-span-3"><label className="text-sm text-slate-400 block mb-1">Descrição Curta (Fica salva no sistema)</label><textarea value={baseDescription} onChange={e => setBaseDescription(e.target.value)} rows={2} placeholder="Detalhes extras do produto..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"></textarea></div>
                   </div>
               </div>
@@ -300,14 +347,13 @@ export default function Fornecedor() {
 
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
               
-              {/* Variações e Gerador de Barcode */}
               {generatedRows.length > 0 && (
                 <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50">
                     <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
                         <h3 className="text-sm font-bold text-slate-300">Variações ({generatedRows.length})</h3>
                         <button type="button" onClick={handleGenerateAllAddBarcodes} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] uppercase font-bold px-3 py-1.5 rounded flex items-center gap-1"><Wand2 size={12}/> Auto-Gerar Cód. Barras</button>
                     </div>
-                    <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Cód. Barras</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} placeholder="Bipe ou digite" className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div>
+                    <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU Físico</th><th className="p-2">Cód. Barras (Mundial)</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} placeholder="Bipe ou digite" className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none" /></td></tr>))}</tbody></table></div>
                 </div>
               )}
               <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-xl px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR VARIAÇÕES'}</button></div>
@@ -350,10 +396,9 @@ export default function Fornecedor() {
                     <input value={editingGroup.driveLink || ''} onChange={e => setEditingGroup({...editingGroup, driveLink: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" placeholder="https://drive.google.com/..." />
                 </div>
 
-                {/* NOVO: TABELA DE EDIÇÃO DOS FILHOS (SKU E BARCODE) */}
                 <div className="mt-6 pt-6 border-t border-slate-800">
                     <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-sm font-bold text-white flex items-center gap-2"><ScanBarcode size={16}/> Variações Individuais (SKU / Barcode)</h3>
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2"><ScanBarcode size={16}/> Variações Individuais</h3>
                     </div>
                     <div className="max-h-48 overflow-y-auto hidden-scroll bg-slate-950 border border-slate-800 rounded-xl p-2">
                         <table className="w-full text-left text-xs">
@@ -377,14 +422,13 @@ export default function Fornecedor() {
 
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
-                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar Ficha Completa</button>
+                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar Ficha</button>
                 </div>
               </form>
             </div>
           </div>
         )}
 
-        {/* INTELIGÊNCIA ARTIFICIAL */}
         {adminView === 'predictive' && predictiveData && (
             <div className="space-y-6 animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-900 rounded-2xl shadow-xl flex items-center justify-between"><div className="flex items-center gap-3"><BrainCircuit className="text-fuchsia-500" size={28}/><h2 className="text-xl font-black text-white">Inteligência Preditiva</h2></div><div className="bg-fuchsia-500/20 text-fuchsia-400 px-4 py-2 rounded-lg font-bold text-sm">Últimos 30 Dias</div></div>
@@ -393,8 +437,6 @@ export default function Fornecedor() {
                 </div>
             </div>
         )}
-
-        {/* RELATÓRIOS */}
         {adminView === 'history' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><ClipboardList className="text-purple-400" size={24}/><h2 className="text-xl font-black text-white">Relatório de Estoque</h2></div></div>
