@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon } from 'lucide-react';
-import { AppContext, formatCurrency, formatDate, parseImages } from '../AppContext';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play } from 'lucide-react';
+import { AppContext, formatCurrency, formatDate, parseImages, getYoutubeId } from '../AppContext';
 import { Product, SupportTicket } from '../types';
 
 export default function Fornecedor() {
@@ -16,7 +16,7 @@ export default function Fornecedor() {
     setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, tempColor, 
     setTempColor, addColor, colors, removeColor, tempSize, setTempSize, addSize, sizes, removeSize, 
     generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch, predictiveData, history, usersList, 
-    allTickets, handleAdminTicketAction, handlePrintTicket, academySeasonMode, setAcademySeasonMode, 
+    allTickets, handleAdminTicketAction, academySeasonMode, setAcademySeasonMode, 
     academySeason, setAcademySeason, availableSeasons, academyNewSeason, setAcademyNewSeason, 
     academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube, 
     academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, 
@@ -55,7 +55,6 @@ export default function Fornecedor() {
             <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Jornada Alunos</h3></div></button>
             <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
             <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
-            <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
           </div>
         )}
 
@@ -99,6 +98,7 @@ export default function Fornecedor() {
           </div>
         )}
 
+        {/* MODAL DETALHE ESTOQUE FORNECEDOR */}
         {adminViewingGroupName && groupedAdminProducts[adminViewingGroupName] && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setAdminViewingGroupName(null)}>
                <div className="bg-slate-900 rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row border border-slate-700" onClick={e => e.stopPropagation()}>
@@ -167,7 +167,7 @@ export default function Fornecedor() {
                     <div className="md:col-span-2">
                         <label className="text-sm text-slate-400 block mb-1 font-bold text-blue-400">Links das Fotos (Cole todos os links do ImgBB de uma vez)</label>
                         <textarea value={baseImage} onChange={(e) => setBaseImage(e.target.value)} rows={4} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-3 text-white outline-none focus:border-blue-500 font-mono text-xs placeholder:text-slate-600" placeholder="Exemplo:&#10;https://i.ibb.co/67Pk8NkQ/foto1.png&#10;https://i.ibb.co/B5gWVRCK/foto2.png" />
-                        {baseImage && (<div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">{parseImages(baseImage).split(',').map((url, i) => (<div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>))}</div>)}
+                        {baseImage && (<div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">{parseImages(baseImage).split(',').map((url: string, i: number) => (<div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>))}</div>)}
                     </div>
                 </div>
               </div>
@@ -297,7 +297,7 @@ export default function Fornecedor() {
             </div>
         )}
 
-        {/* TICKETS ADMIN */}
+        {/* TICKETS ADMIN (IMPRIMIR REMOVIDO) */}
         {adminView === 'tickets' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
@@ -313,13 +313,137 @@ export default function Fornecedor() {
                                 {ticket.status === 'pendente' && ticket.type === 'troca' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_troca')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Aceitar Troca</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar</button></>)}
                                 {ticket.status === 'pendente' && ticket.type === 'devolucao' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_devolucao')} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Clock size={16}/> Autorizar (Aguardar Peça)</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar (Sem Defeito)</button></>)}
                                 {ticket.status === 'aguardando_devolucao' && ticket.type === 'devolucao' && (<button onClick={() => handleAdminTicketAction(ticket, 'recebido_gerar_credito')} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/50 animate-bounce"><Wallet size={18}/> Produto Entregue - Gerar Crédito (R$ {ticket.productValue.toFixed(2)})</button>)}
-                                {ticket.status === 'aceito' && ticket.type === 'troca' && (<button onClick={() => handlePrintTicket(ticket)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Printer size={16}/> Imprimir Via de Troca</button>)}
+                                {ticket.status === 'aceito' && ticket.type === 'troca' && (<span className="text-emerald-500 text-xs font-bold flex items-center gap-1"><Check size={16}/> Aguardando envio do cliente</span>)}
                             </div>
                         </div>
                     ))}
                 </div>
             </div>
         )}
+
+        {/* JORNADA DO ALUNO (RESTAURADA E COMPLETA) */}
+        {adminView === 'academy' && (
+          <div className="space-y-6 animate-in slide-in-from-right">
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
+              <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex items-center gap-3">
+                <GraduationCap className="text-red-500" size={24}/>
+                <h2 className="text-xl font-black text-white">Jornada do Aluno (Treinamentos)</h2>
+              </div>
+              <form onSubmit={handleSaveAcademy} className="p-5 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Módulo / Temporada</label>
+                    <div className="flex gap-2 mb-2">
+                      <label className="flex items-center gap-2 text-sm text-slate-300"><input type="radio" checked={academySeasonMode==='existing'} onChange={() => setAcademySeasonMode('existing')} className="accent-red-500"/> Existente</label>
+                      <label className="flex items-center gap-2 text-sm text-slate-300"><input type="radio" checked={academySeasonMode==='new'} onChange={() => setAcademySeasonMode('new')} className="accent-red-500"/> Novo</label>
+                    </div>
+                    {academySeasonMode === 'existing' ? (
+                      <select value={academySeason} onChange={(e:any) => setAcademySeason(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500">
+                        <option value="">Selecione um Módulo...</option>
+                        {availableSeasons.map((s:any) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : (
+                      <input value={academyNewSeason} onChange={(e:any) => setAcademyNewSeason(e.target.value)} placeholder="Ex: Módulo 1 - Iniciantes" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" />
+                    )}
+                  </div>
+                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Episódio / Ordem</label><input type="number" value={academyEpisode} onChange={(e:any) => setAcademyEpisode(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
+                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título da Aula</label><input value={academyTitle} onChange={(e:any) => setAcademyTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
+                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do YouTube</label><input value={academyYoutube} onChange={(e:any) => setAcademyYoutube(e.target.value)} required placeholder="https://www.youtube.com/watch?v=..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
+                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Descrição da Aula</label><textarea value={academyDesc} onChange={(e:any) => setAcademyDesc(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500"></textarea></div>
+                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do Banner (Imagem)</label><input value={academyBanner} onChange={(e:any) => setAcademyBanner(e.target.value)} placeholder="https://..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
+                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Links/Materiais de Apoio</label><input value={academyLinks} onChange={(e:any) => setAcademyLinks(e.target.value)} placeholder="https://drive.google.com/..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
+                </div>
+                <button type="submit" disabled={isSavingBatch} className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar Aula</button>
+              </form>
+            </div>
+            
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
+              <div className="p-5 border-b border-slate-800 bg-slate-800/30"><h2 className="font-bold text-white">Aulas Publicadas</h2></div>
+              <div className="p-5 space-y-4">
+                 {academySeasons.length === 0 ? <p className="text-slate-500 text-center">Nenhuma aula cadastrada.</p> : academySeasons.map((season: any, idx: number) => (
+                     <div key={idx} className="space-y-2">
+                         <h3 className="font-black text-red-500 border-b border-slate-800 pb-2">{season.name}</h3>
+                         {season.episodes.map((ep: any) => (
+                             <div key={ep.id} className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                                 <div>
+                                     <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-bold mr-2">Ep {ep.episode}</span>
+                                     <span className="font-bold text-sm text-white">{ep.title}</span>
+                                 </div>
+                                 <button onClick={() => handleDeleteAcademy(ep.id)} className="text-red-500 hover:bg-red-500/10 p-2 rounded transition-colors"><Trash2 size={16}/></button>
+                             </div>
+                         ))}
+                     </div>
+                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AVISOS DO DASHBOARD (RESTAURADOS) */}
+        {adminView === 'notices' && (
+          <div className="space-y-6 animate-in slide-in-from-right">
+            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
+              <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1"><input type="radio" checked={noticeType==='text'} onChange={()=>setNoticeType('text')} className="accent-amber-500"/><span className="text-sm font-bold">Aviso Normal</span></label>
+                    <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1"><input type="radio" checked={noticeType==='banner'} onChange={()=>setNoticeType('banner')} className="accent-amber-500"/><span className="text-sm font-bold">Banner</span></label>
+                  </div>
+                </div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título*</label><input value={noticeTitle} onChange={(e:any)=>setNoticeTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"/></div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Conteúdo</label><textarea value={noticeContent} onChange={(e:any)=>setNoticeContent(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"></textarea></div>
+                {noticeType === 'banner' && <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Imagem</label><input value={noticeImage} onChange={(e:any)=>setNoticeImage(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"/></div>}
+                <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar</button>
+              </form>
+            </div>
+            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
+              <div className="p-4 space-y-3">
+                {notices.map((n:any) => (
+                  <div key={n.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
+                    <div><span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-1 rounded uppercase font-bold mr-2">{n.type}</span><span className="font-bold text-white">{n.title}</span></div>
+                    <button onClick={()=>handleDeleteNotice(n.id)} className="text-red-500"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BOTÕES RÁPIDOS (RESTAURADOS) */}
+        {adminView === 'links' && (
+          <div className="space-y-6 animate-in slide-in-from-right">
+            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div>
+              <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título*</label><input value={linkTitle} onChange={(e:any)=>setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
+                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={(e:any)=>setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
+                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">URL Destino*</label><input value={linkUrl} onChange={(e:any)=>setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
+                  <div className="flex gap-4">
+                     <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={(e:any)=>setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"><option value="Link2">Padrão</option><option value="MessageCircle">WhatsApp</option><option value="Globe">Site</option></select></div>
+                     <div className="w-24"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={(e:any)=>setLinkOrder(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
+                  </div>
+                </div>
+                <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
+              </form>
+            </div>
+            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
+              <div className="p-4 space-y-3">
+                {quickLinks.map((link:any) => (
+                  <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                    <div><span className="font-bold text-white text-sm">{link.title}</span><p className="text-xs text-slate-500">{link.url}</p></div>
+                    <button onClick={()=>handleDeleteLink(link.id)} className="text-red-500"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   );
