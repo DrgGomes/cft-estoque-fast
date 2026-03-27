@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play, Layers, Box, CheckSquare, Plug, Send, CheckCircle2, Circle, Bell, MousePointerClick, Video, Globe, ShoppingBag, FileText, Smartphone } from 'lucide-react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play, Layers, Box, CheckSquare, Plug, Send, CheckCircle2, Circle, Bell, MousePointerClick, Video, Globe, ShoppingBag, FileText, Smartphone, LayoutGrid } from 'lucide-react';
 import { AppContext, formatCurrency, formatDate, getYoutubeId } from '../AppContext';
 import { Product, QuickLink } from '../types';
 
