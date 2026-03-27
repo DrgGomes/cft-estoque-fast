@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play } from 'lucide-react';
-import { AppContext, formatCurrency, formatDate, parseImages, getYoutubeId } from '../AppContext';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play, Layers, Box } from 'lucide-react';
+import { AppContext, formatCurrency, formatDate, parseImages } from '../AppContext';
 import { Product, SupportTicket } from '../types';
 
 export default function Fornecedor() {
@@ -14,9 +14,9 @@ export default function Fornecedor() {
     baseDescription, setBaseDescription, baseMaterial, setBaseMaterial, baseSole, setBaseSole, 
     baseFastening, setBaseFastening, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, 
     setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, tempColor, 
-    setTempColor, addColor, colors, removeColor, tempSize, setTempSize, addSize, sizes, removeSize, 
+    setTempColor, addColor, colors, setColors, tempSize, setTempSize, addSize, sizes, setSizes, 
     generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch, predictiveData, history, usersList, 
-    allTickets, handleAdminTicketAction, academySeasonMode, setAcademySeasonMode, 
+    allTickets, handleAdminTicketAction, handlePrintTicket, academySeasonMode, setAcademySeasonMode, 
     academySeason, setAcademySeason, availableSeasons, academyNewSeason, setAcademyNewSeason, 
     academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube, 
     academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, 
@@ -27,6 +27,10 @@ export default function Fornecedor() {
     handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, 
     selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase 
   } = ctx;
+
+  // Lógicas para remover cor e tamanho
+  const removeColor = (colorToRemove: string) => setColors(colors.filter((c: string) => c !== colorToRemove));
+  const removeSize = (sizeToRemove: string) => setSizes(sizes.filter((s: string) => s !== sizeToRemove));
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
@@ -55,6 +59,7 @@ export default function Fornecedor() {
             <button onClick={() => setAdminView('academy')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 border-b-4 border-b-red-600"><div className="w-14 h-14 bg-red-600/10 rounded-full flex items-center justify-center"><GraduationCap size={28} className="text-red-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Jornada Alunos</h3></div></button>
             <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
             <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
+            <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
           </div>
         )}
 
@@ -98,7 +103,6 @@ export default function Fornecedor() {
           </div>
         )}
 
-        {/* MODAL DETALHE ESTOQUE FORNECEDOR */}
         {adminViewingGroupName && groupedAdminProducts[adminViewingGroupName] && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setAdminViewingGroupName(null)}>
                <div className="bg-slate-900 rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row border border-slate-700" onClick={e => e.stopPropagation()}>
@@ -167,7 +171,7 @@ export default function Fornecedor() {
                     <div className="md:col-span-2">
                         <label className="text-sm text-slate-400 block mb-1 font-bold text-blue-400">Links das Fotos (Cole todos os links do ImgBB de uma vez)</label>
                         <textarea value={baseImage} onChange={(e) => setBaseImage(e.target.value)} rows={4} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-3 text-white outline-none focus:border-blue-500 font-mono text-xs placeholder:text-slate-600" placeholder="Exemplo:&#10;https://i.ibb.co/67Pk8NkQ/foto1.png&#10;https://i.ibb.co/B5gWVRCK/foto2.png" />
-                        {baseImage && (<div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">{parseImages(baseImage).split(',').map((url: string, i: number) => (<div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>))}</div>)}
+                        {baseImage && (<div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">{parseImages(baseImage).split(',').map((url, i) => (<div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>))}</div>)}
                     </div>
                 </div>
               </div>
@@ -297,7 +301,7 @@ export default function Fornecedor() {
             </div>
         )}
 
-        {/* TICKETS ADMIN (IMPRIMIR REMOVIDO) */}
+        {/* TICKETS ADMIN */}
         {adminView === 'tickets' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
@@ -313,7 +317,6 @@ export default function Fornecedor() {
                                 {ticket.status === 'pendente' && ticket.type === 'troca' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_troca')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Aceitar Troca</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar</button></>)}
                                 {ticket.status === 'pendente' && ticket.type === 'devolucao' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_devolucao')} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Clock size={16}/> Autorizar (Aguardar Peça)</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar (Sem Defeito)</button></>)}
                                 {ticket.status === 'aguardando_devolucao' && ticket.type === 'devolucao' && (<button onClick={() => handleAdminTicketAction(ticket, 'recebido_gerar_credito')} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/50 animate-bounce"><Wallet size={18}/> Produto Entregue - Gerar Crédito (R$ {ticket.productValue.toFixed(2)})</button>)}
-                                {ticket.status === 'aceito' && ticket.type === 'troca' && (<span className="text-emerald-500 text-xs font-bold flex items-center gap-1"><Check size={16}/> Aguardando envio do cliente</span>)}
                             </div>
                         </div>
                     ))}
@@ -321,7 +324,7 @@ export default function Fornecedor() {
             </div>
         )}
 
-        {/* JORNADA DO ALUNO (RESTAURADA E COMPLETA) */}
+        {/* JORNADA DO ALUNO */}
         {adminView === 'academy' && (
           <div className="space-y-6 animate-in slide-in-from-right">
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
@@ -379,7 +382,7 @@ export default function Fornecedor() {
           </div>
         )}
 
-        {/* AVISOS DO DASHBOARD (RESTAURADOS) */}
+        {/* AVISOS DO DASHBOARD */}
         {adminView === 'notices' && (
           <div className="space-y-6 animate-in slide-in-from-right">
             <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
@@ -412,7 +415,7 @@ export default function Fornecedor() {
           </div>
         )}
 
-        {/* BOTÕES RÁPIDOS (RESTAURADOS) */}
+        {/* BOTÕES RÁPIDOS */}
         {adminView === 'links' && (
           <div className="space-y-6 animate-in slide-in-from-right">
             <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
@@ -442,6 +445,52 @@ export default function Fornecedor() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* VITRINE PÚBLICA */}
+        {adminView === 'showcases' && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                {editingShowcase ? (
+                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                        <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center justify-between"><div className="flex items-center gap-2"><Store className="text-emerald-400"/><h2 className="text-lg font-bold text-white">Configurar Vitrine</h2></div><button onClick={() => setEditingShowcase(null)} className="text-slate-400 hover:text-white"><X/></button></div>
+                        <form onSubmit={handleSaveShowcase} className="p-4 md:p-6 space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Vitrine (Público)*</label><input value={editingShowcase.name || ''} onChange={e => setEditingShowcase({...editingShowcase, name: e.target.value})} required placeholder="Ex: Coleção Verão" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-emerald-500" /></div>
+                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Adicional no Preço (%)</label><div className="relative"><Percent className="absolute left-3 top-3 text-slate-500 w-5 h-5"/><input type="number" value={editingShowcase.config?.priceMarkup || 0} onChange={e => setEditingShowcase({...editingShowcase, config: {...(editingShowcase.config as any), priceMarkup: Number(e.target.value)}})} className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-10 pr-3 py-3 text-white outline-none focus:border-emerald-500" /></div><p className="text-[10px] text-slate-500 mt-1">Acresce esse % no preço base para o cliente final.</p></div>
+                            </div>
+                            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
+                                <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center"><h3 className="font-bold text-white text-sm">Modelos Visíveis ({editingShowcase.models?.length || 0})</h3><div className="flex gap-2"><button type="button" onClick={selectAllModelsForShowcase} className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded font-bold text-white transition-colors">Marcar Todos</button><button type="button" onClick={clearAllModelsForShowcase} className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-1.5 rounded font-bold transition-colors">Limpar</button></div></div>
+                                <div className="p-4 max-h-[40vh] overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-2">
+                                    {Object.entries(groupedAdminProducts).map(([name, group]: any) => (
+                                        <label key={name} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${editingShowcase.models?.includes(name) ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}>
+                                            <input type="checkbox" checked={editingShowcase.models?.includes(name)} onChange={() => toggleModelInShowcase(name)} className="accent-emerald-500 w-4 h-4"/>
+                                            <div className="flex items-center gap-3"><img src={group.info.image?.split(',')[0]} className="w-8 h-8 rounded bg-slate-800 object-cover" /><span className="text-sm font-bold text-white truncate">{name}</span></div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <button type="submit" disabled={isSavingBatch} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Vitrine</button>
+                        </form>
+                    </div>
+                ) : (
+                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                        <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Store className="text-emerald-400" /><h2 className="text-lg font-bold text-white">Vitrines Ativas</h2></div><button onClick={() => setEditingShowcase({ name: '', config: { showPrice: true, priceMarkup: 0 }, models: [] })} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1"><Plus size={16}/> Nova Vitrine</button></div>
+                        <div className="p-4 space-y-3">
+                            {showcases.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhuma vitrine criada.</p> : showcases.map((s:any) => (
+                                <div key={s.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
+                                    <div><h3 className="font-bold text-white text-lg">{s.name}</h3><div className="flex items-center gap-3 mt-1"><span className="text-xs text-emerald-400 font-bold bg-emerald-400/10 px-2 py-0.5 rounded">{s.models.length} Modelos</span><span className="text-xs text-slate-500 font-mono">Markup: +{s.config.priceMarkup}%</span></div></div>
+                                    <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                                        <button onClick={() => copyShowcaseLink(s.linkId)} className="flex-1 md:flex-none bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"><Copy size={14}/> Copiar Link</button>
+                                        <button onClick={() => window.open(`/?vitrine=${s.linkId}`, '_blank')} className="flex-1 md:flex-none bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"><ExternalLink size={14}/> Acessar</button>
+                                        <button onClick={() => setEditingShowcase(s)} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg transition-colors"><Pencil size={14}/></button>
+                                        <button onClick={() => handleDeleteShowcase(s.id)} className="bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg transition-colors"><Trash2 size={14}/></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
         )}
 
       </main>
