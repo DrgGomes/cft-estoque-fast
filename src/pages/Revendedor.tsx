@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { Layers, LayoutGrid, Play, Plug, Ticket, Wallet, LogOut, Search, CheckSquare, Image as ImageIcon, ChevronUp, ChevronDown, Download, Send, GraduationCap, ChevronLeft, Film, CheckCircle2, Circle, Bell, X, MousePointerClick, Store, RefreshCw, MessageCircle, Video, Globe, ShoppingBag, FileText, Smartphone, Link2 } from 'lucide-react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play, Layers, Box, CheckSquare, Plug, Send, CheckCircle2, Circle, Bell, MousePointerClick, Video, Globe, ShoppingBag, FileText, Smartphone } from 'lucide-react';
 import { AppContext, formatCurrency, formatDate, getYoutubeId } from '../AppContext';
 import { Product, QuickLink } from '../types';
 
@@ -203,6 +203,16 @@ export default function Revendedor() {
           )}
         </div>
       </main>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+        <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
+        <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
+        <button onClick={() => setUserView('integrations')} className={`flex flex-col items-center gap-1 relative ${userView === 'integrations' ? '' : 'text-slate-400'}`} style={userView === 'integrations' ? {color: brandColor} : {}}>
+           <Plug size={20} />
+           {userProfile?.shopeeConnected && <span className="absolute top-0 right-3 w-2 h-2 bg-green-500 rounded-full"></span>}
+           <span className="text-[10px] font-bold">Conectar</span>
+        </button>
+        <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? '' : 'text-slate-400'}`} style={userView === 'support' ? {color: brandColor} : {}}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
+      </nav>
     </div>
   );
 }
