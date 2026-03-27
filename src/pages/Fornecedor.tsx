@@ -94,6 +94,70 @@ export default function Fornecedor() {
           </div>
         )}
 
+        {adminView === 'showcases' && (
+            <div className="space-y-6 animate-in slide-in-from-right">
+                {editingShowcase ? (
+                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                        <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center justify-between"><div className="flex items-center gap-2"><Store className="text-emerald-400"/><h2 className="text-lg font-bold text-white">Configurar Vitrine</h2></div><button onClick={() => setEditingShowcase(null)} className="text-slate-400 hover:text-white"><X/></button></div>
+                        <form onSubmit={handleSaveShowcase} className="p-4 md:p-6 space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Vitrine (Público)*</label><input value={editingShowcase.name || ''} onChange={e => setEditingShowcase({...editingShowcase, name: e.target.value})} required placeholder="Ex: Coleção Verão" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-emerald-500" /></div>
+                                
+                                {/* ADICIONADO: BOTÃO OCULTAR PREÇO */}
+                                <div className="space-y-4">
+                                    <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-950 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors">
+                                        <input type="checkbox" checked={editingShowcase.config?.showPrice ?? true} onChange={e => setEditingShowcase({...editingShowcase, config: {...(editingShowcase.config as any), showPrice: e.target.checked}})} className="w-5 h-5 accent-emerald-500" />
+                                        <div>
+                                            <span className="font-bold text-white text-sm block">Exibir Preços</span>
+                                            <span className="text-[10px] text-slate-500">Se desmarcado, os produtos aparecerão sem valor para o cliente final.</span>
+                                        </div>
+                                    </label>
+                                    
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Adicional no Preço (%)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-3 text-slate-500 font-bold">%</span>
+                                            <input type="number" disabled={!(editingShowcase.config?.showPrice ?? true)} value={editingShowcase.config?.priceMarkup || 0} onChange={e => setEditingShowcase({...editingShowcase, config: {...(editingShowcase.config as any), priceMarkup: Number(e.target.value)}})} className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-10 pr-3 py-3 text-white outline-none focus:border-emerald-500 disabled:opacity-50" />
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mt-1">Acresce esse % no preço base.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
+                                <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center"><h3 className="font-bold text-white text-sm">Modelos Visíveis ({editingShowcase.models?.length || 0})</h3><div className="flex gap-2"><button type="button" onClick={selectAllModelsForShowcase} className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded font-bold text-white transition-colors">Marcar Todos</button><button type="button" onClick={clearAllModelsForShowcase} className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-1.5 rounded font-bold transition-colors">Limpar</button></div></div>
+                                <div className="p-4 max-h-[40vh] overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-2">
+                                    {Object.entries(groupedAdminProducts).map(([name, group]: any) => (
+                                        <label key={name} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${editingShowcase.models?.includes(name) ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}>
+                                            <input type="checkbox" checked={editingShowcase.models?.includes(name)} onChange={() => toggleModelInShowcase(name)} className="accent-emerald-500 w-4 h-4"/>
+                                            <div className="flex items-center gap-3"><img src={group.info.image?.split(',')[0]} className="w-8 h-8 rounded bg-slate-800 object-cover" /><span className="text-sm font-bold text-white truncate">{name}</span></div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <button type="submit" disabled={isSavingBatch} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Vitrine</button>
+                        </form>
+                    </div>
+                ) : (
+                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
+                        <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Store className="text-emerald-400" /><h2 className="text-lg font-bold text-white">Vitrines Ativas</h2></div><button onClick={() => setEditingShowcase({ name: '', config: { showPrice: true, priceMarkup: 0 }, models: [] })} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1"><Plus size={16}/> Nova Vitrine</button></div>
+                        <div className="p-4 space-y-3">
+                            {showcases.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhuma vitrine criada.</p> : showcases.map((s:any) => (
+                                <div key={s.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
+                                    <div><h3 className="font-bold text-white text-lg">{s.name}</h3><div className="flex items-center gap-3 mt-1"><span className="text-xs text-emerald-400 font-bold bg-emerald-400/10 px-2 py-0.5 rounded">{s.models.length} Modelos</span><span className="text-xs text-slate-500 font-mono">Markup: +{s.config.priceMarkup}%</span><span className="text-xs text-slate-500 font-mono">{s.config.showPrice ? 'Preço: Visível' : 'Preço: Oculto'}</span></div></div>
+                                    <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                                        <button onClick={() => copyShowcaseLink(s.linkId)} className="flex-1 md:flex-none bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"><Copy size={14}/> Copiar Link</button>
+                                        <button onClick={() => window.open(`https://${currentTenant?.domain || window.location.hostname}/?vitrine=${s.linkId}`, '_blank')} className="flex-1 md:flex-none bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"><ExternalLink size={14}/> Acessar</button>
+                                        <button onClick={() => setEditingShowcase(s)} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg transition-colors"><Pencil size={14}/></button>
+                                        <button onClick={() => handleDeleteShowcase(s.id)} className="bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg transition-colors"><Trash2 size={14}/></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+
         {adminView === 'scanner' && (
           <div className="space-y-6 animate-in slide-in-from-right max-w-2xl mx-auto">
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden p-6 md:p-8">
@@ -121,6 +185,7 @@ export default function Fornecedor() {
                  <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-emerald-500"><div className="bg-emerald-500/10 p-3 rounded-xl"><DollarSign className="text-emerald-500" size={24}/></div><div><p className="text-[10px] font-bold text-slate-500 uppercase">Valor em Estoque</p><h3 className="text-2xl font-black text-green-400">{formatCurrency(adminStockStats.totalValue)}</h3></div></div>
                  <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-lg border-l-4 border-l-red-500"><div className="bg-red-500/10 p-3 rounded-xl"><AlertTriangle className="text-red-500" size={24}/></div><div><p className="text-[10px] font-bold text-slate-500 uppercase">Modelos Esgotados</p><h3 className="text-2xl font-black text-red-400">{adminStockStats.outOfStockModels}</h3></div></div>
              </div>
+
              <div className="flex flex-col md:flex-row gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800">
                  <div className="relative flex-1"><Search className="absolute left-4 top-3 text-slate-500 w-5 h-5" /><input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome ou SKU..." className="w-full pl-12 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none" /></div>
                  <div className="flex gap-2 overflow-x-auto hidden-scroll">
@@ -129,6 +194,7 @@ export default function Fornecedor() {
                      <button onClick={() => setAdminStockFilter('out')} className={`px-4 py-2 rounded-xl text-sm font-bold shrink-0 transition-colors ${adminStockFilter === 'out' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Esgotados</button>
                  </div>
              </div>
+
              <div>
                {filteredAdminList.length === 0 ? (<p className="text-center text-slate-500 py-10">Nenhum produto encontrado nesse filtro.</p>) : (
                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -404,206 +470,6 @@ export default function Fornecedor() {
                 </div>
             </div>
         )}
-
-        {adminView === 'customers' && (
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
-             <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><Users className="text-indigo-400" size={24}/><h2 className="text-xl font-black text-white">Revendedores Cadastrados</h2></div><div className="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded font-bold text-sm">Total: {usersList.length}</div></div>
-             <div className="p-5 space-y-3">
-                 {usersList.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum cliente cadastrado.</p> : usersList.map((u: any) => (
-                     <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 font-black text-lg uppercase">{u.name ? String(u.name).substring(0,2) : 'CL'}</div><div><h3 className="font-bold text-white text-lg">{u.name || 'Sem Nome'}</h3><p className="text-sm text-slate-500">{u.email}</p></div></div><div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg flex items-center gap-3 min-w-[200px] justify-between"><span className="text-xs text-slate-400 font-bold uppercase flex items-center gap-1"><Wallet size={14}/> Crédito</span><span className="text-lg font-black text-green-400">{formatCurrency(u.creditBalance || 0)}</span></div></div>
-                 ))}
-             </div>
-          </div>
-        )}
-
-        {adminView === 'tickets' && (
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
-                <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
-                <div className="p-5 space-y-4">
-                    {allTickets.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum chamado aberto no momento.</p> : allTickets.map((ticket: any) => (
-                        <div key={ticket.id} className="bg-slate-950 border border-slate-800 p-5 rounded-xl flex flex-col gap-4">
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
-                                <div><div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${ticket.type === 'devolucao' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>{ticket.type}</span><span className="text-xs text-slate-500 font-mono">{formatDate(ticket.createdAt)}</span>{ticket.status === 'pendente' && <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-black px-2 py-0.5 rounded uppercase animate-pulse border border-yellow-500/30">Novo</span>}{ticket.status === 'aguardando_devolucao' && <span className="bg-orange-500/20 text-orange-400 text-[10px] font-black px-2 py-0.5 rounded uppercase border border-orange-500/30 flex items-center gap-1"><Clock size={10}/> Esperando Peça</span>}{ticket.status === 'aceito' && <span className="text-emerald-500 text-[10px] font-black uppercase"><Check size={12} className="inline"/> Autorizado</span>}{ticket.status === 'concluido' && <span className="text-blue-500 text-[10px] font-black uppercase">Finalizado</span>}{ticket.status === 'recusado' && <span className="text-red-500 text-[10px] font-black uppercase">Recusado</span>}</div><h3 className="font-bold text-white text-lg">{ticket.userName}</h3></div>
-                                <div className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-right"><span className="block text-[10px] text-slate-400 uppercase font-bold">Valor Ref.</span><span className="font-black text-green-400">{formatCurrency(ticket.productValue)}</span></div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="bg-slate-900 p-3 rounded-lg border border-slate-800"><span className="block text-xs text-slate-500 uppercase font-bold mb-1">Dados da Solicitação</span><span className="font-medium text-white whitespace-pre-wrap leading-relaxed block">{ticket.productInfo}</span></div><div className="bg-slate-900 p-3 rounded-lg border border-slate-800"><span className="block text-xs text-slate-500 uppercase font-bold mb-1">Motivo / Defeito</span><span className="font-medium text-slate-300 text-sm leading-relaxed block">{ticket.reason}</span></div></div>
-                            <div className="pt-2 flex flex-wrap gap-2">
-                                {ticket.status === 'pendente' && ticket.type === 'troca' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_troca')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Aceitar Troca</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar</button></>)}
-                                {ticket.status === 'pendente' && ticket.type === 'devolucao' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_devolucao')} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Clock size={16}/> Autorizar (Aguardar Peça)</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar (Sem Defeito)</button></>)}
-                                {ticket.status === 'aguardando_devolucao' && ticket.type === 'devolucao' && (<button onClick={() => handleAdminTicketAction(ticket, 'recebido_gerar_credito')} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/50 animate-bounce"><Wallet size={18}/> Produto Entregue - Gerar Crédito (R$ {ticket.productValue.toFixed(2)})</button>)}
-                                {ticket.status === 'aceito' && ticket.type === 'troca' && (<span className="text-emerald-500 text-xs font-bold flex items-center gap-1"><Check size={16}/> Aguardando envio do cliente</span>)}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        {adminView === 'academy' && (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex items-center gap-3">
-                <GraduationCap className="text-red-500" size={24}/>
-                <h2 className="text-xl font-black text-white">Jornada do Aluno (Treinamentos)</h2>
-              </div>
-              <form onSubmit={handleSaveAcademy} className="p-5 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Módulo / Temporada</label>
-                    <div className="flex gap-2 mb-2">
-                      <label className="flex items-center gap-2 text-sm text-slate-300"><input type="radio" checked={academySeasonMode==='existing'} onChange={() => setAcademySeasonMode('existing')} className="accent-red-500"/> Existente</label>
-                      <label className="flex items-center gap-2 text-sm text-slate-300"><input type="radio" checked={academySeasonMode==='new'} onChange={() => setAcademySeasonMode('new')} className="accent-red-500"/> Novo</label>
-                    </div>
-                    {academySeasonMode === 'existing' ? (
-                      <select value={academySeason} onChange={(e:any) => setAcademySeason(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500">
-                        <option value="">Selecione um Módulo...</option>
-                        {availableSeasons.map((s:any) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <input value={academyNewSeason} onChange={(e:any) => setAcademyNewSeason(e.target.value)} placeholder="Ex: Módulo 1 - Iniciantes" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" />
-                    )}
-                  </div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Episódio / Ordem</label><input type="number" value={academyEpisode} onChange={(e:any) => setAcademyEpisode(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título da Aula</label><input value={academyTitle} onChange={(e:any) => setAcademyTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do YouTube</label><input value={academyYoutube} onChange={(e:any) => setAcademyYoutube(e.target.value)} required placeholder="https://www.youtube.com/watch?v=..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Descrição da Aula</label><textarea value={academyDesc} onChange={(e:any) => setAcademyDesc(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500"></textarea></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do Banner (Imagem)</label><input value={academyBanner} onChange={(e:any) => setAcademyBanner(e.target.value)} placeholder="https://..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Links/Materiais de Apoio</label><input value={academyLinks} onChange={(e:any) => setAcademyLinks(e.target.value)} placeholder="https://drive.google.com/..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                </div>
-                <button type="submit" disabled={isSavingBatch} className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar Aula</button>
-              </form>
-            </div>
-            
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30"><h2 className="font-bold text-white">Aulas Publicadas</h2></div>
-              <div className="p-5 space-y-4">
-                 {academySeasons.length === 0 ? <p className="text-slate-500 text-center">Nenhuma aula cadastrada.</p> : academySeasons.map((season: any, idx: number) => (
-                     <div key={idx} className="space-y-2">
-                         <h3 className="font-black text-red-500 border-b border-slate-800 pb-2">{season.name}</h3>
-                         {season.episodes.map((ep: any) => (
-                             <div key={ep.id} className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                                 <div>
-                                     <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-bold mr-2">Ep {ep.episode}</span>
-                                     <span className="font-bold text-sm text-white">{ep.title}</span>
-                                 </div>
-                                 <button onClick={() => handleDeleteAcademy(ep.id)} className="text-red-500 hover:bg-red-500/10 p-2 rounded transition-colors"><Trash2 size={16}/></button>
-                             </div>
-                         ))}
-                     </div>
-                 ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {adminView === 'notices' && (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
-              <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1"><input type="radio" checked={noticeType==='text'} onChange={()=>setNoticeType('text')} className="accent-amber-500"/><span className="text-sm font-bold">Aviso Normal</span></label>
-                    <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1"><input type="radio" checked={noticeType==='banner'} onChange={()=>setNoticeType('banner')} className="accent-amber-500"/><span className="text-sm font-bold">Banner</span></label>
-                  </div>
-                </div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título*</label><input value={noticeTitle} onChange={(e:any)=>setNoticeTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"/></div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Conteúdo</label><textarea value={noticeContent} onChange={(e:any)=>setNoticeContent(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"></textarea></div>
-                {noticeType === 'banner' && <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Imagem</label><input value={noticeImage} onChange={(e:any)=>setNoticeImage(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"/></div>}
-                <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar</button>
-              </form>
-            </div>
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
-              <div className="p-4 space-y-3">
-                {notices.map((n:any) => (
-                  <div key={n.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
-                    <div><span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-1 rounded uppercase font-bold mr-2">{n.type}</span><span className="font-bold text-white">{n.title}</span></div>
-                    <button onClick={()=>handleDeleteNotice(n.id)} className="text-red-500"><Trash2 size={16}/></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {adminView === 'links' && (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div>
-              <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título*</label><input value={linkTitle} onChange={(e:any)=>setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={(e:any)=>setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">URL Destino*</label><input value={linkUrl} onChange={(e:any)=>setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  <div className="flex gap-4">
-                     <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={(e:any)=>setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"><option value="Link2">Padrão</option><option value="MessageCircle">WhatsApp</option><option value="Globe">Site</option></select></div>
-                     <div className="w-24"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={(e:any)=>setLinkOrder(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  </div>
-                </div>
-                <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
-              </form>
-            </div>
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
-              <div className="p-4 space-y-3">
-                {quickLinks.map((link:any) => (
-                  <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
-                    <div><span className="font-bold text-white text-sm">{link.title}</span><p className="text-xs text-slate-500">{link.url}</p></div>
-                    <button onClick={()=>handleDeleteLink(link.id)} className="text-red-500"><Trash2 size={16}/></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {adminView === 'showcases' && (
-            <div className="space-y-6 animate-in slide-in-from-right">
-                {editingShowcase ? (
-                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-                        <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center justify-between"><div className="flex items-center gap-2"><Store className="text-emerald-400"/><h2 className="text-lg font-bold text-white">Configurar Vitrine</h2></div><button onClick={() => setEditingShowcase(null)} className="text-slate-400 hover:text-white"><X/></button></div>
-                        <form onSubmit={handleSaveShowcase} className="p-4 md:p-6 space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome da Vitrine (Público)*</label><input value={editingShowcase.name || ''} onChange={e => setEditingShowcase({...editingShowcase, name: e.target.value})} required placeholder="Ex: Coleção Verão" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-emerald-500" /></div>
-                                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Adicional no Preço (%)</label><div className="relative"><span className="absolute left-3 top-3 text-slate-500 font-bold">%</span><input type="number" value={editingShowcase.config?.priceMarkup || 0} onChange={e => setEditingShowcase({...editingShowcase, config: {...(editingShowcase.config as any), priceMarkup: Number(e.target.value)}})} className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-10 pr-3 py-3 text-white outline-none focus:border-emerald-500" /></div><p className="text-[10px] text-slate-500 mt-1">Acresce esse % no preço base para o cliente final.</p></div>
-                            </div>
-                            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
-                                <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center"><h3 className="font-bold text-white text-sm">Modelos Visíveis ({editingShowcase.models?.length || 0})</h3><div className="flex gap-2"><button type="button" onClick={selectAllModelsForShowcase} className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded font-bold text-white transition-colors">Marcar Todos</button><button type="button" onClick={clearAllModelsForShowcase} className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-1.5 rounded font-bold transition-colors">Limpar</button></div></div>
-                                <div className="p-4 max-h-[40vh] overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-2">
-                                    {Object.entries(groupedAdminProducts).map(([name, group]: any) => (
-                                        <label key={name} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${editingShowcase.models?.includes(name) ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}>
-                                            <input type="checkbox" checked={editingShowcase.models?.includes(name)} onChange={() => toggleModelInShowcase(name)} className="accent-emerald-500 w-4 h-4"/>
-                                            <div className="flex items-center gap-3"><img src={group.info.image?.split(',')[0]} className="w-8 h-8 rounded bg-slate-800 object-cover" /><span className="text-sm font-bold text-white truncate">{name}</span></div>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                            <button type="submit" disabled={isSavingBatch} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Vitrine</button>
-                        </form>
-                    </div>
-                ) : (
-                    <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-                        <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between items-center"><div className="flex items-center gap-2"><Store className="text-emerald-400" /><h2 className="text-lg font-bold text-white">Vitrines Ativas</h2></div><button onClick={() => setEditingShowcase({ name: '', config: { showPrice: true, priceMarkup: 0 }, models: [] })} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1"><Plus size={16}/> Nova Vitrine</button></div>
-                        <div className="p-4 space-y-3">
-                            {showcases.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhuma vitrine criada.</p> : showcases.map((s:any) => (
-                                <div key={s.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors">
-                                    <div><h3 className="font-bold text-white text-lg">{s.name}</h3><div className="flex items-center gap-3 mt-1"><span className="text-xs text-emerald-400 font-bold bg-emerald-400/10 px-2 py-0.5 rounded">{s.models.length} Modelos</span><span className="text-xs text-slate-500 font-mono">Markup: +{s.config.priceMarkup}%</span></div></div>
-                                    <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                                        <button onClick={() => copyShowcaseLink(s.linkId)} className="flex-1 md:flex-none bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"><Copy size={14}/> Copiar Link</button>
-                                        <button onClick={() => window.open(`/?vitrine=${s.linkId}`, '_blank')} className="flex-1 md:flex-none bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"><ExternalLink size={14}/> Acessar</button>
-                                        <button onClick={() => setEditingShowcase(s)} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg transition-colors"><Pencil size={14}/></button>
-                                        <button onClick={() => handleDeleteShowcase(s.id)} className="bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg transition-colors"><Trash2 size={14}/></button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-        )}
-
       </main>
     </div>
   );

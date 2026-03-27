@@ -4,10 +4,11 @@ import Login from './pages/Login';
 import Fornecedor from './pages/Fornecedor';
 import Revendedor from './pages/Revendedor';
 import SuperAdmin from './pages/SuperAdmin';
+import Vitrine from './pages/Vitrine'; // NOVA ROTA
 import { RefreshCw } from 'lucide-react';
 
 function AppRouter() {
-    const { globalLoading, isSuperAdminMode, superAdminAuthenticated, selectedRole } = useContext(AppContext);
+    const { globalLoading, isSuperAdminMode, superAdminAuthenticated, selectedRole, isVitrineMode } = useContext(AppContext);
 
     if (globalLoading) {
         return (
@@ -17,6 +18,9 @@ function AppRouter() {
         );
     }
     
+    // SE O LINK TIVER ?vitrine=XXX, ELE MOSTRA O CATÁLOGO PÚBLICO NA HORA
+    if (isVitrineMode) return <Vitrine />;
+
     if (isSuperAdminMode && !superAdminAuthenticated) return <SuperAdmin />;
     if (isSuperAdminMode && superAdminAuthenticated) return <SuperAdmin />;
     if (!selectedRole) return <Login />;

@@ -74,26 +74,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); }); return () => unsubscribe(); }, []);
   useEffect(() => { if (searchTerm.trim() === '') { setFilteredProducts(products); } else { const lowerTerm = searchTerm.toLowerCase(); setFilteredProducts(products.filter(p => { const name = String(p.name || '').toLowerCase(); const sku = String(p.sku || '').toLowerCase(); return name.includes(lowerTerm) || sku.includes(lowerTerm); })); } }, [searchTerm, products]);
   
-  // Gerador de grade quando o usuário adiciona cor/tamanho
-  useEffect(() => { 
-    const newRows: VariationRow[] = []; 
-    colors.forEach(color => { 
-      sizes.forEach(size => { 
-        const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); 
-        const cleanColor = color.toUpperCase(); 
-        const cleanSize = size.toUpperCase().replace(/\s+/g, ''); 
-        const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; 
-        const existingRow = generatedRows.find(r => r.color === color && r.size === size); 
-        newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); 
-      });
-    }); 
-    setGeneratedRows(newRows); 
-  }, [colors, sizes, baseSku]);
-
-  // NOVO: Função para Auto-gerar códigos de barras na tela de Add Produto
-  const handleGenerateAllAddBarcodes = () => {
-      setGeneratedRows(prev => prev.map(r => ({ ...r, barcode: r.barcode || Math.floor(1000000000000 + Math.random() * 9000000000000).toString() })));
-  };
+  useEffect(() => { const newRows: VariationRow[] = []; colors.forEach(color => { sizes.forEach(size => { const cleanSku = baseSku.toUpperCase().replace(/\s+/g, ''); const cleanColor = color.toUpperCase(); const cleanSize = size.toUpperCase().replace(/\s+/g, ''); const autoSku = cleanSku && cleanColor && cleanSize ? `${cleanSku}-${cleanColor}-${cleanSize}` : ''; const existingRow = generatedRows.find(r => r.color === color && r.size === size); newRows.push({ color, size, sku: autoSku, barcode: existingRow ? existingRow.barcode : '' }); });}); setGeneratedRows(newRows); }, [colors, sizes, baseSku]);
+  const handleGenerateAllAddBarcodes = () => { setGeneratedRows(prev => prev.map(r => ({ ...r, barcode: r.barcode || Math.floor(1000000000000 + Math.random() * 9000000000000).toString() }))); };
 
   const groupProducts = (items: Product[]) => { const groups: Record<string, { info: Product & {driveLink?: string}, total: number, items: Product[] }> = {}; if (!items || !Array.isArray(items)) return groups; items.forEach(product => { if (!product) return; const key = String(product.name || 'Sem Nome'); if (!groups[key]) groups[key] = { info: product, total: 0, items: [] }; groups[key].items.push(product); groups[key].total += Number(product.quantity || 0); }); Object.values(groups).forEach(group => { group.items.sort((a, b) => { const colorA = String(a.color || '').toLowerCase(); const colorB = String(b.color || '').toLowerCase(); if (colorA !== colorB) return colorA.localeCompare(colorB); const numA = parseFloat(a.size); const numB = parseFloat(b.size); if (!isNaN(numA) && !isNaN(numB)) return numA - numB; return String(a.size || '').localeCompare(String(b.size || '')); }); }); return groups; };
   const groupedProducts = groupProducts(filteredProducts); const groupedAdminProducts = groupProducts(filteredProducts);
@@ -121,12 +103,21 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
+  
   const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
   const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
   const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
-  const copyShowcaseLink = (linkId: string) => { const url = `${window.location.origin}${window.location.pathname}?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Copiado!"); };
+  
+  // AQUI FOI CORRIGIDO O LINK PARA PUXAR O DOMÍNIO PRÓPRIO
+  const copyShowcaseLink = (linkId: string) => { 
+      const domain = currentTenant?.domain ? currentTenant.domain : window.location.hostname;
+      const url = `https://${domain}/?vitrine=${linkId}`; 
+      navigator.clipboard.writeText(url); 
+      alert("Link copiado: " + url); 
+  };
+  
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
@@ -134,80 +125,25 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const handleUpdateQuantity = async (product: Product, newQty: number) => { if (newQty < 0) return; const diff = newQty - product.quantity; if (diff === 0) return; const type = diff > 0 ? 'entry' : 'exit'; try { const batch = writeBatch(db); const productRef = doc(db, getCol('products'), product.id); batch.update(productRef, { quantity: newQty, updatedAt: serverTimestamp() }); const historyRef = doc(collection(db, getCol('history'))); batch.set(historyRef, { productId: product.id, productName: product.name, sku: product.sku || '', image: product.image || '', type: type, amount: Math.abs(diff), previousQty: product.quantity, newQty: newQty, timestamp: serverTimestamp() }); await batch.commit(); } catch (e) { console.error(e); } };
   const openGroupEdit = (groupName: string, groupData: any) => { const info = groupData.info; const resolvedParentSku = info.parentSku || (info.sku ? info.sku.split('-').slice(0, -2).join('-') : ''); setAdminViewingGroupName(null); setEditingGroup({ oldName: groupName, name: info.name, description: info.description || '', image: info.image || '', price: info.price || 0, weight: info.weight || 800, length: info.length || 33, width: info.width || 12, height: info.height || 19, ncm: info.ncm || '', cest: info.cest || '', material: info.material || '', sole: info.sole || '', fastening: info.fastening || '', parentSku: resolvedParentSku, driveLink: info.driveLink || '', items: groupData.items }); };
   const handleDeleteGroup = async () => { if(editingGroup && confirm('Excluir todas as variações deste modelo?')) { setIsSavingBatch(true); try { const batch = writeBatch(db); editingGroup.items.forEach((item: Product) => { batch.delete(doc(db, getCol('products'), item.id)); }); await batch.commit(); setEditingGroup(null); alert('Excluído!'); } catch(e) { console.error(e); } finally { setIsSavingBatch(false); } } };
-  
   const handleSaveGroupEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!editingGroup) return; setIsSavingBatch(true); const priceNumber = typeof editingGroup.price === 'string' ? parseFloat(editingGroup.price) : editingGroup.price; try { const batch = writeBatch(db); editingGroup.items.forEach((item: Product) => { const ref = doc(db, getCol('products'), item.id); batch.update(ref, { name: editingGroup.name, description: editingGroup.description, image: editingGroup.image, price: priceNumber, weight: editingGroup.weight, length: editingGroup.length, width: editingGroup.width, height: editingGroup.height, ncm: editingGroup.ncm, cest: editingGroup.cest, material: editingGroup.material, sole: editingGroup.sole, fastening: editingGroup.fastening, parentSku: editingGroup.parentSku.toUpperCase().replace(/\s+/g, ''), driveLink: editingGroup.driveLink, sku: item.sku, barcode: item.barcode, updatedAt: serverTimestamp() }); }); await batch.commit(); setEditingGroup(null); alert("Atualizado!"); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
 
-  // =======================================================================================
-  // NOVO: IMPRESSÃO DE ETIQUETAS EM LOTE (75x35mm) COM OPÇÃO DE QR CODE E REDESIGN
-  // =======================================================================================
   const handlePrintLabels = (itemsToPrint: any[], type: 'qrcode' | 'barcode' = 'qrcode') => {
-      let htmlContent = `<html><head><title>Etiquetas 75x35</title>
-      <style>
-          @page { size: 75mm 35mm; margin: 0; }
-          body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff;}
-          .label { 
-              width: 75mm; height: 35mm; box-sizing: border-box; 
-              padding: 2mm 3mm; page-break-after: always; 
-              display: flex; flex-direction: row; align-items: center; justify-content: space-between; 
-              overflow: hidden; 
-          }
-          .img-container { 
-              width: 45%; height: 100%; 
-              display: flex; align-items: center; justify-content: center; 
-          }
-          .img-container img { 
-              max-width: 100%; max-height: 100%; object-fit: contain; 
-          }
-          .text-container { 
-              width: 55%; height: 100%; 
-              display: flex; flex-direction: column; justify-content: space-between; align-items: center; 
-              text-align: center; padding: 4mm 0 4mm 2mm; box-sizing: border-box;
-          }
-          .parent-sku { 
-              font-size: 13px; font-weight: 900; word-wrap: break-word; line-height: 1.1; color: #000;
-          }
-          .variation { 
-              font-size: 13px; font-weight: 900; color: #000; 
-          }
-      </style></head><body>`;
-
+      let htmlContent = `<html><head><title>Etiquetas 75x35</title><style>@page { size: 75mm 35mm; margin: 0; } body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff;} .label { width: 75mm; height: 35mm; box-sizing: border-box; padding: 2mm 3mm; page-break-after: always; display: flex; flex-direction: row; align-items: center; justify-content: space-between; overflow: hidden; } .img-container { width: 45%; height: 100%; display: flex; align-items: center; justify-content: center; } .img-container img { max-width: 100%; max-height: 100%; object-fit: contain; } .text-container { width: 55%; height: 100%; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; padding: 4mm 0 4mm 2mm; box-sizing: border-box; } .parent-sku { font-size: 13px; font-weight: 900; word-wrap: break-word; line-height: 1.1; color: #000;} .variation { font-size: 13px; font-weight: 900; color: #000; }</style></head><body>`;
       itemsToPrint.forEach(item => {
           for(let i=0; i<item.printQty; i++) {
               const code = item.barcode || item.sku;
               const bcid = type === 'qrcode' ? 'qrcode' : 'code128';
               const parentSku = item.parentSku || (item.sku ? item.sku.split('-').slice(0, 2).join('-') : 'SKU');
-              
-              // Gerador Universal do BWIP-JS (Lê tanto QrCode quanto Code128)
               const barcodeImg = `https://bwipjs-api.metafloor.com/?bcid=${bcid}&text=${encodeURIComponent(code)}&scale=3&includetext=false`;
-              
-              htmlContent += `
-                <div class="label">
-                    <div class="img-container">
-                        <img src="${barcodeImg}" />
-                    </div>
-                    <div class="text-container">
-                        <div class="parent-sku">${parentSku}</div>
-                        <div class="variation">${item.size}, ${item.color}</div>
-                    </div>
-                </div>`;
+              htmlContent += `<div class="label"><div class="img-container"><img src="${barcodeImg}" /></div><div class="text-container"><div class="parent-sku">${parentSku}</div><div class="variation">${item.size}, ${item.color}</div></div></div>`;
           }
       });
       htmlContent += `</body></html>`;
-      
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'absolute'; iframe.style.top = '-10000px';
-      document.body.appendChild(iframe);
+      const iframe = document.createElement('iframe'); iframe.style.position = 'absolute'; iframe.style.top = '-10000px'; document.body.appendChild(iframe);
       const docFrame = iframe.contentWindow?.document || iframe.contentDocument;
       if(docFrame) { docFrame.open(); docFrame.write(htmlContent); docFrame.close(); }
-      
-      // Espera 1.5 segundos para dar tempo do Google baixar os QR Codes da API antes de imprimir
-      setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-          setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 1000);
-      }, 1500);
+      setTimeout(() => { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 1000); }, 1500);
   };
-  // =======================================================================================
 
   const contextValue = {
     currentTenant, isSuperAdminMode, superAdminAuthenticated, setSuperAdminAuthenticated, saasTenants, selectedRole, setSelectedRole, user, userProfile,
