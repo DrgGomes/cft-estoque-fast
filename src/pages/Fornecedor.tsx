@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign } from 'lucide-react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon } from 'lucide-react';
 import { AppContext, formatCurrency, formatDate, parseImages } from '../AppContext';
-import { Product } from '../types';
+import { Product, SupportTicket } from '../types';
 
 export default function Fornecedor() {
   const ctx = useContext(AppContext);
@@ -26,7 +26,7 @@ export default function Fornecedor() {
     setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, 
     handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, 
     selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase 
-  } = ctx; // <-- AQUI É ONDE PUXAMOS OS CANOS DA CAIXA D'ÁGUA!
+  } = ctx;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
