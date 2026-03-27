@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Scan, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Layers, Box } from 'lucide-react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Scan, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Layers, Box, Wand2 } from 'lucide-react';
 import { AppContext, formatCurrency, formatDate, parseImages, playSound } from '../AppContext';
 import { Product, SupportTicket } from '../types';
 
@@ -8,8 +8,7 @@ export default function Fornecedor() {
   const { 
     currentTenant, adminView, setAdminView, handleLogout, adminStockStats, searchTerm, setSearchTerm, 
     adminStockFilter, setAdminStockFilter, filteredAdminList, setAdminViewingGroupName, adminViewingGroupName, 
-    groupedAdminProducts, handleUpdateQuantity, editingProduct, setEditingProduct, handleDeleteProductFromModal, 
-    handleSaveEdit, openGroupEdit, editingGroup, setEditingGroup, handleDeleteGroup, handleSaveGroupEdit, 
+    groupedAdminProducts, handleUpdateQuantity, openGroupEdit, editingGroup, setEditingGroup, handleDeleteGroup, handleSaveGroupEdit, 
     baseName, setBaseName, baseSku, setBaseSku, basePrice, setBasePrice, baseImage, setBaseImage, 
     baseDescription, setBaseDescription, baseMaterial, setBaseMaterial, baseSole, setBaseSole, 
     baseFastening, setBaseFastening, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, 
@@ -25,63 +24,57 @@ export default function Fornecedor() {
     notices, handleDeleteNotice, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, 
     setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, 
     handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, 
-    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase, baseDriveLink, setBaseDriveLink, brandName, brandLogo, products
+    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase, baseDriveLink, setBaseDriveLink, brandName, brandLogo, products, setGeneratedRows, handlePrintLabels
   } = ctx;
 
   const removeColor = (colorToRemove: string) => setColors(colors.filter((c: string) => c !== colorToRemove));
   const removeSize = (sizeToRemove: string) => setSizes(sizes.filter((s: string) => s !== sizeToRemove));
 
-  // Lógica da Bipagem (Scanner)
   const [scanMode, setScanMode] = useState<'entry' | 'exit'>('exit');
   const [scanInput, setScanInput] = useState('');
   const [lastScanned, setLastScanned] = useState<any>(null);
+
+  // Modal Impressão de Etiquetas
+  const [printModalData, setPrintModalData] = useState<any[] | null>(null);
 
   const handleScanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!scanInput.trim()) return;
     const term = scanInput.trim().toLowerCase();
-    
-    // Procura o produto pelo código de barras exato ou pelo SKU exato
-    const foundProduct = products.find((p: Product) => 
-        (p.barcode && p.barcode.toLowerCase() === term) || 
-        (p.sku && p.sku.toLowerCase() === term)
-    );
-
+    const foundProduct = products.find((p: Product) => (p.barcode && p.barcode.toLowerCase() === term) || (p.sku && p.sku.toLowerCase() === term));
     if (foundProduct) {
         const newQty = scanMode === 'entry' ? Number(foundProduct.quantity) + 1 : Number(foundProduct.quantity) - 1;
-        if (newQty < 0) {
-            alert("Estoque não pode ficar negativo!");
-            playSound('error');
-        } else {
-            handleUpdateQuantity(foundProduct, newQty);
-            setLastScanned({ ...foundProduct, quantity: newQty, action: scanMode });
-            playSound('magic');
+        if (newQty < 0) { alert("Estoque não pode ficar negativo!"); playSound('error'); } else {
+            handleUpdateQuantity(foundProduct, newQty); setLastScanned({ ...foundProduct, quantity: newQty, action: scanMode }); playSound('magic');
         }
-    } else {
-        playSound('error');
-        alert("Produto não encontrado com esse Código de Barras ou SKU!");
-    }
-    setScanInput(''); // Limpa o campo para o próximo bipe
+    } else { playSound('error'); alert("Produto não encontrado!"); }
+    setScanInput('');
+  };
+
+  // Funções de Edição Filha
+  const handleUpdateEditingItem = (index: number, field: string, value: string) => {
+      const newItems = [...editingGroup.items];
+      newItems[index] = { ...newItems[index], [field]: value };
+      setEditingGroup({ ...editingGroup, items: newItems });
+  };
+  const handleGenerateBarcodeForEdit = (index: number) => {
+      const generated = Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
+      handleUpdateEditingItem(index, 'barcode', generated);
+  };
+
+  const handleGenerateAllAddBarcodes = () => {
+      const updated = generatedRows.map(r => ({ ...r, barcode: r.barcode || Math.floor(1000000000000 + Math.random() * 9000000000000).toString() }));
+      setGeneratedRows(updated);
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-xl">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
-          
-          {/* CABEÇALHO PERSONALIZADO */}
           <div className="flex items-center gap-3">
-            {adminView !== 'menu' ? (
-              <button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors"><ChevronLeft className="w-6 h-6 text-white" /></button>
-            ) : (
-              brandLogo ? <img src={brandLogo} className="h-10 object-contain rounded" alt="Logo"/> : <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
-            )}
-            <div className="flex flex-col">
-              <h1 className="font-black text-white text-xl leading-tight">{brandName}</h1>
-              <span className="text-[10px] text-slate-400 font-mono uppercase tracking-widest">{currentTenant?.cnpj ? `CNPJ: ${currentTenant.cnpj}` : 'Painel Fornecedor PRO'}</span>
-            </div>
+            {adminView !== 'menu' ? (<button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors"><ChevronLeft className="w-6 h-6 text-white" /></button>) : (brandLogo ? <img src={brandLogo} className="h-10 object-contain rounded" alt="Logo"/> : <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>)}
+            <div className="flex flex-col"><h1 className="font-black text-white text-xl leading-tight">{brandName}</h1><span className="text-[10px] text-slate-400 font-mono uppercase tracking-widest">{currentTenant?.cnpj ? `CNPJ: ${currentTenant.cnpj}` : 'Painel Fornecedor PRO'}</span></div>
           </div>
-
           <div className="flex items-center gap-2 md:gap-3">
             <button onClick={() => window.open(`/?preview=${currentTenant?.id}`, '_blank')} className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-blue-500/20 transition-colors mr-2"><ExternalLink size={16} /> <span className="hidden md:inline font-bold">Testar Vitrine</span></button>
             <button onClick={handleLogout} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-red-500 hover:text-white transition-colors"><LogOut size={16} /> <span className="hidden md:inline font-bold">Sair</span></button>
@@ -92,11 +85,7 @@ export default function Fornecedor() {
         
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 mt-2">
-            {/* NOVO BOTÃO: SCANNER / BIPAGEM */}
-            <button onClick={() => {setAdminView('scanner'); setScanInput(''); setLastScanned(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-orange-500">
-                <div className="w-14 h-14 bg-orange-500/10 rounded-full flex items-center justify-center"><Scan size={28} className="text-orange-500" /></div>
-                <div className="text-center"><h3 className="font-bold text-white text-sm">Bipagem Rápida</h3></div>
-            </button>
+            <button onClick={() => {setAdminView('scanner'); setScanInput(''); setLastScanned(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-orange-500"><div className="w-14 h-14 bg-orange-500/10 rounded-full flex items-center justify-center"><Scan size={28} className="text-orange-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Bipagem Rápida</h3></div></button>
             <button onClick={() => setAdminView('predictive')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-fuchsia-500"><div className="w-14 h-14 bg-fuchsia-500/10 rounded-full flex items-center justify-center"><BrainCircuit size={28} className="text-fuchsia-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Inteligência IA</h3></div></button>
             <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
@@ -110,58 +99,20 @@ export default function Fornecedor() {
           </div>
         )}
 
-        {/* TELA DE BIPAGEM / SCANNER */}
         {adminView === 'scanner' && (
           <div className="space-y-6 animate-in slide-in-from-right max-w-2xl mx-auto">
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden p-6 md:p-8">
-              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 border-b border-slate-800 pb-6">
-                <div className="bg-orange-500/10 p-4 rounded-2xl shrink-0"><Scan className="text-orange-500" size={36}/></div>
-                <div><h2 className="text-2xl font-black text-white leading-tight">Leitor de Estoque (Bipagem)</h2><p className="text-sm text-slate-400 mt-1">Conecte seu leitor USB ou digite o SKU manualmente.</p></div>
-              </div>
-              
+              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 border-b border-slate-800 pb-6"><div className="bg-orange-500/10 p-4 rounded-2xl shrink-0"><Scan className="text-orange-500" size={36}/></div><div><h2 className="text-2xl font-black text-white leading-tight">Leitor de Estoque (Bipagem)</h2><p className="text-sm text-slate-400 mt-1">Conecte seu leitor USB ou digite o SKU manualmente.</p></div></div>
               <div className="flex gap-4 mb-8">
-                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'entry' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
-                  <input type="radio" name="scanMode" className="hidden" checked={scanMode === 'entry'} onChange={() => {setScanMode('entry'); document.getElementById('scan-input')?.focus();}} />
-                  <TrendingUp size={32} className="mb-3" />
-                  <span className="font-black tracking-wider uppercase">ENTRADA (+)</span>
-                </label>
-                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'exit' ? 'bg-red-500/10 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
-                  <input type="radio" name="scanMode" className="hidden" checked={scanMode === 'exit'} onChange={() => {setScanMode('exit'); document.getElementById('scan-input')?.focus();}} />
-                  <TrendingDown size={32} className="mb-3" />
-                  <span className="font-black tracking-wider uppercase">SAÍDA (-)</span>
-                </label>
+                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'entry' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}><input type="radio" name="scanMode" className="hidden" checked={scanMode === 'entry'} onChange={() => {setScanMode('entry'); document.getElementById('scan-input')?.focus();}} /><TrendingUp size={32} className="mb-3" /><span className="font-black tracking-wider uppercase">ENTRADA (+)</span></label>
+                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'exit' ? 'bg-red-500/10 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}><input type="radio" name="scanMode" className="hidden" checked={scanMode === 'exit'} onChange={() => {setScanMode('exit'); document.getElementById('scan-input')?.focus();}} /><TrendingDown size={32} className="mb-3" /><span className="font-black tracking-wider uppercase">SAÍDA (-)</span></label>
               </div>
-
-              <form onSubmit={handleScanSubmit} className="relative mb-6">
-                <input 
-                  id="scan-input"
-                  autoFocus
-                  type="text" 
-                  value={scanInput} 
-                  onChange={(e) => setScanInput(e.target.value)} 
-                  placeholder="Bipe o Código de Barras ou digite o SKU..." 
-                  className="w-full bg-slate-950 border-2 border-slate-700 rounded-xl p-5 pl-14 text-white font-mono text-xl focus:border-orange-500 outline-none shadow-inner"
-                />
-                <ScanBarcode className="absolute left-5 top-5 text-slate-500" size={28}/>
-                <button type="submit" className="hidden">Bipar</button>
-              </form>
-
+              <form onSubmit={handleScanSubmit} className="relative mb-6"><input id="scan-input" autoFocus type="text" value={scanInput} onChange={(e) => setScanInput(e.target.value)} placeholder="Bipe o Código de Barras ou digite o SKU..." className="w-full bg-slate-950 border-2 border-slate-700 rounded-xl p-5 pl-14 text-white font-mono text-xl focus:border-orange-500 outline-none shadow-inner"/><ScanBarcode className="absolute left-5 top-5 text-slate-500" size={28}/><button type="submit" className="hidden">Bipar</button></form>
               {lastScanned && (
                 <div className={`mt-8 p-5 rounded-2xl border-2 flex items-center gap-5 animate-in zoom-in-95 shadow-xl ${lastScanned.action === 'entry' ? 'bg-emerald-950/30 border-emerald-500/50' : 'bg-red-950/30 border-red-500/50'}`}>
-                  <div className="w-20 h-20 bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-700">
-                    {lastScanned.image ? <img src={lastScanned.image.split(',')[0]} className="w-full h-full object-cover"/> : <ImageIcon className="w-full h-full p-5 text-slate-500"/>}
-                  </div>
-                  <div className="flex-1">
-                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm ${lastScanned.action === 'entry' ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}`}>
-                      {lastScanned.action === 'entry' ? 'Entrada Adicionada' : 'Saída Registrada'}
-                    </span>
-                    <h4 className="font-bold text-white text-lg mt-2 leading-tight">{lastScanned.name}</h4>
-                    <p className="text-sm text-slate-400 font-mono mt-1">{lastScanned.color} | Tam: {lastScanned.size} | SKU: {lastScanned.sku}</p>
-                  </div>
-                  <div className="text-center shrink-0 bg-slate-900 px-4 py-3 rounded-xl border border-slate-700">
-                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Estoque Novo</span>
-                    <span className={`text-3xl font-black ${lastScanned.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{lastScanned.quantity}</span>
-                  </div>
+                  <div className="w-20 h-20 bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-700">{lastScanned.image ? <img src={lastScanned.image.split(',')[0]} className="w-full h-full object-cover"/> : <ImageIcon className="w-full h-full p-5 text-slate-500"/>}</div>
+                  <div className="flex-1"><span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm ${lastScanned.action === 'entry' ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}`}>{lastScanned.action === 'entry' ? 'Entrada Adicionada' : 'Saída Registrada'}</span><h4 className="font-bold text-white text-lg mt-2 leading-tight">{lastScanned.name}</h4><p className="text-sm text-slate-400 font-mono mt-1">{lastScanned.color} | Tam: {lastScanned.size} | SKU: {lastScanned.sku}</p></div>
+                  <div className="text-center shrink-0 bg-slate-900 px-4 py-3 rounded-xl border border-slate-700"><span className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Estoque Novo</span><span className={`text-3xl font-black ${lastScanned.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{lastScanned.quantity}</span></div>
                 </div>
               )}
             </div>
@@ -208,7 +159,7 @@ export default function Fornecedor() {
           </div>
         )}
 
-        {adminViewingGroupName && groupedAdminProducts[adminViewingGroupName] && (
+        {adminViewingGroupName && groupedAdminProducts[adminViewingGroupName] && !printModalData && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setAdminViewingGroupName(null)}>
                <div className="bg-slate-900 rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row border border-slate-700" onClick={e => e.stopPropagation()}>
                   <button onClick={() => setAdminViewingGroupName(null)} className="absolute top-4 right-4 bg-slate-800 text-white p-2 rounded-full hover:bg-slate-700 transition-colors z-20"><X size={20}/></button>
@@ -225,10 +176,16 @@ export default function Fornecedor() {
                          <span className="text-xs font-bold text-slate-400 uppercase">Estoque Geral</span>
                          <span className="text-lg font-black text-blue-400">{groupedAdminProducts[adminViewingGroupName].total}</span>
                      </div>
-
-                     <button onClick={() => { openGroupEdit(adminViewingGroupName, groupedAdminProducts[adminViewingGroupName]); }} className="mt-auto w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors">
-                        <Pencil size={18}/> Editar Ficha Completa
-                     </button>
+                     
+                     <div className="mt-auto space-y-2">
+                        {/* NOVO: Botão Imprimir Etiquetas */}
+                        <button onClick={() => setPrintModalData(groupedAdminProducts[adminViewingGroupName].items.map((i:any) => ({...i, printQty: 0})))} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors border border-slate-700">
+                            <Printer size={18}/> Imprimir Etiquetas
+                        </button>
+                        <button onClick={() => { openGroupEdit(adminViewingGroupName, groupedAdminProducts[adminViewingGroupName]); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors">
+                            <Pencil size={18}/> Editar Ficha Completa
+                        </button>
+                     </div>
                   </div>
 
                   <div className="w-full md:w-2/3 p-6 md:p-8 flex flex-col max-h-[80vh] overflow-y-auto">
@@ -258,6 +215,40 @@ export default function Fornecedor() {
                       </div>
                   </div>
                </div>
+            </div>
+        )}
+
+        {/* NOVO: MODAL IMPRESSÃO EM MASSA */}
+        {printModalData && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4 animate-in fade-in" onClick={() => setPrintModalData(null)}>
+                <div className="bg-slate-900 p-6 md:p-8 rounded-3xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+                        <h2 className="text-xl font-black text-white flex items-center gap-2"><Printer className="text-blue-400" size={24}/> Impressão Massiva (75x35mm)</h2>
+                        <button onClick={() => setPrintModalData(null)} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><X size={16}/></button>
+                    </div>
+                    <p className="text-sm text-slate-400 mb-6">Selecione quantas etiquetas imprimir de cada numeração. As etiquetas sairão formatadas para bobina tamanho 75mm x 35mm.</p>
+                    
+                    <div className="space-y-3 mb-6 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                        {printModalData.map((item, idx) => (
+                            <div key={item.id} className="flex items-center justify-between border-b border-slate-800/50 pb-2 last:border-0 last:pb-0">
+                                <div><span className="font-bold text-white text-sm">Tam: {item.size} | Cor: {item.color}</span><p className="text-[10px] text-slate-500 font-mono">Cód: {item.barcode || item.sku}</p></div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-[10px] uppercase font-bold text-slate-500">Imprimir:</span>
+                                    <div className="flex items-center bg-slate-900 rounded border border-slate-700">
+                                        <button type="button" onClick={() => {const d = [...printModalData]; if(d[idx].printQty > 0) d[idx].printQty--; setPrintModalData(d);}} className="w-8 h-8 hover:bg-slate-800 text-white font-bold">-</button>
+                                        <input type="number" value={item.printQty} onChange={e => {const d = [...printModalData]; d[idx].printQty = parseInt(e.target.value)||0; setPrintModalData(d);}} className="w-12 h-8 bg-transparent text-center text-white text-sm font-bold outline-none" />
+                                        <button type="button" onClick={() => {const d = [...printModalData]; d[idx].printQty++; setPrintModalData(d);}} className="w-8 h-8 hover:bg-slate-800 text-white font-bold">+</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="flex gap-3">
+                        <button onClick={() => {const d = [...printModalData]; d.forEach(i => i.printQty = Number(i.quantity) > 0 ? Number(i.quantity) : 0); setPrintModalData(d);}} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors text-xs">Copiar Estoque Real</button>
+                        <button onClick={() => { handlePrintLabels(printModalData.filter(i => i.printQty > 0)); }} disabled={printModalData.every(i => i.printQty === 0)} className={`flex-1 flex-[2] text-white py-4 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg transition-transform ${printModalData.every(i => i.printQty === 0) ? 'bg-slate-700 text-slate-500' : 'bg-blue-600 hover:bg-blue-500 hover:scale-[1.02]'}`}><Printer size={18}/> Imprimir Selecionadas</button>
+                    </div>
+                </div>
             </div>
         )}
 
@@ -308,18 +299,28 @@ export default function Fornecedor() {
               </div>
 
               <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2 flex items-center gap-2"><Layers size={16} className="text-blue-400" /> 2. Grade</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="text-sm text-slate-400 block mb-2">Cores (Enter)</label><div className="flex gap-2 mb-2"><input value={tempColor} onChange={e => setTempColor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addColor()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addColor} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{colors.map(c => <span key={c} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{c} <button onClick={() => removeColor(c)}><X size={12} className="text-red-400"/></button></span>)}</div></div><div><label className="text-sm text-slate-400 block mb-2">Tamanhos (Enter)</label><div className="flex gap-2 mb-2"><input value={tempSize} onChange={e => setTempSize(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSize()} className="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" /><button onClick={addSize} className="bg-slate-800 px-3 rounded text-slate-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-2">{sizes.map(s => <span key={s} className="bg-slate-800 text-slate-200 px-2 py-1 rounded text-xs flex items-center gap-1 border border-slate-700">{s} <button onClick={() => removeSize(s)}><X size={12} className="text-red-400"/></button></span>)}</div></div></div></div>
-              {generatedRows.length > 0 && (<div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50"><h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Variações ({generatedRows.length})</h3><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Barcode</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div></div>)}
+              
+              {/* Variações e Gerador de Barcode */}
+              {generatedRows.length > 0 && (
+                <div className="bg-slate-950/50 p-4 md:p-5 rounded-lg border border-slate-800/50 border-l-4 border-l-green-500/50">
+                    <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
+                        <h3 className="text-sm font-bold text-slate-300">Variações ({generatedRows.length})</h3>
+                        <button type="button" onClick={handleGenerateAllAddBarcodes} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] uppercase font-bold px-3 py-1.5 rounded flex items-center gap-1"><Wand2 size={12}/> Auto-Gerar Cód. Barras</button>
+                    </div>
+                    <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="text-xs text-slate-500 border-b border-slate-800"><th className="p-2">Tam</th><th className="p-2">Cor</th><th className="p-2">SKU</th><th className="p-2">Cód. Barras</th></tr></thead><tbody>{generatedRows.map((row, idx) => (<tr key={idx} className="border-b border-slate-800/50"><td className="p-2 text-sm text-white font-bold">{row.size}</td><td className="p-2 text-sm text-slate-300">{row.color}</td><td className="p-2"><input disabled value={row.sku} className="w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-xs text-green-400 font-mono" /></td><td className="p-2"><input value={row.barcode} onChange={(e) => updateRowBarcode(idx, e.target.value)} placeholder="Bipe ou digite" className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white" /></td></tr>))}</tbody></table></div>
+                </div>
+              )}
               <div className="flex justify-end pt-4 border-t border-slate-800 sticky bottom-0 bg-slate-900/90 p-4 backdrop-blur-sm"><button onClick={handleSaveBatch} disabled={isSavingBatch || generatedRows.length === 0} className={`rounded-xl px-8 py-4 flex items-center font-bold gap-2 shadow-lg ${isSavingBatch || generatedRows.length === 0 ? 'bg-slate-700 text-slate-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} {isSavingBatch ? 'SALVANDO...' : 'GERAR VARIAÇÕES'}</button></div>
             </div>
           </div>
         )}
 
-        {/* MODAL EDIÇÃO GRUPO */}
+        {/* MODAL EDIÇÃO GRUPO TURBINADO COM BARCODE */}
         {editingGroup && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
-            <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-2xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div className="bg-slate-900 p-6 rounded-2xl w-full max-w-3xl border border-slate-700 shadow-2xl overflow-y-auto max-h-[90vh]">
               <div className="flex justify-between items-center mb-6">
-                 <div><h2 className="text-xl font-bold text-white flex items-center gap-2"><Layers className="text-blue-400" size={24}/> Editar Modelo Completo</h2><p className="text-xs text-slate-400 mt-1">Atualiza {editingGroup.items.length} variações.</p></div>
+                 <div><h2 className="text-xl font-bold text-white flex items-center gap-2"><Layers className="text-blue-400" size={24}/> Editar Modelo Completo</h2><p className="text-xs text-slate-400 mt-1">Atualiza a ficha base e as variações individuais.</p></div>
                  <button type="button" onClick={handleDeleteGroup} className="bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white p-2 md:px-3 md:py-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"><Trash2 size={16} /> <span className="hidden md:inline">Excluir Tudo</span></button>
               </div>
               <form onSubmit={handleSaveGroupEdit} className="space-y-4">
@@ -340,20 +341,8 @@ export default function Fornecedor() {
                 </div>
 
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
-                    <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">Links das Fotos (Pode colar vários do ImgBB)</label>
-                    <textarea 
-                        value={editingGroup.image.replace(/,/g, '\n')} 
-                        onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} 
-                        rows={4} 
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" 
-                    />
-                    {editingGroup.image && (
-                        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 hidden-scroll">
-                            {editingGroup.image.split(',').map((url: string, i: number) => (
-                                <img key={i} src={url} className="w-16 h-16 rounded-lg object-cover border-2 border-slate-700 shrink-0" />
-                            ))}
-                        </div>
-                    )}
+                    <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">Links das Fotos</label>
+                    <textarea value={editingGroup.image.replace(/,/g, '\n')} onChange={(e) => setEditingGroup({...editingGroup, image: parseImages(e.target.value)})} rows={4} className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-blue-500 font-mono text-xs" />
                 </div>
                 
                 <div>
@@ -361,20 +350,34 @@ export default function Fornecedor() {
                     <input value={editingGroup.driveLink || ''} onChange={e => setEditingGroup({...editingGroup, driveLink: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" placeholder="https://drive.google.com/..." />
                 </div>
 
-                <div className="grid grid-cols-4 gap-2">
-                    <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Peso(g)</label><input type="number" value={editingGroup.weight} onChange={e => setEditingGroup({...editingGroup, weight: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                    <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">C(cm)</label><input type="number" value={editingGroup.length} onChange={e => setEditingGroup({...editingGroup, length: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                    <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">L(cm)</label><input type="number" value={editingGroup.width} onChange={e => setEditingGroup({...editingGroup, width: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                    <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">A(cm)</label><input type="number" value={editingGroup.height} onChange={e => setEditingGroup({...editingGroup, height: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
+                {/* NOVO: TABELA DE EDIÇÃO DOS FILHOS (SKU E BARCODE) */}
+                <div className="mt-6 pt-6 border-t border-slate-800">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2"><ScanBarcode size={16}/> Variações Individuais (SKU / Barcode)</h3>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto hidden-scroll bg-slate-950 border border-slate-800 rounded-xl p-2">
+                        <table className="w-full text-left text-xs">
+                            <thead className="sticky top-0 bg-slate-950 z-10 shadow-sm">
+                                <tr><th className="p-2 text-slate-500">Tam</th><th className="p-2 text-slate-500">Cor</th><th className="p-2 text-slate-500">SKU Físico</th><th className="p-2 text-slate-500">Cód. Barras</th><th className="p-2"></th></tr>
+                            </thead>
+                            <tbody>
+                                {editingGroup.items.map((item: any, idx: number) => (
+                                    <tr key={item.id} className="border-b border-slate-800/50">
+                                        <td className="p-2 text-white font-bold">{item.size}</td>
+                                        <td className="p-2 text-slate-300">{item.color}</td>
+                                        <td className="p-2"><input value={item.sku} onChange={e => handleUpdateEditingItem(idx, 'sku', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white font-mono focus:border-blue-500 outline-none"/></td>
+                                        <td className="p-2"><input value={item.barcode || ''} onChange={e => handleUpdateEditingItem(idx, 'barcode', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white font-mono focus:border-blue-500 outline-none"/></td>
+                                        <td className="p-2"><button type="button" onClick={() => handleGenerateBarcodeForEdit(idx)} title="Gerar Código" className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white p-1.5 rounded transition-colors"><Wand2 size={14}/></button></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">NCM</label><input value={editingGroup.ncm} onChange={e => setEditingGroup({...editingGroup, ncm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                    <div><label className="text-[10px] font-bold text-slate-500 uppercase">CEST</label><input value={editingGroup.cest} onChange={e => setEditingGroup({...editingGroup, cest: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs"/></div>
-                </div>
-                
+
                 <div className="flex gap-3 pt-6 border-t border-slate-800">
                    <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition-colors">Cancelar</button>
-                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar</button>
+                   <button type="submit" disabled={isSavingBatch} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors">{isSavingBatch ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Salvar Ficha Completa</button>
                 </div>
               </form>
             </div>
@@ -398,42 +401,6 @@ export default function Fornecedor() {
                 <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
                     {history.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum movimento registrado.</p> : history.map((item:any) => (
                         <div key={item.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-lg flex items-center justify-center font-black ${item.type === 'entry' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>{item.type === 'entry' ? '+' : '-'}{item.amount}</div><div><h3 className="font-bold text-white text-sm">{item.productName}</h3><p className="text-xs text-slate-500">SKU: {item.sku || 'N/A'}</p></div></div><div className="text-right"><span className="block text-xs text-slate-400">{formatDate(item.timestamp)}</span><span className="text-[10px] font-mono text-slate-600">Saldo: {item.newQty}</span></div></div>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        {/* CLIENTES */}
-        {adminView === 'customers' && (
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
-                <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center"><div className="flex items-center gap-3"><Users className="text-indigo-400" size={24}/><h2 className="text-xl font-black text-white">Revendedores Cadastrados</h2></div><div className="bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded font-bold text-sm">Total: {usersList.length}</div></div>
-                <div className="p-5 space-y-3">
-                    {usersList.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum cliente cadastrado.</p> : usersList.map((u: any) => (
-                        <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-colors"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 font-black text-lg uppercase">{u.name ? String(u.name).substring(0,2) : 'CL'}</div><div><h3 className="font-bold text-white text-lg">{u.name || 'Sem Nome'}</h3><p className="text-sm text-slate-500">{u.email}</p></div></div><div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg flex items-center gap-3 min-w-[200px] justify-between"><span className="text-xs text-slate-400 font-bold uppercase flex items-center gap-1"><Wallet size={14}/> Crédito</span><span className="text-lg font-black text-green-400">{formatCurrency(u.creditBalance || 0)}</span></div></div>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        {/* TICKETS ADMIN */}
-        {adminView === 'tickets' && (
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
-                <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
-                <div className="p-5 space-y-4">
-                    {allTickets.length === 0 ? <p className="text-slate-500 text-center py-6">Nenhum chamado aberto no momento.</p> : allTickets.map((ticket: any) => (
-                        <div key={ticket.id} className="bg-slate-950 border border-slate-800 p-5 rounded-xl flex flex-col gap-4">
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
-                                <div><div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${ticket.type === 'devolucao' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>{ticket.type}</span><span className="text-xs text-slate-500 font-mono">{formatDate(ticket.createdAt)}</span>{ticket.status === 'pendente' && <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-black px-2 py-0.5 rounded uppercase animate-pulse border border-yellow-500/30">Novo</span>}{ticket.status === 'aguardando_devolucao' && <span className="bg-orange-500/20 text-orange-400 text-[10px] font-black px-2 py-0.5 rounded uppercase border border-orange-500/30 flex items-center gap-1"><Clock size={10}/> Esperando Peça</span>}{ticket.status === 'aceito' && <span className="text-emerald-500 text-[10px] font-black uppercase"><Check size={12} className="inline"/> Autorizado</span>}{ticket.status === 'concluido' && <span className="text-blue-500 text-[10px] font-black uppercase">Finalizado</span>}{ticket.status === 'recusado' && <span className="text-red-500 text-[10px] font-black uppercase">Recusado</span>}</div><h3 className="font-bold text-white text-lg">{ticket.userName}</h3></div>
-                                <div className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-right"><span className="block text-[10px] text-slate-400 uppercase font-bold">Valor Ref.</span><span className="font-black text-green-400">{formatCurrency(ticket.productValue)}</span></div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="bg-slate-900 p-3 rounded-lg border border-slate-800"><span className="block text-xs text-slate-500 uppercase font-bold mb-1">Dados da Solicitação</span><span className="font-medium text-white whitespace-pre-wrap leading-relaxed block">{ticket.productInfo}</span></div><div className="bg-slate-900 p-3 rounded-lg border border-slate-800"><span className="block text-xs text-slate-500 uppercase font-bold mb-1">Motivo / Defeito</span><span className="font-medium text-slate-300 text-sm leading-relaxed block">{ticket.reason}</span></div></div>
-                            <div className="pt-2 flex flex-wrap gap-2">
-                                {ticket.status === 'pendente' && ticket.type === 'troca' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_troca')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Check size={16}/> Aceitar Troca</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar</button></>)}
-                                {ticket.status === 'pendente' && ticket.type === 'devolucao' && (<><button onClick={() => handleAdminTicketAction(ticket, 'aceitar_devolucao')} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Clock size={16}/> Autorizar (Aguardar Peça)</button><button onClick={() => handleAdminTicketAction(ticket, 'recusar')} className="bg-slate-800 hover:bg-slate-700 text-red-400 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><X size={16}/> Recusar (Sem Defeito)</button></>)}
-                                {ticket.status === 'aguardando_devolucao' && ticket.type === 'devolucao' && (<button onClick={() => handleAdminTicketAction(ticket, 'recebido_gerar_credito')} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/50 animate-bounce"><Wallet size={18}/> Produto Entregue - Gerar Crédito (R$ {ticket.productValue.toFixed(2)})</button>)}
-                                {ticket.status === 'aceito' && ticket.type === 'troca' && (<span className="text-emerald-500 text-xs font-bold flex items-center gap-1"><Check size={16}/> Aguardando envio do cliente</span>)}
-                            </div>
-                        </div>
                     ))}
                 </div>
             </div>
