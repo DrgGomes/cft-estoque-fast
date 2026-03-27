@@ -1,6 +1,6 @@
-import React, { useContext } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Layers, Box } from 'lucide-react';
-import { AppContext, formatCurrency, formatDate, parseImages } from '../AppContext';
+import React, { useContext, useState } from 'react';
+import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Scan, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Layers, Box } from 'lucide-react';
+import { AppContext, formatCurrency, formatDate, parseImages, playSound } from '../AppContext';
 import { Product, SupportTicket } from '../types';
 
 export default function Fornecedor() {
@@ -16,7 +16,7 @@ export default function Fornecedor() {
     setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, tempColor, 
     setTempColor, addColor, colors, setColors, tempSize, setTempSize, addSize, sizes, setSizes, 
     generatedRows, updateRowBarcode, isSavingBatch, handleSaveBatch, predictiveData, history, usersList, 
-    allTickets, handleAdminTicketAction, handlePrintTicket, academySeasonMode, setAcademySeasonMode, 
+    allTickets, handleAdminTicketAction, academySeasonMode, setAcademySeasonMode, 
     academySeason, setAcademySeason, availableSeasons, academyNewSeason, setAcademyNewSeason, 
     academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyYoutube, setAcademyYoutube, 
     academyDesc, setAcademyDesc, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, 
@@ -25,20 +25,63 @@ export default function Fornecedor() {
     notices, handleDeleteNotice, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, 
     setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, handleSaveLink, quickLinks, 
     handleDeleteLink, showcases, editingShowcase, setEditingShowcase, copyShowcaseLink, handleDeleteShowcase, 
-    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase, baseDriveLink, setBaseDriveLink 
+    selectAllModelsForShowcase, clearAllModelsForShowcase, toggleModelInShowcase, handleSaveShowcase, baseDriveLink, setBaseDriveLink, brandName, brandLogo, products
   } = ctx;
 
   const removeColor = (colorToRemove: string) => setColors(colors.filter((c: string) => c !== colorToRemove));
   const removeSize = (sizeToRemove: string) => setSizes(sizes.filter((s: string) => s !== sizeToRemove));
 
+  // Lógica da Bipagem (Scanner)
+  const [scanMode, setScanMode] = useState<'entry' | 'exit'>('exit');
+  const [scanInput, setScanInput] = useState('');
+  const [lastScanned, setLastScanned] = useState<any>(null);
+
+  const handleScanSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanInput.trim()) return;
+    const term = scanInput.trim().toLowerCase();
+    
+    // Procura o produto pelo código de barras exato ou pelo SKU exato
+    const foundProduct = products.find((p: Product) => 
+        (p.barcode && p.barcode.toLowerCase() === term) || 
+        (p.sku && p.sku.toLowerCase() === term)
+    );
+
+    if (foundProduct) {
+        const newQty = scanMode === 'entry' ? Number(foundProduct.quantity) + 1 : Number(foundProduct.quantity) - 1;
+        if (newQty < 0) {
+            alert("Estoque não pode ficar negativo!");
+            playSound('error');
+        } else {
+            handleUpdateQuantity(foundProduct, newQty);
+            setLastScanned({ ...foundProduct, quantity: newQty, action: scanMode });
+            playSound('magic');
+        }
+    } else {
+        playSound('error');
+        alert("Produto não encontrado com esse Código de Barras ou SKU!");
+    }
+    setScanInput(''); // Limpa o campo para o próximo bipe
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-xl">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
+          
+          {/* CABEÇALHO PERSONALIZADO */}
           <div className="flex items-center gap-3">
-            {adminView !== 'menu' ? (<button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors"><ChevronLeft className="w-6 h-6 text-white" /></button>) : (<div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>)}
-            <div><h1 className="font-black text-white text-xl">Fornecedor PRO</h1></div>
+            {adminView !== 'menu' ? (
+              <button onClick={() => setAdminView('menu')} className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors"><ChevronLeft className="w-6 h-6 text-white" /></button>
+            ) : (
+              brandLogo ? <img src={brandLogo} className="h-10 object-contain rounded" alt="Logo"/> : <div className="bg-slate-800 p-2 rounded-lg border border-slate-700"><Package className="w-6 h-6 text-blue-400" /></div>
+            )}
+            <div className="flex flex-col">
+              <h1 className="font-black text-white text-xl leading-tight">{brandName}</h1>
+              <span className="text-[10px] text-slate-400 font-mono uppercase tracking-widest">{currentTenant?.cnpj ? `CNPJ: ${currentTenant.cnpj}` : 'Painel Fornecedor PRO'}</span>
+            </div>
           </div>
+
           <div className="flex items-center gap-2 md:gap-3">
             <button onClick={() => window.open(`/?preview=${currentTenant?.id}`, '_blank')} className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-blue-500/20 transition-colors mr-2"><ExternalLink size={16} /> <span className="hidden md:inline font-bold">Testar Vitrine</span></button>
             <button onClick={handleLogout} className="text-xs bg-slate-800 border border-slate-700 p-2 md:px-3 md:py-2 rounded-lg flex items-center gap-1 hover:bg-red-500 hover:text-white transition-colors"><LogOut size={16} /> <span className="hidden md:inline font-bold">Sair</span></button>
@@ -49,6 +92,11 @@ export default function Fornecedor() {
         
         {adminView === 'menu' && (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 mt-2">
+            {/* NOVO BOTÃO: SCANNER / BIPAGEM */}
+            <button onClick={() => {setAdminView('scanner'); setScanInput(''); setLastScanned(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-orange-500">
+                <div className="w-14 h-14 bg-orange-500/10 rounded-full flex items-center justify-center"><Scan size={28} className="text-orange-500" /></div>
+                <div className="text-center"><h3 className="font-bold text-white text-sm">Bipagem Rápida</h3></div>
+            </button>
             <button onClick={() => setAdminView('predictive')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-2 lg:col-span-1 border-t-4 border-t-fuchsia-500"><div className="w-14 h-14 bg-fuchsia-500/10 rounded-full flex items-center justify-center"><BrainCircuit size={28} className="text-fuchsia-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Inteligência IA</h3></div></button>
             <button onClick={() => setAdminView('stock')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-blue-500/10 rounded-full flex items-center justify-center"><Package size={28} className="text-blue-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Estoque</h3></div></button>
             <button onClick={() => setAdminView('add')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center"><Plus size={28} className="text-green-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Criar Produto</h3></div></button>
@@ -59,6 +107,64 @@ export default function Fornecedor() {
             <button onClick={() => setAdminView('notices')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center"><Megaphone size={28} className="text-amber-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Avisos Dashboard</h3></div></button>
             <button onClick={() => setAdminView('links')} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1"><div className="w-14 h-14 bg-cyan-500/10 rounded-full flex items-center justify-center"><Link2 size={28} className="text-cyan-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Botões Rápidos</h3></div></button>
             <button onClick={() => {setAdminView('showcases'); setEditingShowcase(null);}} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 shadow-lg transition-transform hover:-translate-y-1 col-span-2 md:col-span-1"><div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center"><Store size={28} className="text-emerald-500" /></div><div className="text-center"><h3 className="font-bold text-white text-sm">Vitrines Públicas</h3></div></button>
+          </div>
+        )}
+
+        {/* TELA DE BIPAGEM / SCANNER */}
+        {adminView === 'scanner' && (
+          <div className="space-y-6 animate-in slide-in-from-right max-w-2xl mx-auto">
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden p-6 md:p-8">
+              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 border-b border-slate-800 pb-6">
+                <div className="bg-orange-500/10 p-4 rounded-2xl shrink-0"><Scan className="text-orange-500" size={36}/></div>
+                <div><h2 className="text-2xl font-black text-white leading-tight">Leitor de Estoque (Bipagem)</h2><p className="text-sm text-slate-400 mt-1">Conecte seu leitor USB ou digite o SKU manualmente.</p></div>
+              </div>
+              
+              <div className="flex gap-4 mb-8">
+                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'entry' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
+                  <input type="radio" name="scanMode" className="hidden" checked={scanMode === 'entry'} onChange={() => {setScanMode('entry'); document.getElementById('scan-input')?.focus();}} />
+                  <TrendingUp size={32} className="mb-3" />
+                  <span className="font-black tracking-wider uppercase">ENTRADA (+)</span>
+                </label>
+                <label className={`flex-1 flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer border-2 transition-all ${scanMode === 'exit' ? 'bg-red-500/10 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
+                  <input type="radio" name="scanMode" className="hidden" checked={scanMode === 'exit'} onChange={() => {setScanMode('exit'); document.getElementById('scan-input')?.focus();}} />
+                  <TrendingDown size={32} className="mb-3" />
+                  <span className="font-black tracking-wider uppercase">SAÍDA (-)</span>
+                </label>
+              </div>
+
+              <form onSubmit={handleScanSubmit} className="relative mb-6">
+                <input 
+                  id="scan-input"
+                  autoFocus
+                  type="text" 
+                  value={scanInput} 
+                  onChange={(e) => setScanInput(e.target.value)} 
+                  placeholder="Bipe o Código de Barras ou digite o SKU..." 
+                  className="w-full bg-slate-950 border-2 border-slate-700 rounded-xl p-5 pl-14 text-white font-mono text-xl focus:border-orange-500 outline-none shadow-inner"
+                />
+                <ScanBarcode className="absolute left-5 top-5 text-slate-500" size={28}/>
+                <button type="submit" className="hidden">Bipar</button>
+              </form>
+
+              {lastScanned && (
+                <div className={`mt-8 p-5 rounded-2xl border-2 flex items-center gap-5 animate-in zoom-in-95 shadow-xl ${lastScanned.action === 'entry' ? 'bg-emerald-950/30 border-emerald-500/50' : 'bg-red-950/30 border-red-500/50'}`}>
+                  <div className="w-20 h-20 bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-700">
+                    {lastScanned.image ? <img src={lastScanned.image.split(',')[0]} className="w-full h-full object-cover"/> : <ImageIcon className="w-full h-full p-5 text-slate-500"/>}
+                  </div>
+                  <div className="flex-1">
+                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm ${lastScanned.action === 'entry' ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}`}>
+                      {lastScanned.action === 'entry' ? 'Entrada Adicionada' : 'Saída Registrada'}
+                    </span>
+                    <h4 className="font-bold text-white text-lg mt-2 leading-tight">{lastScanned.name}</h4>
+                    <p className="text-sm text-slate-400 font-mono mt-1">{lastScanned.color} | Tam: {lastScanned.size} | SKU: {lastScanned.sku}</p>
+                  </div>
+                  <div className="text-center shrink-0 bg-slate-900 px-4 py-3 rounded-xl border border-slate-700">
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Estoque Novo</span>
+                    <span className={`text-3xl font-black ${lastScanned.quantity > 0 ? 'text-white' : 'text-red-500'}`}>{lastScanned.quantity}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -172,7 +278,6 @@ export default function Fornecedor() {
                         <textarea value={baseImage} onChange={(e) => setBaseImage(e.target.value)} rows={4} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-3 text-white outline-none focus:border-blue-500 font-mono text-xs placeholder:text-slate-600" placeholder="Exemplo:&#10;https://i.ibb.co/67Pk8NkQ/foto1.png&#10;https://i.ibb.co/B5gWVRCK/foto2.png" />
                         {baseImage && (<div className="mt-3 flex gap-3 overflow-x-auto pb-2 hidden-scroll">{parseImages(baseImage).split(',').map((url, i) => (<div key={i} className="relative shrink-0"><img src={url} className="w-20 h-20 rounded-lg object-cover border-2 border-slate-700" /><span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-lg">{i+1}</span></div>))}</div>)}
                     </div>
-                    {/* NOVO CAMPO: Link do Drive */}
                     <div className="md:col-span-2">
                         <label className="text-sm text-slate-400 block mb-1 font-bold text-blue-400">Link do Drive (Fotos/Vídeos de Alta Qualidade)</label>
                         <input value={baseDriveLink} onChange={e => setBaseDriveLink(e.target.value)} placeholder="https://drive.google.com/..." className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white" />
@@ -251,7 +356,6 @@ export default function Fornecedor() {
                     )}
                 </div>
                 
-                {/* CAMPO DE EDIÇÃO DO DRIVE */}
                 <div>
                     <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Link do Drive (Mídias de Alta Qualidade)</label>
                     <input value={editingGroup.driveLink || ''} onChange={e => setEditingGroup({...editingGroup, driveLink: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none" placeholder="https://drive.google.com/..." />
@@ -311,7 +415,7 @@ export default function Fornecedor() {
             </div>
         )}
 
-        {/* TICKETS ADMIN (IMPRIMIR REMOVIDO) */}
+        {/* TICKETS ADMIN */}
         {adminView === 'tickets' && (
             <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-right">
                 <div className="p-5 border-b border-slate-800 bg-slate-800/30"><div className="flex items-center gap-3"><Ticket className="text-rose-400" size={24}/><h2 className="text-xl font-black text-white">Central de Resoluções</h2></div><p className="text-sm text-slate-400 mt-1">Gerencie trocas e devoluções solicitadas pelos revendedores.</p></div>
@@ -334,130 +438,6 @@ export default function Fornecedor() {
                 </div>
             </div>
         )}
-
-        {/* JORNADA DO ALUNO (RESTAURADA) */}
-        {adminView === 'academy' && (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex items-center gap-3">
-                <GraduationCap className="text-red-500" size={24}/>
-                <h2 className="text-xl font-black text-white">Jornada do Aluno (Treinamentos)</h2>
-              </div>
-              <form onSubmit={handleSaveAcademy} className="p-5 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Módulo / Temporada</label>
-                    <div className="flex gap-2 mb-2">
-                      <label className="flex items-center gap-2 text-sm text-slate-300"><input type="radio" checked={academySeasonMode==='existing'} onChange={() => setAcademySeasonMode('existing')} className="accent-red-500"/> Existente</label>
-                      <label className="flex items-center gap-2 text-sm text-slate-300"><input type="radio" checked={academySeasonMode==='new'} onChange={() => setAcademySeasonMode('new')} className="accent-red-500"/> Novo</label>
-                    </div>
-                    {academySeasonMode === 'existing' ? (
-                      <select value={academySeason} onChange={(e:any) => setAcademySeason(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500">
-                        <option value="">Selecione um Módulo...</option>
-                        {availableSeasons.map((s:any) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <input value={academyNewSeason} onChange={(e:any) => setAcademyNewSeason(e.target.value)} placeholder="Ex: Módulo 1 - Iniciantes" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" />
-                    )}
-                  </div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Episódio / Ordem</label><input type="number" value={academyEpisode} onChange={(e:any) => setAcademyEpisode(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título da Aula</label><input value={academyTitle} onChange={(e:any) => setAcademyTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do YouTube</label><input value={academyYoutube} onChange={(e:any) => setAcademyYoutube(e.target.value)} required placeholder="https://www.youtube.com/watch?v=..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Descrição da Aula</label><textarea value={academyDesc} onChange={(e:any) => setAcademyDesc(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500"></textarea></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link do Banner (Imagem)</label><input value={academyBanner} onChange={(e:any) => setAcademyBanner(e.target.value)} placeholder="https://..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Links/Materiais de Apoio</label><input value={academyLinks} onChange={(e:any) => setAcademyLinks(e.target.value)} placeholder="https://drive.google.com/..." className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-red-500" /></div>
-                </div>
-                <button type="submit" disabled={isSavingBatch} className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-colors mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar Aula</button>
-              </form>
-            </div>
-            
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30"><h2 className="font-bold text-white">Aulas Publicadas</h2></div>
-              <div className="p-5 space-y-4">
-                 {academySeasons.length === 0 ? <p className="text-slate-500 text-center">Nenhuma aula cadastrada.</p> : academySeasons.map((season: any, idx: number) => (
-                     <div key={idx} className="space-y-2">
-                         <h3 className="font-black text-red-500 border-b border-slate-800 pb-2">{season.name}</h3>
-                         {season.episodes.map((ep: any) => (
-                             <div key={ep.id} className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                                 <div>
-                                     <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-bold mr-2">Ep {ep.episode}</span>
-                                     <span className="font-bold text-sm text-white">{ep.title}</span>
-                                 </div>
-                                 <button onClick={() => handleDeleteAcademy(ep.id)} className="text-red-500 hover:bg-red-500/10 p-2 rounded transition-colors"><Trash2 size={16}/></button>
-                             </div>
-                         ))}
-                     </div>
-                 ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* AVISOS DO DASHBOARD */}
-        {adminView === 'notices' && (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2"><Megaphone className="text-amber-400" /><h2 className="text-lg font-bold text-white">Adicionar Aviso / Banner</h2></div>
-              <form onSubmit={handleSaveNotice} className="p-4 md:p-6 space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Tipo</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1"><input type="radio" checked={noticeType==='text'} onChange={()=>setNoticeType('text')} className="accent-amber-500"/><span className="text-sm font-bold">Aviso Normal</span></label>
-                    <label className="flex items-center gap-2 cursor-pointer bg-slate-950 border border-slate-800 p-3 rounded-lg flex-1"><input type="radio" checked={noticeType==='banner'} onChange={()=>setNoticeType('banner')} className="accent-amber-500"/><span className="text-sm font-bold">Banner</span></label>
-                  </div>
-                </div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título*</label><input value={noticeTitle} onChange={(e:any)=>setNoticeTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"/></div>
-                <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Conteúdo</label><textarea value={noticeContent} onChange={(e:any)=>setNoticeContent(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"></textarea></div>
-                {noticeType === 'banner' && <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Link da Imagem</label><input value={noticeImage} onChange={(e:any)=>setNoticeImage(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-amber-500"/></div>}
-                <button type="submit" disabled={isSavingBatch} className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Publicar</button>
-              </form>
-            </div>
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Avisos Ativos</h2></div>
-              <div className="p-4 space-y-3">
-                {notices.map((n:any) => (
-                  <div key={n.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-start">
-                    <div><span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-1 rounded uppercase font-bold mr-2">{n.type}</span><span className="font-bold text-white">{n.title}</span></div>
-                    <button onClick={()=>handleDeleteNotice(n.id)} className="text-red-500"><Trash2 size={16}/></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* BOTÕES RÁPIDOS */}
-        {adminView === 'links' && (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50 flex items-center gap-2"><Link2 className="text-cyan-400" /><h2 className="text-lg font-bold text-white">Criar Botão Rápido</h2></div>
-              <form onSubmit={handleSaveLink} className="p-4 md:p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Título*</label><input value={linkTitle} onChange={(e:any)=>setLinkTitle(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Subtítulo</label><input value={linkSubtitle} onChange={(e:any)=>setLinkSubtitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">URL Destino*</label><input value={linkUrl} onChange={(e:any)=>setLinkUrl(e.target.value)} required className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  <div className="flex gap-4">
-                     <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ícone</label><select value={linkIcon} onChange={(e:any)=>setLinkIcon(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"><option value="Link2">Padrão</option><option value="MessageCircle">WhatsApp</option><option value="Globe">Site</option></select></div>
-                     <div className="w-24"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem</label><input type="number" value={linkOrder} onChange={(e:any)=>setLinkOrder(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white outline-none focus:border-cyan-500"/></div>
-                  </div>
-                </div>
-                <button type="submit" disabled={isSavingBatch} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg mt-4">{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Salvar Botão</button>
-              </form>
-            </div>
-            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h2 className="text-lg font-bold text-white">Botões Ativos</h2></div>
-              <div className="p-4 space-y-3">
-                {quickLinks.map((link:any) => (
-                  <div key={link.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
-                    <div><span className="font-bold text-white text-sm">{link.title}</span><p className="text-xs text-slate-500">{link.url}</p></div>
-                    <button onClick={()=>handleDeleteLink(link.id)} className="text-red-500"><Trash2 size={16}/></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
       </main>
     </div>
   );
