@@ -23,6 +23,11 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const isVitrineMode = !!vitrineLinkId;
   const currentDomain = window.location.hostname;
   
+  // NOVO: SISTEMA DE MODO ESCURO/CLARO
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => { return (localStorage.getItem('theme') as 'light' | 'dark') || 'light'; });
+  useEffect(() => { localStorage.setItem('theme', theme); if (theme === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [theme]);
+  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
+
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [isSuperAdminMode, setIsSuperAdminMode] = useState(false);
   const [superAdminAuthenticated, setSuperAdminAuthenticated] = useState(false);
@@ -103,21 +108,12 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
-  
   const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
   const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
   const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
-  
-  // AQUI FOI CORRIGIDO O LINK PARA PUXAR O DOMÍNIO PRÓPRIO
-  const copyShowcaseLink = (linkId: string) => { 
-      const domain = currentTenant?.domain ? currentTenant.domain : window.location.hostname;
-      const url = `https://${domain}/?vitrine=${linkId}`; 
-      navigator.clipboard.writeText(url); 
-      alert("Link copiado: " + url); 
-  };
-  
+  const copyShowcaseLink = (linkId: string) => { const domain = currentTenant?.domain ? currentTenant.domain : window.location.hostname; const url = `https://${domain}/?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Link copiado: " + url); };
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
@@ -155,7 +151,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     baseSku, setBaseSku, baseName, setBaseName, baseDescription, setBaseDescription, baseImage, setBaseImage, basePrice, setBasePrice, colors, setColors, sizes, setSizes, tempColor, setTempColor, tempSize, setTempSize, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening, generatedRows, setGeneratedRows, isSavingBatch, setIsSavingBatch, editingProduct, setEditingProduct, editingGroup, setEditingGroup, adminViewingGroupName, setAdminViewingGroupName, adminStockFilter, setAdminStockFilter, selectedCatalogGroups, setSelectedCatalogGroups, viewingProduct, setViewingProduct, activeModalImage, setActiveModalImage, selectedNotice, setSelectedNotice, activeLesson, setActiveLesson, ticketType, setTicketType, ticketReturnGroup, setTicketReturnGroup, ticketReturnProductId, setTicketReturnProductId, ticketDesiredGroup, setTicketDesiredGroup, ticketDesiredProductId, setTicketDesiredProductId, ticketReason, setTicketReason,
     noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyDesc, setAcademyDesc, academyYoutube, setAcademyYoutube, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, editingShowcase, setEditingShowcase, baseDriveLink, setBaseDriveLink, newTenantCnpj, setNewTenantCnpj,
     handleLogout, handleAuth, handleCreateTenant, handleSaveBatch, handleExportToUpSeller, handleBatchExportToUpSeller, handleUpdateQuantity, handleOpenTicket, handleAdminTicketAction, openGroupEdit, handleSaveGroupEdit, handleDeleteGroup, toggleLessonCompletion, handleSaveAcademy, handleDeleteAcademy, handleSaveNotice, handleDeleteNotice, handleSaveLink, handleDeleteLink, handleSaveShowcase, handleDeleteShowcase, toggleModelInShowcase, selectAllModelsForShowcase, clearAllModelsForShowcase, copyShowcaseLink, toggleGroupSelection, addColor, addSize, updateRowBarcode, toggleGroup, newTenantName, setNewTenantName, newTenantDomain, setNewTenantDomain, newTenantLogo, setNewTenantLogo, newTenantColor, setNewTenantColor,
-    handleGenerateAllAddBarcodes, handlePrintLabels
+    handleGenerateAllAddBarcodes, handlePrintLabels,
+    theme, toggleTheme // EXPORTANDO O TEMA
   };
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
