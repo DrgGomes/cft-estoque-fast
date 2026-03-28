@@ -8,7 +8,6 @@ import Vitrine from './pages/Vitrine';
 import { RefreshCw } from 'lucide-react';
 
 function AppRouter() {
-    // AQUI ESTAVA O ERRO: Faltava o superAdminAuthenticated dentro destas chaves!
     const { globalLoading, isSuperAdminMode, superAdminAuthenticated, selectedRole, isVitrineMode } = useContext(AppContext);
 
     if (globalLoading) {
