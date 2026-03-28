@@ -8,7 +8,7 @@ import Vitrine from './pages/Vitrine';
 import { RefreshCw } from 'lucide-react';
 
 function AppRouter() {
-    const { globalLoading, isSuperAdminMode, superAdminAuthenticated, selectedRole, isVitrineMode } = useContext(AppContext);
+    const { globalLoading, isSuperAdminMode, selectedRole, isVitrineMode } = useContext(AppContext);
 
     if (globalLoading) {
         return (
@@ -20,8 +20,7 @@ function AppRouter() {
     
     if (isVitrineMode) return <Vitrine />;
 
-    if (isSuperAdminMode && !superAdminAuthenticated) return <SuperAdmin />;
-    if (isSuperAdminMode && superAdminAuthenticated) return <SuperAdmin />;
+    if (isSuperAdminMode) return <SuperAdmin />;
     if (!selectedRole) return <Login />;
     if (selectedRole === 'user') return <Revendedor />;
     if (selectedRole === 'admin') return <Fornecedor />;
