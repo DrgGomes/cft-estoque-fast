@@ -29,7 +29,6 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [isSuperAdminMode, setIsSuperAdminMode] = useState(false);
-  const [tenantNotFound, setTenantNotFound] = useState(false); // NOVO: MODO LOJA NÃO ENCONTRADA
   const [saasTenants, setSaasTenants] = useState<Tenant[]>([]);
   
   const [newTenantName, setNewTenantName] = useState(''); const [newTenantDomain, setNewTenantDomain] = useState(''); const [newTenantLogo, setNewTenantLogo] = useState(''); const [newTenantColor, setNewTenantColor] = useState('#2563eb');
@@ -70,54 +69,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const [editingShowcase, setEditingShowcase] = useState<Partial<Showcase> | null>(null); const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
   const [ticketType, setTicketType] = useState<'troca' | 'devolucao'>('troca'); const [ticketReturnGroup, setTicketReturnGroup] = useState(''); const [ticketReturnProductId, setTicketReturnProductId] = useState(''); const [ticketDesiredGroup, setTicketDesiredGroup] = useState(''); const [ticketDesiredProductId, setTicketDesiredProductId] = useState(''); const [ticketReason, setTicketReason] = useState('');
 
-  // =========================================================================================
-  // SISTEMA DE ROTEAMENTO E SEGURANÇA (BLINDADO)
-  // =========================================================================================
-  useEffect(() => { 
-      const fetchTenant = async () => { 
-          if (previewTenantId) { 
-              const docRef = doc(db, TENANTS_COLLECTION, previewTenantId); 
-              const docSnap = await getDoc(docRef); 
-              if (docSnap.exists()) { 
-                  setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant); 
-                  setIsSuperAdminMode(false); 
-              } else { 
-                  setTenantNotFound(true); 
-              } 
-              setGlobalLoading(false); 
-              return; 
-          } 
-
-          // Remove o "www." se o cliente digitar, para evitar erros
-          const cleanDomain = currentDomain.replace(/^www\./, '');
-
-          // TRAVA DE SEGURANÇA: Só abre o Master nestes domínios autorizados ou se tiver o parametro secreto (?admin=master)
-          const isMasterDomain = cleanDomain.includes('vercel.app') || cleanDomain === 'hubdrop.com.br' || urlParams.get('admin') === 'master';
-
-          if (isMasterDomain) {
-              setIsSuperAdminMode(true);
-              setGlobalLoading(false);
-              return;
-          }
-
-          // Se não é Master, procura a empresa no Banco de Dados
-          const q = query(collection(db, TENANTS_COLLECTION), where("domain", "==", cleanDomain)); 
-          const querySnapshot = await getDocs(q); 
-          
-          if (!querySnapshot.empty) { 
-              setCurrentTenant({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Tenant); 
-              setIsSuperAdminMode(false); 
-          } else { 
-              // Se a empresa não for achada, cai na tela de 404 (Loja Não Encontrada)
-              setTenantNotFound(true);
-              setIsSuperAdminMode(false); 
-          } 
-          setGlobalLoading(false); 
-      }; 
-      fetchTenant(); 
-  }, [currentDomain, previewTenantId]);
-  // =========================================================================================
-
+  useEffect(() => { const fetchTenant = async () => { if (previewTenantId) { const docRef = doc(db, TENANTS_COLLECTION, previewTenantId); const docSnap = await getDoc(docRef); if (docSnap.exists()) { setCurrentTenant({ id: docSnap.id, ...docSnap.data() } as Tenant); setIsSuperAdminMode(false); } else { setIsSuperAdminMode(true); } setGlobalLoading(false); return; } const q = query(collection(db, TENANTS_COLLECTION), where("domain", "==", currentDomain)); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { setCurrentTenant({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as Tenant); setIsSuperAdminMode(false); } else { setIsSuperAdminMode(true); } setGlobalLoading(false); }; fetchTenant(); }, [currentDomain, previewTenantId]);
   useEffect(() => { if (!currentTenant) return; const unsubProducts = onSnapshot(collection(db, getCol('products')), (snap) => { const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)); items.sort((a, b) => sortByDateDesc(a, b, 'updatedAt')); setProducts(items); setFilteredProducts(items); setLoading(false); }); if (!isVitrineMode) { const unsubNotices = onSnapshot(collection(db, getCol('notices')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as Notice)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setNotices(items); }); const unsubLinks = onSnapshot(collection(db, getCol('quickLinks')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as QuickLink)); items.sort((a, b) => a.order - b.order); setQuickLinks(items); }); const unsubShowcases = onSnapshot(collection(db, getCol('showcases')), (snap) => setShowcases(snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase)))); const unsubAcademy = onSnapshot(collection(db, getCol('academy')), (snap) => setLessons(snap.docs.map(d => ({id: d.id, ...d.data()} as AcademyLesson)))); return () => { unsubProducts(); unsubNotices(); unsubLinks(); unsubShowcases(); unsubAcademy(); }; } else { const unsubShowcases = onSnapshot(collection(db, getCol('showcases')), (snap) => { const allVitrines = snap.docs.map(d => ({id: d.id, ...d.data()} as Showcase)); setPublicVitrine(allVitrines.find(v => v.linkId === vitrineLinkId) || null); }); return () => { unsubProducts(); unsubShowcases(); }; } }, [currentTenant, loading, isVitrineMode, vitrineLinkId]);
   useEffect(() => { if (user && selectedRole === 'user' && currentTenant) { const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (docSnap) => { if (docSnap.exists()) setUserProfile({ id: docSnap.id, completedLessons: [], ...docSnap.data() } as UserProfile); }); const unsubMyTickets = onSnapshot(collection(db, getCol('tickets')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setMyTickets(items.filter(t => t.userId === user.uid)); }); return () => { unsubProfile(); unsubMyTickets(); }; } }, [user, selectedRole, currentTenant]);
   useEffect(() => { if (selectedRole === 'admin' && currentTenant) { const unsubHist = onSnapshot(collection(db, getCol('history')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as HistoryItem)); items.sort((a, b) => sortByDateDesc(a, b, 'timestamp')); setHistory(items.slice(0, 300)); }); const unsubPurch = onSnapshot(collection(db, getCol('purchases')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as PurchaseOrder)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setPurchases(items); }); const unsubUsers = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', currentTenant.id)), (snap) => { setUsersList(snap.docs.map(d => ({id: d.id, ...d.data()} as UserProfile)).filter(u => u.role === 'revendedor')); }); const unsubAllTickets = onSnapshot(collection(db, getCol('tickets')), (snap) => { const items = snap.docs.map(d => ({id: d.id, ...d.data()} as SupportTicket)); items.sort((a, b) => sortByDateDesc(a, b, 'createdAt')); setAllTickets(items); }); return () => { unsubHist(); unsubPurch(); unsubUsers(); unsubAllTickets(); }; } }, [selectedRole, currentTenant]);
@@ -154,12 +106,15 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const handleDeleteNotice = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('notices'), id)); };
   const handleSaveLink = async (e: React.FormEvent) => { e.preventDefault(); if(!linkTitle || !linkUrl) return; setIsSavingBatch(true); try { await addDoc(collection(db, getCol('quickLinks')), { title: linkTitle, subtitle: linkSubtitle, icon: linkIcon, url: linkUrl, order: parseInt(linkOrder) || 1, createdAt: serverTimestamp() }); setLinkTitle(''); setLinkSubtitle(''); setLinkUrl(''); setLinkOrder('1'); alert("Salvo!"); } catch (e) { console.error(e); } finally { setIsSavingBatch(false); } };
   const handleDeleteLink = async (id: string) => { if(confirm('Apagar?')) await deleteDoc(doc(db, getCol('quickLinks'), id)); };
+  
   const handleSaveShowcase = async (e: React.FormEvent) => { e.preventDefault(); if (!editingShowcase?.name) return; setIsSavingBatch(true); try { const payload = { name: editingShowcase.name, linkId: editingShowcase.linkId || `cat-${Math.random().toString(36).substring(2, 8)}`, config: { showPrice: editingShowcase.config?.showPrice ?? true, priceMarkup: editingShowcase.config?.priceMarkup || 0 }, models: editingShowcase.models || [], createdAt: serverTimestamp() }; if (editingShowcase.id) { await updateDoc(doc(db, getCol('showcases'), editingShowcase.id), payload); } else { await addDoc(collection(db, getCol('showcases')), payload); } setEditingShowcase(null); setAdminView('showcases'); playSound('success'); } catch (error) { console.error(error); } finally { setIsSavingBatch(false); } };
   const handleDeleteShowcase = async (id: string) => { if(confirm('Excluir Vitrine?')) await deleteDoc(doc(db, getCol('showcases'), id)); };
   const toggleModelInShowcase = (modelName: string) => { setEditingShowcase(prev => { if (!prev) return prev; const models = prev.models || []; if (models.includes(modelName)) return { ...prev, models: models.filter(m => m !== modelName) }; return { ...prev, models: [...models, modelName] }; }); };
   const selectAllModelsForShowcase = () => { const allNames = Object.keys(groupedAdminProducts); setEditingShowcase(prev => prev ? { ...prev, models: allNames } : prev); };
   const clearAllModelsForShowcase = () => setEditingShowcase(prev => prev ? { ...prev, models: [] } : prev);
+  
   const copyShowcaseLink = (linkId: string) => { const domain = currentTenant?.domain ? currentTenant.domain : window.location.hostname; const url = `https://${domain}/?vitrine=${linkId}`; navigator.clipboard.writeText(url); alert("Link copiado: " + url); };
+  
   const addColor = () => { if (tempColor && !colors.includes(tempColor)) { setColors([...colors, tempColor]); setTempColor(''); } };
   const addSize = () => { if (tempSize && !sizes.includes(tempSize)) { setSizes([...sizes, tempSize]); setTempSize(''); } };
   const updateRowBarcode = (index: number, val: string) => { const updated = [...generatedRows]; updated[index].barcode = val; setGeneratedRows(updated); };
@@ -188,14 +143,14 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const contextValue = {
-    currentTenant, isSuperAdminMode, superAdminAuthenticated, setSuperAdminAuthenticated, saasTenants, selectedRole, setSelectedRole, user, userProfile,
+    currentTenant, isSuperAdminMode, saasTenants, selectedRole, setSelectedRole, user, userProfile,
     loading, adminView, setAdminView, userView, setUserView, searchTerm, setSearchTerm,
     authName, setAuthName, authEmail, setAuthEmail, authPassword, setAuthPassword, isRegistering, setIsRegistering, authError, setAuthError,
     brandColor: currentTenant?.primaryColor || '#2563eb', brandName: currentTenant?.name || 'DropFast', brandLogo: currentTenant?.logoUrl || null,
     previewTenantId, isVitrineMode, publicVitrine, groupedProducts, groupedAdminProducts, filteredAdminList, adminStockStats, predictiveData,
     products, filteredProducts, history, purchases, notices, quickLinks, showcases, lessons, usersList, allTickets, myTickets, academySeasons, availableSeasons,
     baseSku, setBaseSku, baseName, setBaseName, baseDescription, setBaseDescription, baseImage, setBaseImage, basePrice, setBasePrice, colors, setColors, sizes, setSizes, tempColor, setTempColor, tempSize, setTempSize, baseWeight, setBaseWeight, baseLength, setBaseLength, baseWidth, setBaseWidth, baseHeight, setBaseHeight, baseNcm, setBaseNcm, baseCest, setBaseCest, baseMaterial, setBaseMaterial, baseSole, setBaseSole, baseFastening, setBaseFastening, generatedRows, setGeneratedRows, isSavingBatch, setIsSavingBatch, editingProduct, setEditingProduct, editingGroup, setEditingGroup, adminViewingGroupName, setAdminViewingGroupName, adminStockFilter, setAdminStockFilter, selectedCatalogGroups, setSelectedCatalogGroups, viewingProduct, setViewingProduct, activeModalImage, setActiveModalImage, selectedNotice, setSelectedNotice, activeLesson, setActiveLesson, ticketType, setTicketType, ticketReturnGroup, setTicketReturnGroup, ticketReturnProductId, setTicketReturnProductId, ticketDesiredGroup, setTicketDesiredGroup, ticketDesiredProductId, setTicketDesiredProductId, ticketReason, setTicketReason,
-    noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyDesc, setAcademyDesc, academyYoutube, setAcademyYoutube, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, editingShowcase, setEditingShowcase, baseDriveLink, setBaseDriveLink, newTenantCnpj, setNewTenantCnpj, tenantNotFound,
+    noticeType, setNoticeType, noticeTitle, setNoticeTitle, noticeContent, setNoticeContent, noticeImage, setNoticeImage, linkTitle, setLinkTitle, linkSubtitle, setLinkSubtitle, linkUrl, setLinkUrl, linkIcon, setLinkIcon, linkOrder, setLinkOrder, academySeasonMode, setAcademySeasonMode, academySeason, setAcademySeason, academyNewSeason, setAcademyNewSeason, academyEpisode, setAcademyEpisode, academyTitle, setAcademyTitle, academyDesc, setAcademyDesc, academyYoutube, setAcademyYoutube, academyBanner, setAcademyBanner, academyLinks, setAcademyLinks, editingShowcase, setEditingShowcase, baseDriveLink, setBaseDriveLink, newTenantCnpj, setNewTenantCnpj,
     handleLogout, handleAuth, handleCreateTenant, handleSaveBatch, handleExportToUpSeller, handleBatchExportToUpSeller, handleUpdateQuantity, handleOpenTicket, handleAdminTicketAction, openGroupEdit, handleSaveGroupEdit, handleDeleteGroup, toggleLessonCompletion, handleSaveAcademy, handleDeleteAcademy, handleSaveNotice, handleDeleteNotice, handleSaveLink, handleDeleteLink, handleSaveShowcase, handleDeleteShowcase, toggleModelInShowcase, selectAllModelsForShowcase, clearAllModelsForShowcase, copyShowcaseLink, toggleGroupSelection, addColor, addSize, updateRowBarcode, toggleGroup, newTenantName, setNewTenantName, newTenantDomain, setNewTenantDomain, newTenantLogo, setNewTenantLogo, newTenantColor, setNewTenantColor,
     handleGenerateAllAddBarcodes, handlePrintLabels,
     theme, toggleTheme
