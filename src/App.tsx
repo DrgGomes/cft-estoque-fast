@@ -4,10 +4,11 @@ import Login from './pages/Login';
 import Fornecedor from './pages/Fornecedor';
 import Revendedor from './pages/Revendedor';
 import SuperAdmin from './pages/SuperAdmin';
-import Vitrine from './pages/Vitrine'; // NOVA ROTA
+import Vitrine from './pages/Vitrine';
 import { RefreshCw } from 'lucide-react';
 
 function AppRouter() {
+    // AQUI ESTAVA O ERRO: Faltava o superAdminAuthenticated dentro destas chaves!
     const { globalLoading, isSuperAdminMode, superAdminAuthenticated, selectedRole, isVitrineMode } = useContext(AppContext);
 
     if (globalLoading) {
@@ -18,7 +19,6 @@ function AppRouter() {
         );
     }
     
-    // SE O LINK TIVER ?vitrine=XXX, ELE MOSTRA O CATÁLOGO PÚBLICO NA HORA
     if (isVitrineMode) return <Vitrine />;
 
     if (isSuperAdminMode && !superAdminAuthenticated) return <SuperAdmin />;
