@@ -1,35 +1,78 @@
-import React, { useContext } from 'react';
-import { Package } from 'lucide-react';
+import React, { useContext, useState } from 'react';
 import { AppContext } from '../AppContext';
+import { Package, Mail, Lock, LogIn, UserPlus } from 'lucide-react';
 
 export default function Login() {
-  const {
-    previewTenantId, setSelectedRole, brandColor, brandLogo, brandName,
-    handleAuth, authError, isRegistering, authName, setAuthName,
-    authEmail, setAuthEmail, authPassword, setAuthPassword,
-    setIsRegistering, setAuthError
-  } = useContext(AppContext);
+  const { brandName, brandLogo, brandColor, handleAuth } = useContext(AppContext);
+
+  // Estados locais para a tela de login
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // Envia os dados locais para a função de autenticação do sistema
+    await handleAuth(e, authEmail, authPassword, isRegistering, authName);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans relative overflow-hidden">
-      {previewTenantId && (<div className="absolute top-4 left-4 bg-yellow-500 text-black font-black text-xs px-3 py-1 rounded shadow-lg uppercase z-50 animate-pulse">Modo Preview</div>)}
-      <button type="button" onClick={() => { const s = prompt("Senha ADM da Fábrica:"); if (s === "1234") setSelectedRole('admin'); else alert("Acesso negado!"); }} className="absolute top-4 right-4 z-50 text-slate-300 hover:text-slate-500 p-2 rounded-full transition-colors flex items-center gap-2" title="Acesso Restrito"><Package size={20} /></button>
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: brandColor }}></div>
-      <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-500">
-        <div className="flex flex-col items-center mb-8">
-          {brandLogo ? (<img src={brandLogo} alt={brandName} className="h-16 object-contain mb-4" />) : (<div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg text-white" style={{ backgroundColor: brandColor }}><Package className="w-8 h-8" /></div>)}
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">{brandName}</h1>
-          <p className="text-slate-500 text-sm mt-1">Área Exclusiva para Revendedores</p>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50 transition-colors" style={{ backgroundColor: isRegistering ? '#f8fafc' : '#f1f5f9' }}>
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-500">
+        
+        {/* Cabeçalho da Empresa (White Label) */}
+        <div className="p-8 text-center bg-slate-900 border-b-4" style={{ borderBottomColor: brandColor }}>
+          {brandLogo ? (
+            <img src={brandLogo} alt={brandName} className="h-16 mx-auto object-contain mb-4 drop-shadow-lg" />
+          ) : (
+            <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-lg" style={{ backgroundColor: brandColor }}>
+              <Package className="text-white w-8 h-8" />
+            </div>
+          )}
+          <h2 className="text-2xl font-black text-white">{isRegistering ? 'Criar Conta' : 'Acesso ao Portal'}</h2>
+          <p className="text-slate-400 text-sm mt-2">{brandName}</p>
         </div>
-        <form onSubmit={handleAuth} className="space-y-4">
-          {authError && <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl text-center font-bold">{authError}</div>}
-          {isRegistering && (<div className="animate-in slide-in-from-top-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Seu Nome Completo</label><input type="text" value={authName} onChange={(e: any) => setAuthName(e.target.value)} required={isRegistering} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="Ex: João da Silva" /></div>)}
-          <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">E-mail de Acesso</label><input type="email" value={authEmail} onChange={(e: any) => setAuthEmail(e.target.value)} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="seu@email.com" /></div>
-          <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Senha (Mínimo 6 dígitos)</label><input type="password" value={authPassword} onChange={(e: any) => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none focus:ring-2 focus:bg-white transition-all" style={{ '--tw-ring-color': brandColor } as React.CSSProperties} placeholder="••••••" /></div>
-          <button type="submit" className="w-full py-4 mt-2 text-white rounded-xl font-black shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2" style={{ backgroundColor: brandColor }}>{isRegistering ? 'Criar Minha Conta Agora' : 'Entrar no Sistema'}</button>
-        </form>
-        <div className="mt-6 text-center"><button type="button" onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} className="text-sm font-bold transition-colors" style={{ color: brandColor }}>{isRegistering ? 'Já tenho uma conta. Fazer Login.' : 'Não tem conta? Cadastre-se grátis.'}</button></div>
+
+        <div className="p-6 md:p-8">
+          <form onSubmit={onSubmit} className="space-y-5">
+            {isRegistering && (
+              <div className="animate-in slide-in-from-top-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Seu Nome</label>
+                <div className="relative">
+                  <UserPlus className="absolute left-4 top-3.5 text-slate-400 w-5 h-5" />
+                  <input type="text" required value={authName} onChange={e => setAuthName(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500 transition-colors text-slate-800" placeholder="Ex: João Drop" />
+                </div>
+              </div>
+            )}
+            
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">E-mail</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-3.5 text-slate-400 w-5 h-5" />
+                <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500 transition-colors text-slate-800" placeholder="seu@email.com" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Senha</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-3.5 text-slate-400 w-5 h-5" />
+                <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500 transition-colors text-slate-800" placeholder="••••••••" />
+              </div>
+            </div>
+
+            <button type="submit" className="w-full text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02] mt-4" style={{ backgroundColor: brandColor }}>
+              <LogIn className="w-5 h-5" /> {isRegistering ? 'Cadastrar' : 'Entrar'}
+            </button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors">
+              {isRegistering ? 'Já tem uma conta? Faça Login' : 'Não tem conta? Cadastre-se'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
