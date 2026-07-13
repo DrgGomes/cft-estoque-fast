@@ -1,210 +1,145 @@
-import React, { useContext } from 'react';
-import { Package, Plus, ClipboardList, Users, Ticket, GraduationCap, Megaphone, Link2, Store, Search, Pencil, ChevronUp, ChevronDown, ScanBarcode, Zap, BrainCircuit, AlertTriangle, TrendingUp, TrendingDown, Clock, Check, X, Printer, Save, RefreshCw, Trash2, Tag, ChevronLeft, LogOut, ExternalLink, MessageCircle, Wallet, Download, Film, DollarSign, Image as ImageIcon, Play, Layers, Box, CheckSquare, Plug, Send, CheckCircle2, Circle, Bell, MousePointerClick, Video, Globe, ShoppingBag, FileText, Smartphone, LayoutGrid } from 'lucide-react';
-import { AppContext, formatCurrency, formatDate, getYoutubeId } from '../AppContext';
-import { Product, QuickLink } from '../types';
-
-const renderDynamicIcon = (iconName: string, size = 24) => {
-  switch (iconName) { case 'MessageCircle': return <MessageCircle size={size}/>; case 'ImageIcon': return <ImageIcon size={size}/>; case 'Video': return <Video size={size}/>; case 'Globe': return <Globe size={size}/>; case 'ShoppingBag': return <ShoppingBag size={size}/>; case 'FileText': return <FileText size={size}/>; case 'Smartphone': return <Smartphone size={size}/>; default: return <Link2 size={size}/>; }
-};
+import React, { useContext, useState } from 'react';
+import { AppContext, formatCurrency, formatDate } from '../AppContext';
+import { ShoppingCart, Search, Package, CheckCircle, FileText, Upload, X, LogOut, ExternalLink, ChevronLeft, Trash2 } from 'lucide-react';
+import { Product } from '../types';
 
 export default function Revendedor() {
-  const ctx = useContext(AppContext);
-  const { userProfile, lessons, selectedCatalogGroups, userView, handleBatchExportToUpSeller, viewingProduct, setViewingProduct, activeModalImage, setActiveModalImage, handleExportToUpSeller, brandLogo, brandName, brandColor, setUserView, handleLogout, quickLinks, notices, selectedNotice, setSelectedNotice, searchTerm, setSearchTerm, groupedProducts, toggleGroupSelection, activeLesson, setActiveLesson, academySeasons, toggleLessonCompletion, ticketType, setTicketType, ticketReturnGroup, setTicketReturnGroup, ticketReturnProductId, setTicketReturnProductId, ticketDesiredGroup, setTicketDesiredGroup, ticketDesiredProductId, setTicketDesiredProductId, ticketReason, setTicketReason, handleOpenTicket, isSavingBatch, myTickets } = ctx;
-  const academyProgress = Math.round(((userProfile?.completedLessons?.length || 0) / (lessons.length || 1)) * 100);
+  const { brandColor, brandName, brandLogo, userProfile, handleLogout, userView, setUserView, groupedProducts, searchTerm, setSearchTerm, cart, addToCart, removeFromCart, checkoutOrder, purchases, isSavingBatch } = useContext(AppContext);
+  const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [labels, setLabels] = useState<string[]>([]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      files.forEach(file => { const reader = new FileReader(); reader.onloadend = () => { setLabels(prev => [...prev, reader.result as string]); }; reader.readAsDataURL(file); });
+  };
+
+  const handleAddToCart = () => {
+      Object.entries(quantities).forEach(([productId, qty]) => { if (qty > 0) { const prod = selectedProduct.items.find((i:Product) => i.id === productId); if (prod) addToCart(prod, qty); } });
+      setQuantities({}); setSelectedProduct(null);
+  };
+
+  const cartTotal = cart.reduce((acc: number, item: any) => acc + (item.price * item.quantity), 0);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800 relative">
-      {/* Botão de Lote */}
-      {selectedCatalogGroups.length > 0 && userView === 'catalog' && (
-          <div className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white pl-6 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4 z-40 animate-in slide-in-from-bottom-10 border border-slate-700"><span className="font-bold text-sm">{selectedCatalogGroups.length} selecionados</span><button onClick={handleBatchExportToUpSeller} className="bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2.5 rounded-full font-black flex items-center gap-2 text-sm shadow-lg transition-colors"><Download size={16} /> Baixar Lote (UpSeller)</button></div>
-      )}
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white border-b shadow-sm sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto flex justify-between items-center p-4">
+            <div className="flex items-center gap-3">
+              {brandLogo ? <img src={brandLogo} className="h-10 object-contain" alt="Logo"/> : <div className="p-2 rounded bg-slate-900"><Package className="text-white"/></div>}
+              <div><h1 className="font-black text-slate-900">{brandName}</h1><span className="text-xs text-slate-500">Área do Lojista</span></div>
+            </div>
+            <div className="flex items-center gap-3">
+                <button onClick={() => setIsCartOpen(true)} className="relative p-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors">
+                    <ShoppingCart size={24} style={{ color: brandColor }} />
+                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full">{cart.reduce((a:number, b:any) => a + b.quantity, 0)}</span>}
+                </button>
+                <button onClick={handleLogout} className="text-xs bg-slate-900 text-white p-2 md:px-4 md:py-2 rounded-lg font-bold">Sair</button>
+            </div>
+        </div>
+      </header>
 
-      {/* Modal Produto */}
-      {viewingProduct && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in" onClick={() => setViewingProduct(null)}>
-             <div className="bg-white rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl relative flex flex-col md:flex-row" onClick={e => e.stopPropagation()}>
-                <button onClick={() => setViewingProduct(null)} className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-black transition-colors z-20"><X size={20}/></button>
-                <div className="w-full md:w-1/2 p-6 bg-slate-50 flex flex-col"><div className="aspect-square bg-white rounded-2xl border border-slate-200 overflow-hidden mb-4 flex items-center justify-center shadow-sm">{activeModalImage ? <img src={activeModalImage} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300 w-24 h-24" />}</div><div className="flex gap-3 overflow-x-auto pb-2 hidden-scroll">{viewingProduct.group.info.image && viewingProduct.group.info.image.split(',').map((url: string, i: number) => (<img key={i} src={url} onClick={() => setActiveModalImage(url)} className={`w-16 h-16 rounded-xl object-cover cursor-pointer border-2 transition-all ${activeModalImage === url ? 'border-emerald-500 opacity-100' : 'border-transparent opacity-60 hover:opacity-100'}`} />))}</div></div>
-                <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col max-h-[80vh] overflow-y-auto">
-                    <span className="text-xs font-bold text-slate-400 mb-1">{viewingProduct.group.info.parentSku || (viewingProduct.group.info.sku ? String(viewingProduct.group.info.sku).split('-')[0] : '')}</span>
-                    <h2 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-2">{viewingProduct.name}</h2>
-                    <div className="text-3xl font-black text-green-600 mb-6">{formatCurrency(viewingProduct.group.info.price || 0)}</div>
-                    <div className="flex flex-wrap gap-2 mb-6">{viewingProduct.group.info.material && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Mat: {viewingProduct.group.info.material}</span>}{viewingProduct.group.info.sole && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Sol: {viewingProduct.group.info.sole}</span>}{viewingProduct.group.info.fastening && <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Ajus: {viewingProduct.group.info.fastening}</span>}</div>
-                    <div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Cores Disponíveis</p><div className="flex flex-wrap gap-2">{Array.from(new Set(viewingProduct.group.items.map((i: any) => i.color))).map(color => (<span key={String(color)} className="border border-slate-200 text-slate-700 bg-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm">{String(color)}</span>))}</div></div>
-                    <div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Tamanhos Disponíveis</p><div className="flex flex-wrap gap-2">{Array.from(new Set(viewingProduct.group.items.map((i: any) => i.size))).map(size => (<span key={String(size)} className="border border-slate-200 text-slate-700 bg-white w-12 h-12 flex items-center justify-center rounded-xl text-sm font-black shadow-sm">{String(size)}</span>))}</div></div>
-                    {viewingProduct.group.info.description && (<div className="mb-6"><p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Descrição</p><p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">{viewingProduct.group.info.description}</p></div>)}
-                    <div className="mt-auto pt-6 space-y-3">
-                        {/* BOTÃO: Link do Drive */}
-                        {viewingProduct.group.info.driveLink && (
-                          <a href={viewingProduct.group.info.driveLink} target="_blank" rel="noreferrer" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xl shadow-blue-500/20 text-lg">
-                            <Download size={24}/> Baixar Mídias (Drive)
-                          </a>
-                        )}
-                        <button onClick={() => { handleExportToUpSeller(viewingProduct.name, viewingProduct.group); setViewingProduct(null); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xl shadow-emerald-500/20 text-lg"><Download size={24}/> Baixar Planilha UpSeller</button>
-                    </div>
-                </div>
-             </div>
+      <main className="max-w-7xl mx-auto p-4 py-8 space-y-6">
+          <div className="flex gap-4 border-b pb-4 overflow-x-auto">
+              <button onClick={() => setUserView('dashboard')} className={`font-bold px-4 py-2 rounded-full transition-colors whitespace-nowrap ${userView === 'dashboard' ? 'text-white' : 'bg-white text-slate-600 border'}`} style={{ backgroundColor: userView === 'dashboard' ? brandColor : '' }}>Catálogo</button>
+              <button onClick={() => setUserView('orders')} className={`font-bold px-4 py-2 rounded-full transition-colors whitespace-nowrap ${userView === 'orders' ? 'text-white' : 'bg-white text-slate-600 border'}`} style={{ backgroundColor: userView === 'orders' ? brandColor : '' }}>Meus Pedidos</button>
+          </div>
+
+          {userView === 'dashboard' && (
+              <div className="space-y-6">
+                  <div className="relative"><Search className="absolute left-4 top-3 text-slate-400"/><input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar modelos..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl outline-none shadow-sm"/></div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {Object.entries(groupedProducts).map(([name, group]: any) => (
+                          <div key={name} onClick={() => setSelectedProduct(group)} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden cursor-pointer hover:shadow-md transition-shadow">
+                              <img src={group.info.image?.split(',')[0]} className="w-full aspect-square object-cover bg-slate-100" />
+                              <div className="p-3">
+                                  <h3 className="font-bold text-slate-800 text-sm truncate">{name}</h3>
+                                  <div className="text-lg font-black mt-2" style={{ color: brandColor }}>{formatCurrency(group.info.price)}</div>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          )}
+
+          {userView === 'orders' && (
+              <div className="bg-white rounded-xl shadow-sm border p-4 md:p-6 space-y-4">
+                  <h2 className="text-xl font-black text-slate-800 border-b pb-4">Histórico de Pedidos</h2>
+                  {purchases.length === 0 ? <p className="text-slate-500">Nenhum pedido feito.</p> : purchases.map((order: any) => (
+                      <div key={order.id} className="border rounded-xl p-4 flex flex-col md:flex-row justify-between gap-4">
+                          <div>
+                              <div className="flex items-center gap-2 mb-2"><span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded">#{order.id.slice(-6).toUpperCase()}</span><span className="text-[10px] font-bold text-white bg-slate-800 px-2 py-1 rounded uppercase">{order.status.replace('_', ' ')}</span><span className={`text-[10px] font-bold text-white px-2 py-1 rounded uppercase ${order.paymentStatus === 'pago' ? 'bg-green-500' : 'bg-red-500'}`}>{order.paymentStatus}</span></div>
+                              <p className="text-xs text-slate-500">{formatDate(order.createdAt)}</p>
+                              <div className="mt-2 text-sm text-slate-600">{order.items.reduce((a:number, b:any)=>a+b.quantity, 0)} itens • <span className="font-black" style={{ color: brandColor }}>{formatCurrency(order.totalValue)}</span></div>
+                          </div>
+                          <div className="bg-slate-50 p-2 rounded-lg border text-xs text-slate-500 overflow-y-auto max-h-24 md:w-1/3">
+                              {order.items.map((i:any) => <div key={i.productId} className="flex justify-between border-b pb-1 mb-1 last:border-0 last:mb-0 last:pb-0"><span>{i.quantity}x {i.color} Tam {i.size}</span><span className="font-bold">{i.scannedQty}/{i.quantity} Sep</span></div>)}
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          )}
+      </main>
+
+      {/* MODAL PRODUTO (GRID DE TAMANHOS) */}
+      {selectedProduct && (
+          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => {setSelectedProduct(null); setQuantities({});}}>
+              <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                  <div className="p-4 border-b flex justify-between items-center bg-slate-50"><h2 className="font-black text-lg text-slate-800">{selectedProduct.info.name}</h2><button onClick={() => setSelectedProduct(null)} className="p-2 bg-slate-200 rounded-full"><X size={16}/></button></div>
+                  <div className="p-4 md:p-6 overflow-y-auto flex-1">
+                      <div className="flex gap-4 mb-6"><img src={selectedProduct.info.image?.split(',')[0]} className="w-24 h-24 rounded-lg object-cover bg-slate-100" /><div><span className="text-2xl font-black block" style={{ color: brandColor }}>{formatCurrency(selectedProduct.info.price)}</span><p className="text-xs text-slate-500 mt-1">{selectedProduct.info.description}</p></div></div>
+                      <div className="space-y-4">
+                          <h3 className="font-bold text-slate-800 text-sm uppercase">Selecione as Quantidades</h3>
+                          <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+                              {selectedProduct.items.map((item: Product) => (
+                                  <div key={item.id} className="border rounded-lg p-2 flex flex-col items-center gap-2 bg-slate-50">
+                                      <span className="text-xs font-bold text-slate-600 truncate w-full text-center">{item.color} - {item.size}</span>
+                                      <span className="text-[10px] text-slate-400">Est: {item.quantity}</span>
+                                      <input type="number" min="0" max={item.quantity} value={quantities[item.id] || ''} onChange={e => setQuantities({...quantities, [item.id]: parseInt(e.target.value)||0})} className="w-full text-center border p-1 rounded font-bold text-slate-800 outline-none focus:border-blue-500" placeholder="0" />
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+                  <div className="p-4 border-t bg-slate-50"><button onClick={handleAddToCart} className="w-full text-white py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-transform hover:scale-[1.02]" style={{ backgroundColor: brandColor }}><ShoppingCart size={18}/> Adicionar ao Carrinho</button></div>
+              </div>
           </div>
       )}
 
-      {/* Menu Lateral Desktop */}
-      <aside className="w-64 bg-slate-900 text-white flex-col hidden md:flex h-screen sticky top-0">
-        <div className="p-6 text-center border-b border-slate-800">{brandLogo ? (<img src={brandLogo} className="h-10 mx-auto object-contain mb-2" alt="Logo"/>) : (<h1 className="text-2xl font-black flex items-center justify-center gap-2" style={{ color: brandColor }}><RefreshCw size={24} /> {brandName}</h1>)}<p className="text-xs text-slate-400 mt-1">Olá, {userProfile?.name?.split(' ')[0] || 'Revendedor'}</p></div>
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto hidden-scroll">
-          <button onClick={() => setUserView('dashboard')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'dashboard' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'dashboard' ? {backgroundColor: brandColor} : {}}><Layers size={20} /> Visão Geral</button>
-          <button onClick={() => setUserView('catalog')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'catalog' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'catalog' ? {backgroundColor: brandColor} : {}}><LayoutGrid size={20} /> Catálogo</button>
-          <button onClick={() => {setUserView('academy'); setActiveLesson(null);}} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'academy' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'academy' ? {backgroundColor: brandColor} : {}}><Play size={20} /> Como Funciona</button>
-          <button onClick={() => setUserView('support')} className={`w-full flex items-center gap-3 p-3 rounded-xl font-medium transition-all ${userView === 'support' ? 'text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`} style={userView === 'support' ? {backgroundColor: brandColor} : {}}><Ticket size={20} /> Suporte / Trocas</button>
-        </nav>
-        <div className="p-4 mx-4 mb-4 bg-slate-800 rounded-xl border border-slate-700 text-center"><p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center justify-center gap-1"><Wallet size={12}/> Seu Crédito</p><p className="text-xl font-black text-green-400">{formatCurrency(userProfile?.creditBalance || 0)}</p></div>
-        <div className="p-4 border-t border-slate-800"><button onClick={handleLogout} className="flex items-center gap-3 text-red-400 hover:text-red-300 w-full p-2"><LogOut size={20} /> Sair</button></div>
-      </aside>
-
-      <main className={`flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 text-slate-800`}>
-        <header className={`bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b border-slate-100`}><div className="flex items-center gap-3"><div className={`md:hidden p-2 rounded-lg text-white`} style={{backgroundColor: brandColor}}><RefreshCw size={20} /></div><div><h2 className={`text-xl font-bold hidden md:block text-slate-800`}>{userView === 'dashboard' ? 'Dashboard' : userView === 'catalog' ? 'Catálogo de Produtos' : userView === 'academy' ? 'Treinamentos' : 'Central de Resoluções'}</h2></div></div><button onClick={handleLogout} className={`md:hidden text-xs p-3 rounded-xl text-red-500 bg-slate-100`}><LogOut size={20} /></button></header>
-        <div className={`p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full pb-24 md:pb-6`}>
-          
-          {userView === 'dashboard' && (
-            <div className="space-y-6 animate-in fade-in zoom-in duration-300">
-              {quickLinks.length > 0 && (<section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{quickLinks.map((link: QuickLink) => (<a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="group bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition flex items-center gap-4"><div className="w-14 h-14 bg-slate-100 text-slate-700 rounded-xl flex items-center justify-center transition" style={{ color: brandColor, backgroundColor: `${brandColor}15` }}>{renderDynamicIcon(link.icon, 28)}</div><div><h4 className="font-bold text-slate-800 text-lg transition-colors">{link.title}</h4><p className="text-sm text-slate-500 mt-1">{link.subtitle}</p></div></a>))}</section>)}
-              <section className="space-y-4">
-                <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Megaphone className="text-orange-500"/> Mural de Avisos</h3>
-                {notices.length === 0 ? (<div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center"><Bell size={48} className="mx-auto text-slate-300 mb-4" /><p className="text-slate-500 font-medium">Nenhum aviso no momento.</p></div>) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {notices.map((notice: any) => (
-                         <div onClick={() => setSelectedNotice(notice)} key={notice.id} className="bg-slate-200 hover:bg-slate-300 cursor-pointer rounded-2xl shadow-sm border border-slate-300 overflow-hidden relative transition-colors group">
-                            {notice.type === 'banner' && notice.imageUrl && (<div className="w-full h-40 bg-slate-300"><img src={notice.imageUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /></div>)}
-                            <div className="p-5"><div className="flex items-center gap-2 mb-2">{notice.type === 'banner' ? <ImageIcon style={{color:brandColor}} size={18}/> : <Bell className="text-orange-600" size={18}/>}<h4 className="font-black text-lg text-slate-800 line-clamp-1">{notice.title}</h4></div>{notice.content && (<p className="text-slate-500 text-sm line-clamp-2 mt-1">{notice.content}</p>)}<div className="mt-4 flex items-center justify-between"><p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(notice.createdAt)}</p><span className="text-xs font-bold group-hover:underline flex items-center gap-1" style={{color: brandColor}}>Ver mais <MousePointerClick size={12}/></span></div></div>
-                         </div>
+      {/* MODAL CARRINHO E CHECKOUT */}
+      {isCartOpen && (
+          <div className="fixed inset-0 bg-black/60 z-[120] flex justify-end backdrop-blur-sm" onClick={() => setIsCartOpen(false)}>
+              <div className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col animate-in slide-in-from-right" onClick={e => e.stopPropagation()}>
+                  <div className="p-4 border-b flex justify-between items-center bg-slate-900 text-white"><h2 className="font-black text-lg flex items-center gap-2"><ShoppingCart size={20}/> Meu Carrinho</h2><button onClick={() => setIsCartOpen(false)} className="p-2 bg-slate-800 rounded-full"><X size={16}/></button></div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {cart.length === 0 ? <p className="text-center text-slate-500 py-10">Carrinho Vazio</p> : cart.map((item: any) => (
+                          <div key={item.productId} className="flex gap-3 border-b pb-3 items-center">
+                              <img src={item.image} className="w-16 h-16 rounded object-cover border" />
+                              <div className="flex-1">
+                                  <h4 className="font-bold text-slate-800 text-xs leading-tight line-clamp-1">{item.name}</h4>
+                                  <p className="text-[10px] text-slate-500">{item.color} | Tam: {item.size} | Qtd: {item.quantity}</p>
+                                  <span className="font-black text-slate-900 text-sm">{formatCurrency(item.price * item.quantity)}</span>
+                              </div>
+                              <button onClick={() => removeFromCart(item.productId)} className="text-red-500 p-2"><Trash2 size={16}/></button>
+                          </div>
                       ))}
-                    </div>
-                )}
-              </section>
-            </div>
-          )}
-
-          {userView === 'catalog' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-24 md:pb-6">
-               <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
-                   <div className="relative w-full md:w-2/3"><Search className="absolute left-4 top-4 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar modelo, cor ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 text-lg" style={{'--tw-ring-color':brandColor} as any} /></div>
-                   <div className="flex gap-2 w-full md:w-auto"><button onClick={() => setSelectedCatalogGroups(Object.keys(groupedProducts))} className="flex-1 md:flex-none bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-3 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2"><CheckSquare size={16}/> Selecionar Tudo</button>{selectedCatalogGroups.length > 0 && <button onClick={() => setSelectedCatalogGroups([])} className="flex-1 md:flex-none bg-red-100 hover:bg-red-200 text-red-600 px-4 py-3 rounded-xl font-bold text-sm transition-colors">Limpar</button>}</div>
-               </div>
-               <div>
-                 {Object.keys(groupedProducts).length === 0 ? (<p className="text-center text-slate-400 py-10">Nenhum produto encontrado.</p>) : (
-                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                         {Object.entries(groupedProducts).map(([name, group]: any) => {
-                             const firstImage = group.info.image ? group.info.image.split(',')[0] : ''; const isSelected = selectedCatalogGroups.includes(name);
-                             return (
-                             <div key={name} className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col hover:shadow-lg transition duration-300 relative ${isSelected ? 'border-emerald-500' : 'border-slate-200'}`}>
-                                 <input type="checkbox" checked={isSelected} onChange={(e) => { e.stopPropagation(); toggleGroupSelection(name, e.target.checked); }} className="absolute top-3 left-3 z-10 w-6 h-6 accent-emerald-500 cursor-pointer shadow-sm rounded-lg" />
-                                 <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden group-card">{firstImage ? (<img src={firstImage} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-slate-300 w-12 h-12" /></div>)}{group.info.image && group.info.image.split(',').length > 1 && <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] font-black px-2 py-1 rounded backdrop-blur-sm shadow-lg">+{group.info.image.split(',').length - 1} fotos</div>}</div>
-                                 <div onClick={() => { setViewingProduct({name, group}); setActiveModalImage(firstImage); }} className="p-4 flex-1 cursor-pointer flex flex-col justify-between"><div><h3 className="font-bold text-slate-800 text-sm leading-tight line-clamp-2 mb-1">{String(name)}</h3></div><div className="mt-3 flex items-center justify-between"><span className="text-lg font-black text-green-600">{formatCurrency(group.info.price || 0)}</span></div></div>
-                             </div>
-                         )})}
-                     </div>
-                 )}
-               </div>
-            </div>
-          )}
-
-          {userView === 'academy' && (
-              <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
-                  <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 flex flex-col md:flex-row items-center gap-6 shadow-xl"><div className="w-16 h-16 rounded-full flex items-center justify-center shrink-0" style={{backgroundColor: `${brandColor}20`}}><GraduationCap style={{color: brandColor}} size={32} /></div><div className="flex-1 w-full text-center md:text-left"><h3 className="font-black text-lg text-white mb-2">Seu Progresso na Jornada</h3><div className="w-full bg-slate-800 rounded-full h-4 overflow-hidden relative"><div className="h-full transition-all duration-1000 ease-out" style={{ width: `${academyProgress}%`, backgroundColor: brandColor }}></div></div><p className="text-slate-400 text-xs mt-2 font-bold">{userProfile?.completedLessons?.length || 0} de {lessons.length} aulas concluídas ({academyProgress}%)</p></div></div>
-                  {activeLesson ? (
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                          <div className="lg:col-span-2 space-y-4">
-                              <button onClick={() => setActiveLesson(null)} className="text-slate-400 hover:text-white flex items-center gap-2 font-bold text-sm bg-slate-800 px-4 py-2 rounded-lg w-fit transition-colors"><ChevronLeft size={16}/> Voltar</button>
-                              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 w-full aspect-video">{getYoutubeId(activeLesson.youtubeUrl) ? (<iframe src={`https://www.youtube.com/embed/${getYoutubeId(activeLesson.youtubeUrl)}?autoplay=1&rel=0`} className="w-full h-full" allow="autoplay; fullscreen" allowFullScreen></iframe>) : (<div className="w-full h-full flex items-center justify-center text-slate-500 bg-slate-900 font-bold">Vídeo Indisponível</div>)}</div>
-                              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl"><span className="font-black text-sm uppercase tracking-widest" style={{color: brandColor}}>{activeLesson.season || 'Módulo Geral'} - Ep {activeLesson.episode}</span><h1 className="text-2xl md:text-3xl font-black text-white mt-1 mb-4">{activeLesson.title}</h1><p className="text-slate-400 text-sm leading-relaxed whitespace-pre-wrap">{activeLesson.description}</p>{activeLesson.materialLinks && (<div className="mt-6 pt-6 border-t border-slate-800"><h3 className="font-bold text-white mb-3 flex items-center gap-2"><Link2 size={18} style={{color: brandColor}}/> Materiais Complementares</h3><a href={activeLesson.materialLinks} target="_blank" rel="noreferrer" className="inline-block bg-slate-800 hover:bg-slate-700 px-4 py-3 rounded-xl text-sm font-bold transition-colors" style={{color: brandColor}}>Acessar Links / Materiais</a></div>)}</div>
+                      
+                      {cart.length > 0 && (
+                          <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Anexar Etiquetas (PDF/Imagens)</label>
+                              <input type="file" multiple onChange={handleFileUpload} className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                              {labels.length > 0 && <p className="text-[10px] text-green-600 font-bold mt-2">{labels.length} arquivo(s) anexado(s)</p>}
                           </div>
-                          <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[70vh]">
-                              <div className="p-4 border-b border-slate-800 bg-slate-800/50"><h3 className="font-black text-white">Conteúdo do Módulo</h3></div>
-                              <div className="flex-1 overflow-y-auto hidden-scroll p-2 space-y-2">
-                                  {lessons.filter(l => (l.season || 'Módulo Geral') === (activeLesson.season || 'Módulo Geral')).sort((a,b)=> (a.episode||0) - (b.episode||0)).map((ep) => {
-                                      const isCompleted = userProfile?.completedLessons?.includes(ep.id); const isActive = activeLesson.id === ep.id;
-                                      return ( <div key={ep.id} className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${isActive ? 'bg-slate-800 border border-slate-700' : 'hover:bg-slate-800/50 border border-transparent'}`}><button onClick={(e) => { e.stopPropagation(); toggleLessonCompletion(ep.id); }} className="shrink-0 transition-colors" style={{color: isCompleted ? '#22c55e' : '#94a3b8'}}>{isCompleted ? <CheckCircle2 size={24} /> : <Circle size={24} />}</button><div onClick={() => setActiveLesson(ep)} className="flex-1 min-w-0"><h4 className={`font-bold text-sm truncate ${isActive ? '' : 'text-slate-200'}`} style={isActive ? {color: brandColor} : {}}>{ep.episode}. {ep.title}</h4><span className="text-[10px] text-slate-500 font-bold uppercase">{isCompleted ? 'Concluído' : 'Pendente'}</span></div>{isActive && <Play size={16} shrink-0 fill="currentColor" style={{color: brandColor}}/>}</div> )
-                                  })}
-                              </div>
-                          </div>
-                      </div>
-                  ) : (
-                      <>
-                          {lessons.length > 0 && (<div className="relative w-full h-[300px] md:h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-slate-800 group"><img src={lessons[0].bannerUrl || 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?q=80&w=2070&auto=format&fit=crop'} loading="lazy" className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700" alt="Hero" /><div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent"></div><div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:w-2/3"><div className="flex items-center gap-2 mb-2"><Film size={16} style={{color:brandColor}}/><span className="font-black text-xs uppercase tracking-widest" style={{color:brandColor}}>Comece por aqui</span></div><h2 className="text-2xl md:text-5xl font-black text-white mb-2 leading-tight">{lessons[0].title}</h2><p className="text-slate-300 text-xs md:text-sm line-clamp-2 mb-6 max-w-xl">{lessons[0].description}</p><button onClick={() => setActiveLesson(lessons[0])} className="bg-white text-black hover:bg-slate-200 px-6 py-3 rounded-lg font-black flex items-center gap-2 transition-transform hover:scale-105 shadow-xl"><Play fill="black" size={20} /> Assistir Agora</button></div></div>)}
-                          {lessons.length === 0 ? (<div className="text-center py-20 text-slate-500 font-bold">Nenhuma aula disponível no momento.</div>) : (
-                              <div className="space-y-10">
-                                  {academySeasons.map((season, idx) => (
-                                      <div key={idx}><h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2 border-l-4 pl-3" style={{borderColor:brandColor}}>{season.name}</h3><div className="flex overflow-x-auto gap-4 pb-4 hidden-scroll snap-x">
-                                              {season.episodes.map(ep => {
-                                                  const isCompleted = userProfile?.completedLessons?.includes(ep.id);
-                                                  return ( <div key={ep.id} onClick={() => setActiveLesson(ep)} className="snap-start shrink-0 w-[260px] md:w-[320px] cursor-pointer group"><div className="w-full aspect-video bg-slate-800 rounded-xl overflow-hidden relative shadow-lg border-2 border-slate-800 group-hover:border-slate-500 transition-colors">{ep.bannerUrl ? (<img src={ep.bannerUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100" />) : (<div className="w-full h-full flex items-center justify-center text-slate-600"><Film size={40}/></div>)}<div className="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-colors flex items-center justify-center"><div className="w-12 h-12 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity scale-75 group-hover:scale-100 duration-300 shadow-xl backdrop-blur-sm" style={{backgroundColor: `${brandColor}E6`}}><Play fill="white" size={24} className="ml-1"/></div></div><span className="absolute top-2 left-2 bg-black/80 text-white text-[10px] font-black px-2 py-1 rounded shadow-lg backdrop-blur">Ep {ep.episode}</span>{isCompleted && <span className="absolute top-2 right-2 text-green-500 bg-black/80 rounded-full"><CheckCircle2 size={16}/></span>}</div><div className="mt-3 pr-2"><h4 className="font-bold text-slate-200 text-sm group-hover:text-white transition-colors line-clamp-1">{ep.title}</h4></div></div> )
-                                              })}
-                                      </div></div>
-                                  ))}
-                              </div>
-                          )}
-                      </>
-                  )}
-              </div>
-          )}
-
-          {userView === 'support' && (
-              <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Ticket style={{color:brandColor}}/> Abrir Chamado</h3><p className="text-sm text-slate-500 mt-1">Siga o passo a passo abaixo para relatar o problema.</p></div>
-                      <form onSubmit={handleOpenTicket} className="p-6 space-y-6">
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">1. O que você deseja fazer?</label>
-                              <div className="flex gap-4">
-                                  <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-4 rounded-xl flex-1 transition-colors"><input type="radio" name="ticketType" checked={ticketType === 'troca'} onChange={() => {setTicketType('troca'); setTicketReason(''); setTicketDesiredProductId(''); setTicketDesiredGroup('');}} className="w-5 h-5" style={{accentColor: brandColor}} /><div><span className="font-bold text-slate-800 block">Troca Normal</span><span className="text-[10px] text-slate-500 font-medium">Trocar uma peça por outra</span></div></label>
-                                  <label className="flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 p-4 rounded-xl flex-1 transition-colors"><input type="radio" name="ticketType" checked={ticketType === 'devolucao'} onChange={() => {setTicketType('devolucao'); setTicketDesiredProductId(''); setTicketDesiredGroup('');}} className="accent-red-600 w-5 h-5" /><div><span className="font-bold text-slate-800 text-red-600 block">Devolução (Defeito)</span><span className="text-[10px] text-slate-500 font-medium">Devolver e gerar crédito</span></div></label>
-                              </div>
-                              {ticketType === 'devolucao' && (<div className="mt-3 bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-sm font-medium animate-in zoom-in"><strong>ATENÇÃO:</strong> Aceitamos devolução <strong>APENAS em casos de defeito de fabricação</strong>. Solicitações por outros motivos serão recusadas. O valor será creditado na sua carteira.</div>)}
-                          </div>
-                          <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
-                              <label className="text-xs font-bold text-slate-500 uppercase block">2. Qual modelo você comprou e quer devolver?*</label>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div><select value={ticketReturnGroup} onChange={(e) => {setTicketReturnGroup(e.target.value); setTicketReturnProductId('');}} className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-bold text-sm focus:ring-2 shadow-sm" style={{'--tw-ring-color':brandColor} as any}><option value="">1º - Escolha o Modelo...</option>{Object.keys(groupedProducts).map(k => <option key={k} value={k}>{k}</option>)}</select></div>
-                                  <div><select disabled={!ticketReturnGroup} value={ticketReturnProductId} onChange={(e) => setTicketReturnProductId(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-medium text-sm focus:ring-2 shadow-sm disabled:opacity-50" style={{'--tw-ring-color':brandColor} as any}><option value="">2º - Escolha Cor e Tamanho...</option>{ticketReturnGroup && groupedProducts[ticketReturnGroup]?.items.map((p: Product) => (<option key={p.id} value={p.id}>Cor: {p.color} | Tam: {p.size} (R$ {formatCurrency(p.price)})</option>))}</select></div>
-                              </div>
-                          </div>
-                          {ticketType === 'troca' && (
-                              <div className="p-5 rounded-xl space-y-4 animate-in slide-in-from-top-2" style={{backgroundColor: `${brandColor}10`, borderColor: `${brandColor}30`, borderWidth: '1px'}}>
-                                  <div className="flex items-center gap-2 font-bold mb-1" style={{color: brandColor}}><RefreshCw size={18}/> <span>3. Por qual peça deseja trocar?*</span></div>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      <div><select value={ticketDesiredGroup} onChange={(e) => {setTicketDesiredGroup(e.target.value); setTicketDesiredProductId('');}} className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-bold text-sm focus:ring-2 shadow-sm" style={{'--tw-ring-color':brandColor} as any}><option value="">1º - Escolha o Novo Modelo...</option>{Object.keys(groupedProducts).map(k => <option key={k} value={k}>{k}</option>)}</select></div>
-                                      <div><select disabled={!ticketDesiredGroup} value={ticketDesiredProductId} onChange={(e) => setTicketDesiredProductId(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-xl p-4 text-slate-800 outline-none font-medium text-sm focus:ring-2 shadow-sm disabled:opacity-50" style={{'--tw-ring-color':brandColor} as any}><option value="">2º - Escolha Cor e Tamanho...</option>{ticketDesiredGroup && groupedProducts[ticketDesiredGroup]?.items.map((p: Product) => { const isOutOfStock = p.quantity <= 0; return (<option key={p.id} value={p.id} disabled={isOutOfStock}>Cor: {p.color} | Tam: {p.size} {isOutOfStock ? '(ESGOTADO)' : ''}</option>);})}</select><p className="text-[10px] mt-2 font-medium" style={{color: brandColor}}>*Mostramos apenas variações em estoque.</p></div>
-                                  </div>
-                              </div>
-                          )}
-                          {ticketType === 'devolucao' && (<div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">3. Motivo da Devolução (Qual o defeito?)*</label><textarea value={ticketReason} onChange={e => setTicketReason(e.target.value)} required rows={3} placeholder="Explique qual defeito o produto apresentou..." className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-800 outline-none text-sm focus:ring-2" style={{'--tw-ring-color':brandColor} as any}></textarea></div>)}
-                          <div className="pt-4 border-t border-slate-100"><button type="submit" disabled={isSavingBatch || !ticketReturnProductId || (ticketType === 'troca' && !ticketDesiredProductId)} className={`w-full md:w-auto px-8 py-4 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg transition-transform ${isSavingBatch || !ticketReturnProductId || (ticketType === 'troca' && !ticketDesiredProductId) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'text-white hover:scale-[1.02]'}`} style={(!isSavingBatch && ticketReturnProductId && (ticketType !== 'troca' || ticketDesiredProductId)) ? {backgroundColor: brandColor} : {}}>{isSavingBatch ? <RefreshCw className="animate-spin" /> : <Save size={20} />} Enviar Solicitação</button></div>
-                      </form>
+                      )}
                   </div>
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800 text-lg">Meu Histórico de Chamados</h3></div>
-                      <div className="p-4 space-y-3">
-                          {myTickets.length === 0 ? (<p className="text-slate-400 text-center py-6">Você não possui chamados abertos.</p>) : myTickets.map((ticket: any) => (
-                              <div key={ticket.id} className="border border-slate-200 p-4 rounded-xl flex flex-col gap-3 relative overflow-hidden">
-                                  <div className={`absolute top-0 left-0 w-1.5 h-full`} style={{backgroundColor: ticket.type === 'devolucao' ? '#ef4444' : brandColor}}></div>
-                                  <div className="pl-3 flex flex-col gap-3">
-                                      <div className="flex justify-between items-start"><div><div className="flex items-center gap-2 mb-1"><span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${ticket.type === 'devolucao' ? 'bg-red-100 text-red-700' : 'text-white'}`} style={ticket.type === 'troca' ? {backgroundColor: brandColor} : {}}>{ticket.type}</span><span className="text-xs text-slate-500 font-bold">{formatDate(ticket.createdAt)}</span></div></div><div>{ticket.status === 'pendente' && <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded font-bold uppercase border border-yellow-200">Em Análise</span>}{ticket.status === 'aceito' && <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded font-bold uppercase border border-emerald-200">Troca Aceita</span>}{ticket.status === 'aguardando_devolucao' && <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded font-bold uppercase border border-orange-200 text-center block leading-tight">Aguardando<br/>Entrega</span>}{ticket.status === 'recusado' && <span className="bg-red-100 text-red-700 text-xs px-2 py-1 rounded font-bold uppercase border border-red-200">Recusado</span>}{ticket.status === 'concluido' && <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold uppercase border border-blue-200">Concluído</span>}</div></div>
-                                      <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm"><p className="font-bold text-slate-700 whitespace-pre-wrap leading-relaxed">{ticket.productInfo}</p></div>
-                                      {ticket.type === 'devolucao' && ticket.reason && (<p className="text-sm text-slate-600"><strong>Motivo:</strong> {ticket.reason}</p>)}
-                                      {ticket.adminNote && (<div className="bg-slate-800 text-white p-3 rounded-lg text-sm flex gap-2"><MessageCircle size={16} className="shrink-0 text-blue-400" /><div><strong className="text-blue-400 block mb-0.5">Resposta do Fornecedor:</strong> {ticket.adminNote}</div></div>)}
-                                  </div>
-                              </div>
-                          ))}
-                      </div>
+                  <div className="p-4 border-t bg-slate-50">
+                      <div className="flex justify-between items-center mb-4"><span className="font-bold text-slate-500 uppercase text-xs">Total do Pedido</span><span className="text-2xl font-black text-slate-900">{formatCurrency(cartTotal)}</span></div>
+                      <button onClick={() => {checkoutOrder(labels); setIsCartOpen(false); setLabels([]);}} disabled={cart.length === 0 || isSavingBatch} className={`w-full text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 shadow-lg transition-transform ${cart.length === 0 ? 'bg-slate-300' : 'hover:scale-[1.02]'}`} style={{ backgroundColor: cart.length > 0 ? brandColor : '' }}><CheckCircle size={20}/> {isSavingBatch ? 'Processando...' : 'Finalizar Pedido'}</button>
                   </div>
               </div>
-          )}
-        </div>
-      </main>
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-        <button onClick={() => setUserView('dashboard')} className={`flex flex-col items-center gap-1 ${userView === 'dashboard' ? '' : 'text-slate-400'}`} style={userView === 'dashboard' ? {color: brandColor} : {}}><Layers size={20} /><span className="text-[10px] font-bold">Início</span></button>
-        <button onClick={() => setUserView('catalog')} className={`flex flex-col items-center gap-1 ${userView === 'catalog' ? '' : 'text-slate-400'}`} style={userView === 'catalog' ? {color: brandColor} : {}}><LayoutGrid size={20} /><span className="text-[10px] font-bold">Catálogo</span></button>
-        <button onClick={() => setUserView('support')} className={`flex flex-col items-center gap-1 ${userView === 'support' ? '' : 'text-slate-400'}`} style={userView === 'support' ? {color: brandColor} : {}}><Ticket size={20} /><span className="text-[10px] font-bold">Trocas</span></button>
-      </nav>
+          </div>
+      )}
     </div>
   );
 }
